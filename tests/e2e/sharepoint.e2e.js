@@ -260,10 +260,12 @@ module.exports = [
       assert.equal(mat.datasheets[0].by, 'Tester A');
       // same name again → replaces that file (still two)
       [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('.ds-field [data-ds="upload"]')]);
-      await fc.setFiles([{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('rev B') }]);
-      await page.waitForFunction(() => document.querySelector('.ds-meta') && /notes\.txt/.test(document.querySelector('.ds-meta').textContent));
-      await page.waitForFunction(id => TIM.store.db.materials[id].datasheets[0].size === 5 && TIM.store.db.materials[id].datasheets.length === 2, mid);
-      assert.equal(g.text('TIM_Manager/Datasheets/Vendor-A/GF-750/notes.txt'), 'rev B');
+      // (a different size than 'rev A', so the wait below cannot pass before this upload is done)
+      await fc.setFiles([{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('rev B, updated') }]);
+      await page.waitForFunction(id => TIM.store.db.materials[id].datasheets[0].size === 14, mid);
+      assert.equal(await page.evaluate(id => TIM.store.db.materials[id].datasheets.length, mid), 2, 'replaced, not added');
+      assert.match(await page.locator('.ds-meta').innerText(), /notes\.txt/);
+      assert.equal(g.text('TIM_Manager/Datasheets/Vendor-A/GF-750/notes.txt'), 'rev B, updated');
       // 👁 view: text inline, switch to the PDF
       await page.click('.ds-field [data-ds="view"]');
       await page.waitForSelector('.modal.viewer pre.ds-text:has-text("rev B")');
