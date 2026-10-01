@@ -1,0 +1,20 @@
+# This repository is PUBLIC.
+# Never commit TIM databases, backups, exported spreadsheets or case drawings.
+*.json
+!version.json
+!package.json
+!package-lock.json
+!tests/fixtures/**/*.json
+*.xlsx
+*.xls
+!tests/fixtures/**/*.xlsx
+backups/
+data/
+drawings/
+
+# Tooling
+node_modules/
+test-results/
+playwright-report/
+.DS_Store
+Thumbs.db
