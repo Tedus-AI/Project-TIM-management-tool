@@ -73,6 +73,7 @@
           <p>有資料庫就直接開啟；沒有會詢問是否建立。</p>
         </div>` : html`<p class="gate-note"><b>此瀏覽器不支援直接讀寫本機資料夾。</b>請用 Chrome 或 Edge 開啟本工具。</p>`}
       </div>
+      <div class="gate-version" title="目前版本">${app.version}</div>
     </div>`;
   }
 

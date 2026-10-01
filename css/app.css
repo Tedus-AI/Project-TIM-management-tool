@@ -618,6 +618,12 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .nowrap { white-space: nowrap; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .text-ok { color: var(--ok); } .text-warn { color: var(--warn); } .text-err { color: var(--err); }
+.update-backdrop { position: fixed; inset: 0; z-index: 300; background: rgba(2, 27, 58, 0.55); display: grid; place-items: center; padding: 16px; animation: fadeIn .15s var(--ease-out); }
+.update-box { width: min(420px, 100%); background: var(--surface); box-shadow: var(--shadow-2); border-top: 3px solid var(--d-400); padding: 20px 22px 16px; display: flex; flex-direction: column; gap: 8px; color: var(--ink); }
+.update-box h3 { font-family: var(--font-heading); font-size: 17px; font-weight: 600; }
+.update-box p { font-size: 13px; line-height: 1.6; }
+.update-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+.gate-version { position: fixed; right: 14px; bottom: 10px; font-family: var(--font-mono); font-size: 10.5px; color: rgba(141, 196, 240, 0.55); }
 .update-banner { position: fixed; right: 16px; bottom: 16px; z-index: 210; background: var(--d-800); color: #fff; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: var(--shadow-2); font-size: 12.5px; border-left: 3px solid var(--d-300); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }

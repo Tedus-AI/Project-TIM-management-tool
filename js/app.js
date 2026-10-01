@@ -16,7 +16,7 @@
     gateError: '',
     noAutoRestore: false,
     backupState: 'none',
-    updateAvailable: false,
+    update: null,              // { to, left, state: 'countdown' | 'saving' | 'error' | 'failed', error }
   };
   TIM.app = app;
 
@@ -144,20 +144,92 @@
   function stopBackground() { clearInterval(syncTimer); syncTimer = null; }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && TIM.store.db) TIM.store.syncCheck(); });
 
-  async function checkVersion() {
-    if (IS_DEV || !/^https?:/.test(location.protocol)) return;
-    try {
+  // ───────── new version → save everything, then reload ─────────
+  // The deploy stamps index.html (meta tim-version) and version.json with the same build id.
+  // A different id in version.json means a newer build is online: a non-dismissable notice
+  // counts down, commits the field being edited, saves the database and reloads with
+  // ?v=<build> so neither the browser nor the CDN can hand back the old page.
+  const UPDATE_KEY = 'tim_update_attempt';      // sessionStorage: { to, n } — stops reload loops
+  const COUNTDOWN = 10;                          // seconds (3 on the start page: nothing to save)
+  let updateTimer = null;
+
+  /** version.json with timeout; one retry on network errors / 5xx. */
+  async function fetchVersion() {
+    for (let attempt = 0; attempt < 2; attempt++) {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 8000);
-      const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store', signal: ctl.signal });
-      clearTimeout(t);
-      if (!res.ok) return;
-      const v = await res.json();
-      if (v && v.version && v.version !== VERSION && !/__BUILD_VERSION__/.test(v.version)) { app.updateAvailable = true; TIM.store.emit(); }
-    } catch (e) { /* offline: ignore */ }
+      try {
+        const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store', signal: ctl.signal });
+        if (res.ok) { const v = await res.json(); return v && v.version ? String(v.version) : null; }
+        if (res.status < 500 && res.status !== 429) return null;
+      } catch (e) { /* offline / timeout → retry once */ } finally { clearTimeout(t); }
+    }
+    return null;
   }
-  setInterval(checkVersion, 10 * 60 * 1000);
-  setTimeout(checkVersion, 15000);
+  function readAttempt() { try { return JSON.parse(sessionStorage.getItem(UPDATE_KEY) || 'null') || {}; } catch (e) { return {}; } }
+
+  app.checkVersion = async function () {
+    if (IS_DEV || !/^https?:/.test(location.protocol) || app.update) return;
+    const v = await fetchVersion();
+    if (!v || v === VERSION || /__BUILD_VERSION__/.test(v) || app.update) return;
+    const att = readAttempt();
+    if (att.to === v && att.n >= 2) { app.update = { to: v, state: 'failed' }; TIM.store.emit(); return; }   // reloaded twice, still old
+    app.update = { to: v, state: 'countdown', left: TIM.store.db ? COUNTDOWN : 3 };
+    TIM.store.emit();
+    clearInterval(updateTimer);
+    updateTimer = setInterval(() => {
+      if (!app.update || app.update.state !== 'countdown') { clearInterval(updateTimer); return; }
+      app.update.left -= 1;
+      if (app.update.left <= 0) { clearInterval(updateTimer); app.applyUpdate(); } else TIM.store.emit();
+    }, 1000);
+  };
+
+  app.applyUpdate = async function () {
+    const u = app.update;
+    if (!u || u.state === 'saving') return;
+    clearInterval(updateTimer);
+    u.state = 'saving'; TIM.store.emit();
+    const st = TIM.store;
+    if (st.db && !st.readonly) {
+      const a = document.activeElement;
+      if (a && a.blur) a.blur();                                    // commit the field being edited
+      await new Promise(r => setTimeout(r, 0));
+      try { await st.flush(); } catch (e) { /* reported below */ }
+      if (st.hasUnsaved() || st.status.state === 'error') {
+        u.state = 'error'; u.error = st.status.error || '資料尚未寫入'; TIM.store.emit();
+        return;                                                     // never reload over unsaved work
+      }
+    }
+    const att = readAttempt();
+    try { sessionStorage.setItem(UPDATE_KEY, JSON.stringify({ to: u.to, n: att.to === u.to ? (att.n || 0) + 1 : 1 })); } catch (e) { /* ignore */ }
+    location.replace(location.pathname + '?v=' + encodeURIComponent(u.to) + location.hash);
+  };
+
+  // After an update reload: drop ?v= from the address bar; clear the loop guard once on the new build.
+  if (/[?&]v=/.test(location.search)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ } }
+  if (readAttempt().to === VERSION) { try { sessionStorage.removeItem(UPDATE_KEY); } catch (e) { /* ignore */ } }
+  setTimeout(app.checkVersion, 3000);
+  setInterval(app.checkVersion, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') app.checkVersion(); });
+
+  function UpdateNotice() {
+    const u = app.update;
+    if (!u) return null;
+    if (u.state === 'failed') {
+      return html`<div class="update-banner">新版本 <span class="mono">${u.to}</span> 尚未生效，請稍後按 Ctrl+Shift+R 重新整理
+        <button class="btn btn-accent btn-sm" onClick=${() => { app.update = null; try { sessionStorage.removeItem(UPDATE_KEY); } catch (e) { /* ignore */ } app.checkVersion(); }}>再試一次</button></div>`;
+    }
+    const saving = u.state === 'saving';
+    return html`<div class="update-backdrop"><div class="update-box" role="alertdialog" aria-modal="true" aria-label="有新版本">
+      <h3>有新版本</h3>
+      <p class="mono" style="font-size:11.5px;color:var(--ink-3)">${VERSION} → ${u.to}</p>
+      ${u.state === 'error' ? html`<p class="text-err">存檔失敗：${u.error}。資料還沒寫入，所以先不更新；請處理後按「重試」。</p>`
+        : html`<p>${TIM.store.db ? '會先儲存所有資料，再載入新版本。' : '正在載入新版本。'}${saving ? '' : html` <b>${u.left}</b> 秒後自動更新。`}</p>`}
+      <div class="update-foot">
+        <button class="btn btn-primary" disabled=${saving} onClick=${() => app.applyUpdate()}>${saving ? '儲存中…' : u.state === 'error' ? '重試' : '立即更新'}</button>
+      </div>
+    </div></div>`;
+  }
 
   window.addEventListener('beforeunload', e => {
     if (TIM.store.db && TIM.store.hasUnsaved()) { TIM.store.saveNow(); e.preventDefault(); e.returnValue = ''; }
@@ -213,7 +285,7 @@
     const r = props.route;
     const p = r.page === 'project' ? st.db.projects[r.pid] : null;
     return html`<header class="toolbar">
-      <div class="brand" onClick=${() => go('')} title="專案列表">
+      <div class="brand" onClick=${() => go('')} title=${'專案列表 · 版本 ' + app.version}>
         <img src="assets/delta-logo-toolbar.png" alt="Delta" />
         <div class="brand-divider"></div>
         <div class="brand-text"><span class="brand-name">DELTA</span><span class="brand-sub">TIM MANAGER</span></div>
@@ -268,7 +340,7 @@
     const route = useRoute();
     useEffect(() => { document.title = (st.db && route.page === 'project' && st.db.projects[route.pid] ? st.db.projects[route.pid].name + ' · ' : '') + '專案 TIM 管理器'; });
     if (!st.db) {
-      return html`<div class="app" style="grid-template-rows:1fr"><${TIM.ui.Gate} error=${app.gateError} noAutoRestore=${app.noAutoRestore} /><${Overlays} /></div>`;
+      return html`<div class="app" style="grid-template-rows:1fr"><${TIM.ui.Gate} error=${app.gateError} noAutoRestore=${app.noAutoRestore} /><${Overlays} /><${UpdateNotice} /></div>`;
     }
     let page;
     if (route.page === 'library') page = html`<${TIM.ui.Library} route=${route} />`;
@@ -277,8 +349,8 @@
     return html`<div class=${cx('app', st.readonly && 'is-readonly')}>
       <${Toolbar} route=${route} />
       <main class="main"><${Banners} />${page}</main>
-      ${app.updateAvailable ? html`<div class="update-banner">有新版本可用 <button class="btn btn-accent btn-sm" onClick=${() => location.reload()}>重新整理</button></div>` : null}
       <${Overlays} />
+      <${UpdateNotice} />
     </div>`;
   }
 
