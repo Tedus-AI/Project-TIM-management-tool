@@ -12,7 +12,7 @@ const ROOT = path.resolve(__dirname, '../..');
 async function routeCdn(context) {
   const cache = process.env.TIM_CDN_CACHE;
   if (!cache) return;
-  await context.route(/^https:\/\/(cdn\.jsdelivr\.net\/npm|unpkg\.com)\//, route => {
+  await context.route(/^https:\/\/(cdn\.jsdelivr\.net\/npm|unpkg\.com|alcdn\.msauth\.net)\//, route => {
     const u = new URL(route.request().url());
     const rel = u.pathname.replace(/^\/npm\//, '/').replace(/^\//, '');
     const file = path.join(cache, rel.replace(/\//g, '_'));

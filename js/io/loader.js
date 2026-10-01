@@ -1,4 +1,4 @@
-/* Lazy loader for heavy CDN libraries (ExcelJS; html2canvas + jsPDF for the PDF report):
+/* Lazy loader for heavy CDN libraries (ExcelJS; html2canvas + jsPDF for the PDF report; MSAL):
  * pinned version + SRI, timeout, one retry, then the fallback CDN. */
 (function () {
   'use strict';
@@ -28,6 +28,15 @@
       urls: [
         'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
         'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
+      ],
+    },
+    // Microsoft sign-in for the SharePoint database (same version as the AI Thermal tool).
+    msal: {
+      global: 'msal',
+      integrity: 'sha384-hhkHFODse2T75wPL7oJ0RZ+0CgRa74LNPhgx6wO6DMNEhU3/fSbTZdVzxsgyUelp',
+      urls: [
+        'https://alcdn.msauth.net/browser/2.38.2/js/msal-browser.min.js',
+        'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.2/lib/msal-browser.min.js',
       ],
     },
   };
@@ -62,7 +71,7 @@
         } catch (e) { lastErr = e; }
       }
       delete pending[name];
-      throw new Error('無法載入 ' + name + '（' + (lastErr ? lastErr.message : '未知錯誤') + '）。請確認網路或防火牆允許 cdn.jsdelivr.net / unpkg.com');
+      throw new Error('無法載入 ' + name + '（' + (lastErr ? lastErr.message : '未知錯誤') + '）。請確認網路或防火牆允許 ' + lib.urls.map(u => new URL(u).host).join(' / '));
     })();
     return pending[name];
   }

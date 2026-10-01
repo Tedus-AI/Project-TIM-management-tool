@@ -208,7 +208,7 @@
       const th = calc.thermalEstimate(it, mat);
       gt.push([it.item_no, it.size.t, it.gap.min, it.gap.nom, it.gap.max,
         cc.min == null ? null : util.round(cc.min, 1), cc.nom == null ? null : util.round(cc.nom, 1), cc.max == null ? null : util.round(cc.max, 1),
-        cc.rec ? (cc.rec.min + '~' + cc.rec.max + ' (' + { item: '手動', material: '材料庫', generic: '一般值' }[cc.rec.source] + ')') : '',
+        cc.rec ? (cc.rec.min + '~' + cc.rec.max + ' (' + { item: '手動', generic: '一般值' }[cc.rec.source] + ')') : '',
         { na: '', ok: 'OK', warn: 'Warning', error: 'Error' }[cc.status], th.k, th.area == null ? null : util.round(th.area, 1),
         th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.join('；')]);
     });

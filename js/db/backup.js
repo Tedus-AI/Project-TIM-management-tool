@@ -1,5 +1,6 @@
 /* Automatic daily backup into a user-chosen folder (same behaviour as the Thermal Test
- * Report Builder): one file per day (overwritten with the latest state), newest 30 kept.
+ * Report Builder) or, for the SharePoint database, into its Database/Backup folder:
+ * one file per day (overwritten with the latest state), newest 30 kept.
  * Web pages cannot run while closed, so "daily" = on open (catch-up) + every 3 h +
  * when the tab is hidden (throttled to 10 min).
  */
@@ -10,6 +11,7 @@
   const PREFIX = 'tim_db_backup_';
   const KEEP = 30;
   let dir = null;
+  let remote = null;          // SharePoint: { name, write(text) → file name }
   let lastAt = 0;
   let timer = null;
 
@@ -21,8 +23,11 @@
 
   const backup = {
     supported() { return typeof window.showDirectoryPicker === 'function'; },
-    name() { return dir ? dir.name : ''; },
-    ready() { return !!dir; },
+    name() { return remote ? remote.name : dir ? dir.name : ''; },
+    ready() { return !!(remote || dir); },
+    remote() { return !!remote; },
+    /** Back up through the database backend instead of a local folder (null = local folder again). */
+    useRemote(target) { remote = target || null; lastAt = 0; },
     toPrune,
 
     async tryRestore() {
@@ -59,6 +64,10 @@
 
     /** Write today's backup (text = full DB JSON) and prune old ones. */
     async write(text) {
+      if (remote) {
+        try { const name = await remote.write(text); lastAt = Date.now(); return { ok: true, name }; }
+        catch (e) { return { ok: false, reason: 'error', error: String(e && e.message || e) }; }
+      }
       if (!dir) return { ok: false, reason: 'no-dir' };
       try {
         const st = await dir.queryPermission({ mode: 'readwrite' });
@@ -80,7 +89,7 @@
 
     /** Throttled backup using a text provider (async () => string). */
     async run(getText, force) {
-      if (!dir) return { ok: false, reason: 'no-dir' };
+      if (!backup.ready()) return { ok: false, reason: 'no-dir' };
       if (!force && Date.now() - lastAt < 10 * 60 * 1000) return { ok: false, reason: 'throttled' };
       const text = await getText();
       if (!text) return { ok: false, reason: 'empty' };

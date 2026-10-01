@@ -22,6 +22,16 @@
   async function saveHandle(h) { await idbDel(DIR_KEY); await idbPut(HANDLE_KEY, h); }
   async function loadHandle() { return idbGet(HANDLE_KEY); }
   const errText = e => String(e && e.message || e);
+  const FILES_DIR = 'Datasheets';
+  /** Folder handle + file name for a path below <database folder>/Datasheets. */
+  async function walk(rel, create) {
+    if (!dirHandle) throw new Error('需要以資料夾開啟資料庫');
+    const parts = String(rel).split('/').filter(Boolean);
+    const name = parts.pop();
+    let dir = await dirHandle.getDirectoryHandle(FILES_DIR, { create });
+    for (const seg of parts) dir = await dir.getDirectoryHandle(seg, { create });
+    return { dir, name };
+  }
 
   /** The remembered database: folder record first, then a directly picked file. */
   async function loadTarget() {
@@ -136,8 +146,31 @@
     /** Directory hint for other pickers (start next to the database). */
     startIn() { return dirHandle || handle || undefined; },
 
-    // Test seam (headless E2E): inject a fake FileSystemFileHandle.
-    __setHandleForTest(h) { handle = h; dirHandle = null; },
+    // ───────── datasheet files: <database folder>/Datasheets/<rel> ─────────
+    files: {
+      where() { return dirHandle ? dirHandle.name + ' / ' + FILES_DIR : ''; },
+      supported() { return !!dirHandle; },
+      async put(rel, blob) {
+        const { dir, name } = await walk(rel, true);
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+        return { size: blob.size };
+      },
+      async blob(rel) {
+        try { const { dir, name } = await walk(rel, false); return await (await dir.getFileHandle(name)).getFile(); }
+        catch (e) { if (e && e.name === 'NotFoundError') throw new Error('資料庫資料夾裡找不到這份規格書（可能已被移動或刪除）'); throw e; }
+      },
+      async webUrl() { return null; },
+      async del(rel) {
+        try { const { dir, name } = await walk(rel, false); await dir.removeEntry(name); }
+        catch (e) { if (!(e && e.name === 'NotFoundError')) throw e; }
+      },
+    },
+
+    // Test seams (headless E2E): inject a fake FileSystemFileHandle / folder.
+    __setHandleForTest(h, dir) { handle = h; dirHandle = dir || null; },
   };
 
   TIM.fileBackend = fileBackend;

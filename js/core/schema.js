@@ -17,6 +17,19 @@
     { v: 'mmwave', label: 'mmWave' },
   ];
 
+  /** Location sets offered for new projects (Settings default and the 新增專案 dialog). */
+  const LOCATION_PRESETS = [
+    { v: 'both', label: 'Bottom Case + Top Case', names: ['Bottom Case', 'Top Case'] },
+    { v: 'bottom', label: 'Bottom Case', names: ['Bottom Case'] },
+    { v: 'top', label: 'Top Case', names: ['Top Case'] },
+  ];
+  /** Preset key for a list of names, or '' when it is not one of the presets. */
+  function locationPresetOf(names) {
+    const k = (names || []).join('|');
+    const f = LOCATION_PRESETS.find(x => x.names.join('|') === k);
+    return f ? f.v : '';
+  }
+
   const PROJECT_STATUS = [
     { v: 'active', label: '進行中' },
     { v: 'on_hold', label: '暫停' },
@@ -225,7 +238,8 @@
       comp_rec_min: null, comp_rec_max: null, thickness_options: '',
       shelf_life_months: null, storage: '',
       rohs: null, reach: null, halogen_free: null,
-      datasheet_url: '', datasheet_rev: '',
+      datasheet_url: '', datasheet_rev: '',   // legacy (link field removed; shown read-only when set)
+      datasheets: [],        // uploaded files: [{ path (below the Datasheets folder), name, size, at, by }], newest first
       price_ref: '', moq: null, lead_time_wk: null,
       avl_status: 'approved', note: '',
     };
@@ -323,6 +337,8 @@
     ['k', 'impedance', 'hardness', 'density', 'temp_min', 'temp_max', 'dielectric_kv_mm', 'dk',
       'comp_rec_min', 'comp_rec_max', 'shelf_life_months', 'moq', 'lead_time_wk'].forEach(k => { o[k] = numOrNull(o[k]); });
     if (!TIM_TYPES.some(t => t.v === o.tim_type)) o.tim_type = 'pad';
+    o.datasheets = Array.isArray(o.datasheets) ? o.datasheets.filter(d => isObj(d) && typeof d.path === 'string' && d.path)
+      .map(d => ({ path: d.path, name: String(d.name || d.path.split('/').pop()), size: numOrNull(d.size), at: d.at || '', by: d.by || '' })) : [];
     o.rev = Number.isFinite(o.rev) ? o.rev : 0;
     return o;
   }
@@ -362,7 +378,7 @@
   }
 
   return {
-    SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
+    SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
     SOURCE_STATUS, AVL_STATUS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, categoryColor, normalizeCategory,

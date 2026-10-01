@@ -292,6 +292,27 @@
     // Set when a remote change could not be adopted because the same record was edited
     // locally meanwhile; the next save must then take the merge path (never the fast path).
     let forceMerge = false;
+    // Network storage (SharePoint): a write rejected because the file changed since we read it
+    // (HTTP 412, error.conflict) is retried at once through the merge path, a few times in a row.
+    let conflictStreak = 0;
+    const CONFLICT_RETRIES = 4;
+    // A write that failed in a way that may still have reached the server (timeout, dropped
+    // connection; error.uncertain): { updated_at, base }. If the next head shows that stamp + rev,
+    // the write did land — sync from its revs, so our own edits are not reported as conflicts.
+    let unsure = null;
+    const stampOf = head => { const m = String(head || '').match(/"updated_at"\s*:\s*"([^"]+)"/); return m ? m[1] : null; };
+    function revsOf(db) {
+      const b = { rev: db.rev, projects: {}, materials: {} };
+      Object.values(db.projects).forEach(p => { b.projects[p.id] = p.rev || 0; });
+      Object.values(db.materials).forEach(m => { b.materials[m.id] = m.rev || 0; });
+      return b;
+    }
+    /** Head just read: settle a pending uncertain write. */
+    function settleUnsure(head) {
+      if (!unsure) return;
+      if (stampOf(head) === unsure.updated_at && merge.revFromHead(head) === unsure.base.rev) { base = unsure.base; forceMerge = true; }
+      unsure = null;
+    }
 
     /**
      * Adopt remote records after a merge / reload (keeps records edited meanwhile).
@@ -345,9 +366,11 @@
       if (!hasDirty()) { if (S.status.state === 'dirty') { setStatus('saved'); emit(); } return; }
       setStatus('saving'); emit();
       const t = takeDirty();
+      let attempt = null;
       saving = (async () => {
         try {
           const head = String(await S.backend.head() || '');
+          settleUnsure(head);
           const headRev = merge.revFromHead(head);
           const looksTim = /"schema"\s*:\s*"tim-db"/.test(head);
           let mergedDb, conflicts = [], fast = false;
@@ -373,8 +396,10 @@
           }
           mergedDb.updated_at = util.nowIso();
           merge.pruneImages(mergedDb, keepImageIds());
+          attempt = { updated_at: mergedDb.updated_at, base: revsOf(mergedDb) };
           await S.backend.write(merge.serializeDb(mergedDb));
           forceMerge = false;
+          conflictStreak = 0;
           let skipped = null;
           if (mergedDb !== S.db) {
             skipped = adopt(mergedDb, conflicts);
@@ -389,8 +414,18 @@
             S.readonly = true; S.readonlyReason = e.message;
             setStatus('readonly', e.message);
             console.warn('[store] database became unreadable — switched to read-only:', e.message);
+          } else if (e && e.conflict && conflictStreak < CONFLICT_RETRIES) {
+            // someone saved between our read and our write → re-read, merge, write again
+            conflictStreak++;
+            restoreDirty(t);
+            forceMerge = true;
+            saveAgain = true;
+            setStatus('dirty');
           } else {
             restoreDirty(t);
+            if (e && e.conflict) forceMerge = true;
+            if (e && e.uncertain && attempt) unsure = attempt;
+            conflictStreak = 0;
             setStatus('error', (e && e.message) || String(e));
             console.error('[store] save failed', e);
           }
@@ -421,8 +456,10 @@
       if (!S.backend || !S.db || saving) return false;
       let head;
       try { head = String(await S.backend.head() || ''); } catch (e) { return false; }
+      if (saving) return false;
+      settleUnsure(head);
       const headRev = merge.revFromHead(head);
-      if (!head.trim() || headRev === base.rev) return false;
+      if (!head.trim() || (headRev === base.rev && !forceMerge)) return false;
       if (S.readonly) return false;
       if (hasDirty()) { await saveNow(); return true; }
       try {
@@ -430,6 +467,7 @@
         if (!disk || saving) return false;
         const skipped = adopt(disk, []);
         S.db.rev = disk.rev; S.db.updated_at = disk.updated_at;
+        forceMerge = false;          // in sync with the disk now (recordBase re-arms it for skipped records)
         recordBase(disk, skipped);
         setStatus(hasDirty() ? 'dirty' : 'saved');
         emit();

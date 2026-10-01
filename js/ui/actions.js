@@ -421,10 +421,16 @@
     if (!m || m[field] === value) return;
     st().mutateMaterials(mats => { mats[id][field] = value; }, { coalesce: 'mat:' + id + ':' + field, touched: [id] });
   }
+  /** Replace a material's datasheet list (upload / replace / remove). Removed files: TIM.app.queueFileDeletes. */
+  function setDatasheets(id, list) {
+    if (!st().db.materials[id]) return false;
+    return st().mutateMaterials(mats => { mats[id].datasheets = list; }, { touched: [id] });
+  }
   /** Delete a material; linked items keep its vendor/model as free text (cascade unlink). */
   function deleteMaterial(id) {
     const m = st().db.materials[id];
     if (!m) return;
+    if (TIM.app && TIM.app.queueFileDeletes) TIM.app.queueFileDeletes((m.datasheets || []).map(d => d.path));
     const touched = [];
     st().mutateDb(db => {
       Object.values(db.projects).forEach(p => {
@@ -511,7 +517,7 @@
     setCovered, updateCovered, addCovered, removeCovered,
     addSource, updateSource, removeSource,
     linkMaterial, unlinkMaterial, findMaterial,
-    createMaterial, updateMaterial, deleteMaterial, duplicateMaterial,
+    createMaterial, updateMaterial, setDatasheets, deleteMaterial, duplicateMaterial,
     addView, updateView, updateViewStyle, deleteView, moveView, editView,
     addLogEntry, deleteLogEntry, createBaseline, deleteBaseline,
     updateSettings,

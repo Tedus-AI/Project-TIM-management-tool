@@ -29,7 +29,7 @@ jobs:
           set -e
           V="$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"
           mkdir -p _site
-          cp -r index.html version.json css js assets _site/
+          cp -r index.html auth.html version.json css js assets _site/
           sed -i "s/__BUILD_VERSION__/$V/g" _site/index.html _site/version.json
           grep -q "$V" _site/version.json
           echo "Deploying version $V"

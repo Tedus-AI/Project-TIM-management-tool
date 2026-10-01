@@ -43,15 +43,12 @@
 
   /**
    * Recommended compression range for an item:
-   * item override → material datasheet → generic default for the TIM type (settings).
-   * Returns { min, max, source: 'item'|'material'|'generic' } or null.
+   * item override (manual) → generic default for the TIM type (settings.generic_comp).
+   * Returns { min, max, source: 'item'|'generic' } or null.
    */
   function recCompression(item, mat, settings) {
     const o = item && item.comp_override;
     if (o && (fin(o.min) || fin(o.max))) return { min: fin(o.min) ? o.min : null, max: fin(o.max) ? o.max : null, source: 'item' };
-    if (mat && (fin(mat.comp_rec_min) || fin(mat.comp_rec_max))) {
-      return { min: fin(mat.comp_rec_min) ? mat.comp_rec_min : null, max: fin(mat.comp_rec_max) ? mat.comp_rec_max : null, source: 'material' };
-    }
     const type = (mat && mat.tim_type) || (item && item.tim_type) || 'pad';
     const gc = (settings && settings.generic_comp) || schema.DEFAULT_SETTINGS.generic_comp;
     const g = gc[type];

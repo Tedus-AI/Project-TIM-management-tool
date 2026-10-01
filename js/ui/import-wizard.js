@@ -148,7 +148,7 @@
           ` : html`<${Field} label="專案" class="span-2"><${SelectField} value=${projId} allowEmpty=${false} options=${projects.map(p => ({ v: p.id, label: p.name + '（' + p.stage + '）' }))} onChange=${setProjId} /></${Field}>`}
         </div>
         <div class="mt12"><label class="check"><input type="checkbox" checked=${addMats} onChange=${e => setAddMats(e.target.checked)} />
-          把材料庫沒有的 Vendor / Model 自動建立成材料並連結（之後到材料庫補 k 值、建議壓縮率等 datasheet 數值）</label></div>
+          把材料庫沒有的 Vendor / Model 自動建立成材料並連結（之後到材料庫補 k 值等 datasheet 數值並上傳規格書）</label></div>
         <div class="muted" style="font-size:12px;margin-top:4px">材料庫已有相同 Vendor + Model 的材料會自動連結。</div>
         ${imgs.length ? html`<div class="divider"></div>
           <div class="field-label" style="margin-bottom:8px">工作表中的圖片 → 建立位置標註視圖（名稱與 Location 相同時自動連結）</div>

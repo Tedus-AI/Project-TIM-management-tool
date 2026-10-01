@@ -228,7 +228,7 @@
     });
     const blocks = [
       { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' },
-      { title: '壓縮率檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；* = 使用設定中的一般建議值', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
+      { title: '壓縮率檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；* = 未手動設定，使用一般建議值', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
     ];
     const pages = [];
     let cur = '', room = BODY_H;

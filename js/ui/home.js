@@ -8,14 +8,15 @@
 
   function NewProjectModal(props) {
     const s = TIM.store.db.settings;
-    const [f, setF] = useState({ name: '', code: '', product_type: '', customer: '', stage: 'EVT', owner: TIM.app.getUserName(), locations: (s.default_locations || []).join(', ') });
+    const [f, setF] = useState({ name: '', code: '', product_type: '', customer: '', stage: 'EVT', owner: TIM.app.currentUser(), me_owner: '',
+      locations: schema.locationPresetOf(s.default_locations) || 'both' });
     const [err, setErr] = useState('');
-    const set = (k, v) => setF(Object.assign({}, f, { [k]: v }));
+    const set = (k, v) => setF(prev => Object.assign({}, prev, { [k]: v }));
     const submit = () => {
       if (!f.name.trim()) { setErr('請輸入案名'); return; }
-      const pid = TIM.actions.createProject({ name: f.name.trim(), code: f.code.trim(), product_type: f.product_type, customer: f.customer.trim(), stage: f.stage, owner: f.owner.trim() });
-      const names = f.locations.split(/[,，]/).map(x => x.trim()).filter(Boolean);
-      if (names.length) TIM.store.mutateProject(pid, p => { p.locations = names.map((n, i) => schema.newLocation(n, i)); }, { noUndo: true });
+      const pid = TIM.actions.createProject({ name: f.name.trim(), code: f.code.trim(), product_type: f.product_type, customer: f.customer.trim(), stage: f.stage, owner: f.owner.trim(), me_owner: f.me_owner.trim() });
+      const preset = schema.LOCATION_PRESETS.find(x => x.v === f.locations);
+      if (preset) TIM.store.mutateProject(pid, p => { p.locations = preset.names.map((n, i) => schema.newLocation(n, i)); }, { noUndo: true });
       props.close(pid);
     };
     return html`<${Modal} title="新增專案" onClose=${() => props.close(null)} onEnter=${submit}
@@ -27,7 +28,8 @@
         <${Field} label="客戶"><input class="inp" value=${f.customer} onInput=${e => set('customer', e.target.value)} /></${Field}>
         <${Field} label="Stage"><${SelectField} value=${f.stage} allowEmpty=${false} options=${schema.STAGES} onChange=${v => set('stage', v)} /></${Field}>
         <${Field} label="熱流負責人"><input class="inp" value=${f.owner} onInput=${e => set('owner', e.target.value)} /></${Field}>
-        <${Field} label="Location（逗號分隔）" hint="之後可在 TIM 清單增減、改名、改顏色"><input class="inp" value=${f.locations} onInput=${e => set('locations', e.target.value)} /></${Field}>
+        <${Field} label="機構負責人"><input class="inp" value=${f.me_owner} onInput=${e => set('me_owner', e.target.value)} /></${Field}>
+        <${Field} label="Location" hint="之後可在專案總覽增減、改名、改顏色"><${SelectField} value=${f.locations} allowEmpty=${false} options=${schema.LOCATION_PRESETS} onChange=${v => set('locations', v)} /></${Field}>
       </div>
     </${Modal}>`;
   }
@@ -78,11 +80,7 @@
     return html`<div class="health">${tags}</div>`;
   }
 
-  function costText(cost) {
-    const keys = Object.keys(cost || {});
-    if (!keys.length) return '—';
-    return keys.map(k => k + ' ' + util.fmt(cost[k], 2)).join(' / ');
-  }
+
 
   function SearchResults(props) {
     const res = props.results;
@@ -175,18 +173,18 @@
             </div>
           </div>` : !rows.length ? html`<div class="empty"><h3>沒有符合篩選條件的專案</h3><p>調整上方的 Stage / 狀態篩選。</p></div>` : html`
         <div class="tbl-wrap"><table class="tbl proj-table">
-          <thead><tr><th>專案</th><th>Stage</th><th>規模</th><th>健康度</th><th>位置圖</th><th>每台 TIM 成本</th><th>最後更新</th><th></th></tr></thead>
+          <thead><tr><th>專案</th><th>Stage</th><th>負責人</th><th>規模</th><th>健康度</th><th>位置圖</th><th>最後更新</th><th></th></tr></thead>
           <tbody>${rows.map(({ p, s }) => html`<tr class="clickable" key=${p.id} onClick=${() => go('p/' + p.id)} onContextMenu=${e => { e.preventDefault(); projectMenu(e, p); }}>
             <td style="min-width:260px">
               <div class="proj-name">${p.name || '(未命名)'}</div>
               <div class="proj-sub">${schema.projectSubline(p) || '—'}${p.status !== 'active' ? html` · <span class="tag tag-mute">${schema.labelOf(schema.PROJECT_STATUS, p.status)}</span>` : null}</div>
             </td>
             <td><span class="tag tag-stage">${p.stage}</span></td>
+            <td class="proj-owners"><div><span class="role">TH:</span>${p.owner || html`<span class="muted">—</span>`}</div><div><span class="role">ME:</span>${p.me_owner || html`<span class="muted">—</span>`}</div></td>
             <td><div class="proj-metrics"><span><b>${s.items}</b> items</span><span><b>${s.pcs}</b> pcs</span><span><b>${s.materials}</b> 材料</span></div></td>
             <td><${Health} s=${s} /></td>
             <td class="mono" style="font-size:12px">${p.views.length ? html`${p.views.length} 張 · ${s.placed}/${s.qty_total}` : html`<span class="muted">—</span>`}</td>
-            <td class="mono" style="font-size:12px">${costText(s.cost)}${s.cost_missing && Object.keys(s.cost).length ? html`<span class="muted">（${s.cost_missing} 項未填）</span>` : null}</td>
-            <td style="white-space:nowrap"><div>${util.fmtAgo(p.updated_at)}</div><div class="proj-sub">${p.updated_by || ''}</div></td>
+            <td style="white-space:nowrap" title=${'最後修改：' + util.fmtDateTime(p.updated_at) + (p.updated_by ? '（' + p.updated_by + '）' : '')}><div>${util.fmtAgo(p.updated_at)}</div><div class="proj-sub">${p.owner || ''}</div></td>
             <td onClick=${e => e.stopPropagation()}><div class="row-actions">
               <button class="icon-btn" title="匯出 Excel" onClick=${() => TIM.app.exportExcel(p.id)}><${Icon} name="excel" /></button>
               <button class="icon-btn rw-only" title="複製專案" onClick=${() => duplicate(p)}><${Icon} name="copy" /></button>

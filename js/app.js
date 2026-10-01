@@ -6,9 +6,18 @@
   const { html, render, useEffect, Icon, cx, go, useStore, useRoute, Overlays, toast, confirm } = TIM.ui;
   const { util, schema, merge } = TIM;
 
+  // Microsoft sign-in popup: the login page sends the popup back to this page; MSAL in the
+  // opener reads the result from the address bar and closes it. Do not start the tool here
+  // (it would open the database and could touch the URL before MSAL has read it).
+  if (window.opener && window.opener !== window && /^msal\./.test(window.name || '')) {
+    document.getElementById('app').innerHTML = '<div class="msal-popup">正在完成 Microsoft 登入…</div>';
+    return;
+  }
+
   const VERSION = (document.querySelector('meta[name="tim-version"]') || {}).content || 'dev';
   const IS_DEV = /__BUILD_VERSION__/.test(VERSION);
   const USER_KEY = 'tim_user_name';
+  const MODE_KEY = 'tim_db_mode';            // last database used: 'sharepoint' | 'folder'
 
   TIM.store = TIM.storeLib.createStore({ saveDelay: 800 });
   const app = {
@@ -21,11 +30,21 @@
   TIM.app = app;
 
   // ───────── user ─────────
+  // Who is editing: the Microsoft account when the database is on SharePoint, otherwise a name saved
+  // in this browser by an earlier version (there is no name field any more).
   app.getUserName = () => { try { return localStorage.getItem(USER_KEY) || ''; } catch (e) { return ''; } };
   app.setUserName = name => { try { localStorage.setItem(USER_KEY, name || ''); } catch (e) { /* ignore */ } TIM.store.emit(); };
-  TIM.store.setUser(() => app.getUserName() || '（未設定名稱）');
+  app.currentUser = () => {
+    const b = TIM.store.backend;
+    const acc = b && b.account ? b.account() : null;
+    return (acc && acc.name) || app.getUserName() || '';
+  };
+  TIM.store.setUser(() => app.currentUser());
 
   // ───────── connect ─────────
+  app.dbMode = () => { try { return localStorage.getItem(MODE_KEY) || ''; } catch (e) { return ''; } };
+  function setDbMode(m) { try { localStorage.setItem(MODE_KEY, m); } catch (e) { /* ignore */ } }
+
   function fail(msg) {
     app.gateError = msg;
     TIM.store.emit();
@@ -64,7 +83,7 @@
       return false;
     }
     const ok = await app.attach(fb);
-    if (ok) toast('已開啟 ' + r.name, 'ok');
+    if (ok) { setDbMode('folder'); toast('已開啟 ' + r.name, 'ok'); }
     return ok;
   };
 
@@ -95,15 +114,96 @@
       isNew = true;
     }
     const ok = await app.attach(fb);
-    if (ok) { await fb.remember(); toast((isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok'); }
+    if (ok) { await fb.remember(); setDbMode('folder'); toast((isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok'); }
     return ok;
+  };
+
+  function signInError(s) {
+    return s.reason === 'popup' ? '登入視窗被瀏覽器擋下：請允許本網站的彈出式視窗後再試一次'
+      : 'Microsoft 登入失敗：' + (s.error || s.reason);
+  }
+
+  /**
+   * Shared database on SharePoint (click handler: may open the Microsoft sign-in popup).
+   * Opens TIM_Manager/Database/tim_db.json; when it does not exist yet, asks and creates it.
+   * opts.select: let the user pick another account.
+   */
+  app.openSharePoint = async function (opts) {
+    const sp = TIM.spBackend;
+    const s = await sp.signIn(opts);
+    if (!s.ok) { if (s.reason !== 'cancelled') fail(signInError(s)); return false; }
+    const pr = await sp.probe();
+    if (!pr.ok) return fail(pr.error);
+    let isNew = false;
+    if (!pr.exists) {
+      if (!await TIM.ui.askCreateSharePoint(sp.location())) return false;
+      const c = await sp.create();
+      if (!c.ok) return fail('無法在 SharePoint 建立資料庫：' + c.error);
+      isNew = !c.existed;
+    }
+    const ok = await app.attach(sp);
+    if (ok) { setDbMode('sharepoint'); toast((isNew ? '已建立' : '已開啟') + ' SharePoint 資料庫', 'ok'); }
+    return ok;
+  };
+
+  /** Save failed because the Microsoft sign-in expired → sign in again (click) and save. */
+  app.spRelogin = async function () {
+    const s = await TIM.spBackend.signIn();
+    if (!s.ok) { if (s.reason !== 'cancelled') toast(signInError(s), 'err'); return; }
+    await TIM.store.saveNow();
+    TIM.store.syncCheck();
+  };
+
+  /**
+   * Move the open local database to SharePoint: upload its datasheet files and the database,
+   * then continue on SharePoint. Never overwrites a database that already exists there.
+   */
+  app.moveToSharePoint = async function () {
+    const st = TIM.store, fb = st.backend, sp = TIM.spBackend;
+    if (!st.db || !fb || fb.kind === 'sharepoint' || st.readonly) return false;
+    const mats = Object.values(st.db.materials);
+    const files = [];
+    mats.forEach(m => (m.datasheets || []).forEach(d => { if (!files.includes(d.path)) files.push(d.path); }));
+    const ok = await confirm({
+      title: '搬到 SharePoint', okText: '上傳並改用 SharePoint',
+      message: '把目前的資料庫（' + Object.keys(st.db.projects).length + ' 個專案、' + mats.length + ' 種材料' + (files.length ? '、' + files.length + ' 份規格書' : '') + '）上傳到\n' +
+        sp.location() + '\n之後所有人都開這個共用資料庫。本機的 ' + fb.location() + ' 保留不動，但之後的修改只會存到 SharePoint。',
+    });
+    if (!ok) return false;
+    await st.flush();
+    if (st.hasUnsaved() || st.status.state === 'error') { toast('目前資料尚未存檔，請稍後再試', 'err'); return false; }
+    const s = await sp.signIn();
+    if (!s.ok) { if (s.reason !== 'cancelled') toast(signInError(s), 'err'); return false; }
+    const pr = await sp.probe();
+    if (!pr.ok) { toast(pr.error, 'err'); return false; }
+    if (pr.exists && String(await sp.read()).trim()) {
+      toast('SharePoint 上已經有資料庫，為避免覆蓋不會上傳。請按右上角「切換」回起始頁，改用 SharePoint 開啟。', 'err', { timeout: 10000 });
+      return false;
+    }
+    if (!pr.exists) { const c = await sp.create(); if (!c.ok) { toast('無法在 SharePoint 建立資料庫：' + c.error, 'err'); return false; } }
+    const missing = [];
+    for (let i = 0; i < files.length; i++) {
+      toast('上傳規格書 ' + (i + 1) + ' / ' + files.length + '…', 'info', { timeout: 1500 });
+      try { await sp.files.put(files[i], await fb.files.blob(files[i])); } catch (e) { missing.push(files[i]); }
+    }
+    try { await sp.write(await fb.read()); } catch (e) { toast('上傳資料庫失敗：' + (e.message || e), 'err'); return false; }
+    stopBackground();
+    const done = await app.attach(sp);
+    if (!done) { startBackground(); toast(app.gateError || '無法開啟 SharePoint 資料庫', 'err'); return false; }
+    setDbMode('sharepoint');
+    toast('已搬到 SharePoint' + (missing.length ? '（' + missing.length + ' 份規格書在本機找不到，未上傳）' : ''), missing.length ? 'err' : 'ok', { timeout: 6000 });
+    return true;
   };
 
   app.disconnect = async function () {
     try { await TIM.store.flush(); } catch (e) { /* ignore */ }
     app.noAutoRestore = true;
     stopBackground();
+    const b = TIM.store.backend;
+    await runFileGc();
+    fileDeletes.clear();
     TIM.store.detach();
+    if (b && b.close) b.close();
     go('', true);
   };
 
@@ -126,6 +226,16 @@
     } else if (r.reason !== 'cancelled') toast('無法設定備份資料夾：' + (r.error || r.reason), 'err');
   };
   async function initBackup() {
+    const b = TIM.store.backend;
+    if (b && b.kind === 'sharepoint') {
+      // shared database → backups go next to it (Database/Backup); no folder to pick
+      TIM.backup.useRemote({ name: b.backupName(), write: text => b.writeBackup(text) });
+      app.backupState = 'ready';
+      TIM.backup.run(latestText, true).then(() => TIM.store.emit());
+      TIM.backup.schedule(latestText, () => TIM.store.emit());
+      return;
+    }
+    TIM.backup.useRemote(null);
     if (!TIM.backup.supported()) return;
     const r = await TIM.backup.tryRestore();
     if (r.ok) { app.backupState = 'ready'; TIM.backup.run(latestText, true); }
@@ -134,6 +244,26 @@
     TIM.backup.schedule(latestText, res => { if (res && res.needsPermission) { app.backupState = 'needs-permission'; TIM.store.emit(); } });
     TIM.store.emit();
   }
+
+  // ───────── datasheet files removed from the database ─────────
+  // The file is deleted from storage (SharePoint: to its recycle bin) only after the change is
+  // saved, and only when no material refers to it any more (a duplicate may share it).
+  const fileDeletes = new Set();
+  let gcBusy = false;
+  app.queueFileDeletes = paths => { (paths || []).forEach(p => p && fileDeletes.add(p)); };
+  async function runFileGc() {
+    const st = TIM.store;
+    const files = st.backend && st.backend.files;
+    if (gcBusy || !fileDeletes.size || !files || !files.supported() || st.readonly || st.status.state !== 'saved') return;
+    gcBusy = true;
+    try {
+      for (const path of Array.from(fileDeletes)) {
+        if (Object.values(st.db.materials).some(m => (m.datasheets || []).some(d => d.path === path))) { fileDeletes.delete(path); continue; }
+        try { await files.del(path); fileDeletes.delete(path); } catch (e) { console.warn('[datasheets] delete failed, will retry', path, e && e.message); break; }
+      }
+    } finally { gcBusy = false; }
+  }
+  TIM.store.subscribe(() => { if (fileDeletes.size) setTimeout(runFileGc, 0); });
 
   // ───────── background sync & version check ─────────
   let syncTimer = null;
@@ -299,7 +429,7 @@
       <div class="toolbar-right">
         <${SaveState} />
         <button class="db-chip" title=${'目前資料庫：' + (st.backend && st.backend.location ? st.backend.location() : st.backend ? st.backend.label() : '') + '\n點擊回到資料庫選擇畫面（會先存檔）'} onClick=${() => app.disconnect()}>
-          <${Icon} name="db" size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
+          <${Icon} name=${st.backend && st.backend.kind === 'sharepoint' ? 'cloud' : 'db'} size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
           <span class="db-chip-exit"><${Icon} name="exit" size=${13} />切換</span>
         </button>
         <button class="btn btn-dark btn-sm btn-icon" title="設定" onClick=${() => TIM.ui.openSettings()}><${Icon} name="gear" /></button>
@@ -315,8 +445,10 @@
         <button class="btn btn-secondary btn-sm" onClick=${() => app.disconnect()}>重新選擇資料庫</button></div>`);
     }
     if (st.status.state === 'error') {
-      out.push(html`<div class="banner warn"><${Icon} name="warn" /> 儲存失敗：${st.status.error}（會自動重試；也可按 Ctrl+S）
-        <button class="btn btn-secondary btn-sm" onClick=${() => st.saveNow()}>立即重試</button></div>`);
+      const relogin = st.backend && st.backend.kind === 'sharepoint' && st.backend.needsLogin();
+      out.push(html`<div class="banner warn"><${Icon} name="warn" /> 儲存失敗：${st.status.error}${relogin ? '' : '（會自動重試；也可按 Ctrl+S）'}
+        ${relogin ? html`<button class="btn btn-secondary btn-sm" onClick=${() => app.spRelogin()}>重新登入 Microsoft</button>`
+          : html`<button class="btn btn-secondary btn-sm" onClick=${() => st.saveNow()}>立即重試</button>`}</div>`);
     }
     if (st.conflicts.length) {
       const msg = st.conflicts.map(c => {

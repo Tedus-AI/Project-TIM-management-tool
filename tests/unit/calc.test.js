@@ -20,7 +20,9 @@ test('compression check: ok / warn / error', () => {
   assert.equal(c.status, 'ok');
   assert.equal(Math.round(c.min * 10) / 10, 15);   // (2-1.7)/2
   assert.equal(Math.round(c.max * 10) / 10, 25);   // (2-1.5)/2
-  assert.equal(c.rec.source, 'material');
+  // material datasheet ranges (legacy comp_rec_min/max, 10~40 here) are no longer used
+  assert.equal(c.rec.source, 'generic');
+  assert.deepEqual([c.rec.min, c.rec.max], [10, 30]);
 
   it.gap = { nom: 1.0, min: 0.9, max: 1.1 };        // 45~55 % → too much
   c = calc.compressionCheck(it, mat, db.settings);
@@ -34,7 +36,7 @@ test('compression check: ok / warn / error', () => {
   it.gap = { nom: null, min: null, max: null };
   assert.equal(calc.compressionCheck(it, mat, db.settings).status, 'na');
 
-  // override wins over material; generic fallback when material has none
+  // manual override wins over the generic range; generic also applies without a material
   it.gap = { nom: 1.6, min: 1.5, max: 1.7 };
   it.comp_override = { min: 20, max: 30 };
   c = calc.compressionCheck(it, mat, db.settings);
