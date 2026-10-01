@@ -56,13 +56,39 @@ async function stop(env) {
   env.server.close();
 }
 
-/** Open the app in trial (browser storage) mode with the demo project. */
-async function openTrialWithDemo(env, user) {
-  await env.page.goto(env.base);
-  await env.page.waitForSelector('.gate', { timeout: 30000 });
-  if (user) await env.page.evaluate(u => TIM.app.setUserName(u), user);
-  await env.page.click('.gate-link:has-text("瀏覽器暫存")');
-  await env.page.waitForSelector('.proj-table', { timeout: 30000 });
+/** Attach an in-memory stand-in for the database file (window.__fakeFile.text = its content). */
+async function attachFakeFile(page, text) {
+  await page.evaluate(text => {
+    const f = window.__fakeFile = { text, writes: 0 };
+    const handle = {
+      name: 'tim_db.json',
+      kind: 'file',
+      async getFile() { return new File([f.text], 'tim_db.json', { type: 'application/json' }); },
+      async createWritable() { let buf = ''; return { async write(t) { buf += t; }, async close() { f.text = buf; f.writes++; } }; },
+      async queryPermission() { return 'granted'; },
+      async requestPermission() { return 'granted'; },
+    };
+    TIM.fileBackend.__setHandleForTest(handle);
+    window.__attachResult = TIM.app.attach(TIM.fileBackend);
+  }, text);
+  return page.evaluate(() => window.__attachResult);
 }
 
-module.exports = { start, stop, openTrialWithDemo, ROOT };
+/** Add the demo project (test fixture, not part of the app) to the open database. */
+async function addDemo(page) {
+  if (!await page.evaluate(() => !!(window.TIM && TIM.sample))) await page.addScriptTag({ path: path.join(__dirname, 'fixtures', 'sample.js') });
+  return page.evaluate(() => TIM.sample.addSampleToStore());
+}
+
+/** Open the app on an in-memory database holding the demo project. */
+async function openWithDemo(env, user) {
+  const { page } = env;
+  await page.goto(env.base);
+  await page.waitForSelector('.gate', { timeout: 30000 });
+  if (user) await page.evaluate(u => TIM.app.setUserName(u), user);
+  if (!await attachFakeFile(page, '')) throw new Error('could not attach the test database');
+  await addDemo(page);
+  await page.waitForSelector('.proj-table', { timeout: 30000 });
+}
+
+module.exports = { start, stop, openWithDemo, attachFakeFile, addDemo, ROOT };

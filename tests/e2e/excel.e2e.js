@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { openTrialWithDemo, ROOT } = require('./helpers');
+const { openWithDemo, ROOT } = require('./helpers');
 
 const OUT = path.join(ROOT, 'test-results');
 
@@ -26,7 +26,7 @@ module.exports = [
     name: 'export: current Excel layout + drawings + detail sheets',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await page.click('.proj-name');
       await page.click('.proj-head-actions button:has-text("匯出 Excel")');
       await page.waitForSelector('.modal');
@@ -63,7 +63,7 @@ module.exports = [
     name: 'import: existing Excel format with merged cells and a drawing',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       // Build a workbook shaped like the current TIM list (fictional data)
       const logo = fs.readFileSync(path.join(ROOT, 'assets/delta-logo-transparent.png')).toString('base64');
       const b64 = await page.evaluate(async logo => {

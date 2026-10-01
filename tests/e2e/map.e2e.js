@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { openTrialWithDemo, ROOT } = require('./helpers');
+const { openWithDemo, ROOT } = require('./helpers');
 
 const proj = page => page.evaluate(() => JSON.parse(JSON.stringify(Object.values(TIM.store.db.projects)[0])));
 const shapesOf = (p, no) => { const it = p.items.find(i => i.item_no === no); return p.views.flatMap(v => v.shapes.filter(s => s.item_id === it.id)); };
@@ -23,7 +23,7 @@ module.exports = [
     name: 'place true-size pads, rotate, delete, undo',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openMap(page);
       await page.click('.pal-item:has(.no:text-is("A5"))');
       assert.equal(await page.locator('.tool-btn.on').innerText().then(t => t.includes('放置')), true, 'palette click switches to place tool');
@@ -55,7 +55,7 @@ module.exports = [
     name: 'new view from image, two-point calibration, true-size pad, label, PNG export',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openMap(page);
       const chooser = page.waitForEvent('filechooser');
       await page.click('.map-side-sec button:has-text("新增")');

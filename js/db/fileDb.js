@@ -1,8 +1,8 @@
 /* JSON-file storage backend (File System Access API — Chrome / Edge).
- * Normal use: the user picks the database FOLDER; the database file inside it is found
- * (or created) automatically. The folder handle + file name are remembered in IndexedDB,
- * so the next visit needs at most one click to re-grant permission. A single file picked
- * directly (older sessions, "save trial data as file") is remembered the same way.
+ * The user picks the database FOLDER; the database file inside it is found (or created)
+ * automatically. The folder handle + file name are remembered in IndexedDB, so the next
+ * visit needs at most one click to re-grant permission. A file picked directly by an
+ * earlier version of the tool is still restored the same way.
  * createWritable() writes to a swap file and replaces the original on close(), so a crash
  * never leaves a half-written database.
  */
@@ -14,8 +14,6 @@
   const BACKUP_RE = /^tim_db_backup_\d{4}-\d{2}-\d{2}\.json$/i;
   let handle = null;        // FileSystemFileHandle of the database
   let dirHandle = null;     // its folder, when opened through a folder
-
-  const pickerTypes = [{ description: 'TIM 資料庫 (JSON)', accept: { 'application/json': ['.json'] } }];
 
   async function idbPut(k, v) { try { await TIM.idb.put(META_DB, META_STORE, k, v); } catch (e) { /* not persistable */ } }
   async function idbGet(k) { try { return await TIM.idb.get(META_DB, META_STORE, k); } catch (e) { return null; } }
@@ -43,11 +41,10 @@
 
   const fileBackend = {
     kind: 'file',
-    supported() { return typeof window.showOpenFilePicker === 'function' && typeof window.showSaveFilePicker === 'function'; },
+    supported() { return typeof window.showDirectoryPicker === 'function'; },
     label() { return handle ? handle.name : ''; },
     /** "folder / file" when opened through a folder. */
     location() { return handle ? (dirHandle ? dirHandle.name + ' / ' : '') + handle.name : ''; },
-    folderSupported() { return typeof window.showDirectoryPicker === 'function'; },
     ready() { return !!handle; },
 
     async head() { const f = await handle.getFile(); return await f.slice(0, 512).text(); },
@@ -132,38 +129,6 @@
       if (!handle) return;
       if (dirHandle) { await idbDel(HANDLE_KEY); await idbPut(DIR_KEY, { dir: dirHandle, name: handle.name }); }
       else await saveHandle(handle);
-    },
-
-    /** Pick an existing database file. */
-    async open() {
-      try {
-        const opts = { types: pickerTypes, multiple: false };
-        if (handle) opts.startIn = handle;
-        const [h] = await window.showOpenFilePicker(opts);
-        const st = await h.requestPermission({ mode: 'readwrite' });
-        if (st !== 'granted') return { ok: false, reason: 'denied' };
-        handle = h; dirHandle = null;
-        await saveHandle(h);
-        return { ok: true, name: h.name };
-      } catch (e) {
-        if (e && e.name === 'AbortError') return { ok: false, reason: 'cancelled' };
-        return { ok: false, reason: 'error', error: String(e && e.message || e) };
-      }
-    },
-
-    /** Create a new database file; the caller writes the initial content. */
-    async create(suggestedName) {
-      try {
-        const opts = { suggestedName: suggestedName || 'tim_db.json', types: pickerTypes };
-        if (handle) opts.startIn = handle;
-        const h = await window.showSaveFilePicker(opts);
-        handle = h; dirHandle = null;
-        await saveHandle(h);
-        return { ok: true, name: h.name, isNew: true };
-      } catch (e) {
-        if (e && e.name === 'AbortError') return { ok: false, reason: 'cancelled' };
-        return { ok: false, reason: 'error', error: String(e && e.message || e) };
-      }
     },
 
     async forget() { handle = null; dirHandle = null; await idbDel(HANDLE_KEY); await idbDel(DIR_KEY); },

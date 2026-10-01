@@ -36,7 +36,7 @@
 | 使用頻率 | 每個專案每個 build 都會更新；料號 / 第二來源 / EOL 異動時查詢 |
 | 部署方式 | 純前端靜態網頁（`index.html`），可直接開檔或放 GitHub Pages，無後端 |
 | 技術限制 | 沿用 Thermal Test Report Builder 的限制：無 Python、無後端、公司防火牆 |
-| 資料持久化 | 本機 JSON 資料庫檔（File System Access API），可放網路磁碟共用；另有瀏覽器暫存（試用）模式 |
+| 資料持久化 | 資料庫資料夾內的 JSON 檔（File System Access API），可放網路磁碟共用 |
 | 輸出 | Excel（沿用現行格式＋附位置圖）、JSON 備份 / 單一專案分享檔、位置圖 PNG |
 
 ### 使用者故事
@@ -240,7 +240,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - 專案卡片 / 列表：案名、Stage、狀態、Item 數、總片數、單一來源數、警示數、最後更新。
 - 新增 / 複製（衍生機種）/ 刪除（確認＋連帶清理圖片）。
 - **全域搜尋**：料號、元件、廠商、型號、RefDes、Item → 跨專案列出結果，點擊直接跳到該 Item。
-- 匯入 Excel、匯入專案分享檔（JSON）、載入範例專案。
+- 匯入 Excel、匯入專案分享檔（JSON）。
 
 ### 5.2 專案頁
 分頁：`總覽 | TIM 清單 | 位置標註 | 間隙與熱檢核 | 變更紀錄`
@@ -372,7 +372,6 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 項目 | 規格 |
 |------|------|
 | 主要模式 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續 |
-| 試用模式 | 瀏覽器 IndexedDB（清除瀏覽器資料會消失，介面上明確警示） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |
 | 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料 |
 | 壞檔保護 | JSON 解析失敗或不是 TIM 資料庫 → 進入唯讀並提示，**絕不以空白資料覆寫** |
@@ -413,7 +412,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 |------|------|------|
 | 前端 | 原生 JS（classic script）＋ Preact 10 + htm（CDN，SRI 鎖定版本，jsDelivr → unpkg 備援） | 無 build 工具、可 `file://` 直接開、宣告式 UI 減少 DOM 狀態錯誤 |
 | Excel | ExcelJS 4.4（使用時才載入，timeout＋重試＋備援 CDN） | 支援樣式、合併儲存格、嵌入圖片的讀寫 |
-| 資料庫 | `js/db/fileDb.js`（JSON 檔）、`js/db/idbDb.js`（瀏覽器暫存）、`js/db/dbAdapter.js` | 沿用報告產生器的模式並加上並發保護 |
+| 資料庫 | `js/db/fileDb.js`（資料庫資料夾 / JSON 檔）、`js/db/backup.js`（每日備份） | 沿用報告產生器的模式並加上並發保護 |
 | 純邏輯模組 | `js/core/*.js`（UMD） | 瀏覽器與 Node 共用，可單元測試 |
 | 測試 | `node --test`（單元）＋ Playwright（E2E） | 每次交付前 headless 驗證 |
 | CI | GitHub Actions：語法檢查＋單元測試＋E2E；Pages 部署時自動戳版本號 | 版本號不手改 |
@@ -423,8 +422,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 ## 13. 開發階段規劃
 
 ### Phase 1 — 取代 Excel ＋ 位置標註（本次交付）
-- [x] 資料庫（JSON 檔 / 瀏覽器暫存）、自動存檔、備份、並發保護、壞檔唯讀
-- [x] 專案列表、全域搜尋、範例專案
+- [x] 資料庫（選資料夾自動開啟 / 建立 JSON 檔）、自動存檔、備份、並發保護、壞檔唯讀
+- [x] 專案列表、全域搜尋
 - [x] 總覽（KPI ＋ 待處理事項）
 - [x] TIM 清單（類 Excel、分組、從 Excel 貼上）＋ Item 詳細抽屜
 - [x] 位置標註（比例尺、實際尺寸 pad、旋轉、多引線標籤、圖例、放置數比對、PNG）

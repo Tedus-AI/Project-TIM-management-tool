@@ -171,7 +171,6 @@
             <div class="actions">
               <button class="btn btn-primary rw-only" onClick=${() => TIM.app.openImportExcel()}><${Icon} name="excel" /> 匯入 Excel</button>
               <button class="btn btn-secondary rw-only" onClick=${newProject}><${Icon} name="plus" /> 新增空白專案</button>
-              <button class="btn btn-ghost rw-only" onClick=${async () => { const id = await TIM.sample.addSampleToStore(); go('p/' + id); }}>載入範例專案</button>
             </div>
           </div>` : !rows.length ? html`<div class="empty"><h3>沒有符合篩選條件的專案</h3><p>調整上方的 Stage / 狀態篩選。</p></div>` : html`
         <div class="tbl-wrap"><table class="tbl proj-table">

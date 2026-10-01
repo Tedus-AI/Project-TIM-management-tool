@@ -11,7 +11,7 @@
   升級 CDN 版本時必須同步更新 SRI hash。
 - **所有資料修改都走 `TIM.actions`（`js/ui/actions.js`）** → `TIM.store.mutateProject / mutateMaterials / mutateDb`，
   才會有 undo scope、變更紀錄、自動存檔。UI 不可直接改 `TIM.store.db`。
-- 儲存：`js/db/`（JSON 檔 / IndexedDB / 每日備份）；多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）。
+- 儲存：`js/db/`（資料庫資料夾內的 JSON 檔、每日備份；IndexedDB 只用來記住資料夾 handle）；多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。
@@ -30,7 +30,8 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 
 ## 規則與踩過的坑
 1. **Repo 是公開的**：不可 commit 資料庫 JSON、匯出的 Excel、CAD 截圖、真實料號、真實專案的廠商 / 供應策略 / 元件清單。
-   範例與 demo 一律用虛構名稱（Vendor-A…D、甲廠、LDO-A / BUCK-B、GF-750…、DEMO-xxxx 料號）。
+   範例與測試資料一律用虛構名稱（Vendor-A…D、甲廠、LDO-A / BUCK-B、GF-750…、DEMO-xxxx 料號）。
+   工具本身不提供試用模式與範例專案（使用者明確不要）；範例專案只存在測試 fixture。
 2. **Preact + htm 事件名稱**：沒有對應 `on*` DOM 屬性的事件要寫小寫（`oncompositionstart`、`oncompositionend`、`onfocusin`），
    寫成 camelCase 不會觸發（曾造成注音 / 倉頡輸入的字消失）。
 3. `useEffect` 裡註冊的 window / document listener 要透過 ref 讀最新的 props / state（effect 在 paint 後才跑，closure 會過期）。
@@ -49,4 +50,5 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 ## 測試慣例
 - `tests/unit/*.test.js`：純邏輯（parse、calc、geom、store 合併與並發）。
 - `tests/e2e/*.e2e.js`：匯出 `[{ name, run(env) }]`；`helpers.start()` 啟動伺服器與 Chromium，
-  `openTrialWithDemo(env)` 以試用模式載入範例專案；瀏覽器 console error 會讓測試失敗。
+  `openWithDemo(env)` 以記憶體中的假資料庫檔載入範例專案（`tests/e2e/fixtures/sample.js`）；
+  起始頁流程用 `gate.e2e.js` 的假資料夾測；瀏覽器 console error 會讓測試失敗。

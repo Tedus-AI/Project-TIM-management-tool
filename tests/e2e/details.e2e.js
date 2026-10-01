@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { openTrialWithDemo } = require('./helpers');
+const { openWithDemo } = require('./helpers');
 
 const item = (page, no) => page.evaluate(n => JSON.parse(JSON.stringify(Object.values(TIM.store.db.projects)[0].items.find(i => i.item_no === n) || null)), no);
 const field = (page, label) => page.locator('.drawer .field:has(> label:text-is("' + label + '")) input').first();
@@ -10,7 +10,7 @@ module.exports = [
     name: 'item drawer: gap → compression judgement, override unlock, material unlink / relink, Q\'ty suggestion',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await page.click('.proj-name');
       await page.click('.tab:has-text("TIM 清單")');
       await page.click('tr[data-id] >> nth=2 >> .row-end button[title^="詳細"]');     // A2
@@ -64,7 +64,7 @@ module.exports = [
     name: 'material library: edit propagates, where-used, delete keeps item text',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await page.click('.nav-link:has-text("材料庫")');
       await page.click('tr.clickable:has-text("GF-750")');
       await page.waitForSelector('.drawer');
@@ -84,7 +84,7 @@ module.exports = [
     name: 'baseline + diff and manual ECN entry',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await page.click('.proj-name');
       await page.click('.tab:has-text("變更紀錄")');
       await page.click('button:has-text("與目前比較")');
@@ -110,7 +110,7 @@ module.exports.push({
   name: 'dialogs take Enter / Esc pressed in the same instant they open',
   async run(env) {
     const { page } = env;
-    await openTrialWithDemo(env);
+    await openWithDemo(env);
     await page.click('.proj-name');
     await page.click('.tab:has-text("變更紀錄")');
     await page.waitForSelector('.baseline-card');

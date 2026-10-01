@@ -45,7 +45,6 @@
       <div class="divider"></div>
       <div class="field-label" style="margin-bottom:8px">資料庫</div>
       <dl class="kv">
-        <dt>模式</dt><dd>${backend.kind === 'file' ? 'JSON 檔' : '瀏覽器暫存（試用）'}</dd>
         <dt>檔案</dt><dd class="mono">${backend.location ? backend.location() : backend.label()}</dd>
         <dt>大小</dt><dd class="mono">${size == null ? '…' : util.fmtBytes(size)}</dd>
         <dt>內容</dt><dd>${counts.p} 個專案 · ${counts.m} 種材料 · ${counts.i} 張圖片 · rev ${db.rev}</dd>
@@ -54,7 +53,6 @@
       <div class="row wrap mt12" style="gap:8px">
         <button class="btn btn-secondary btn-sm" onClick=${() => TIM.app.downloadBackup()}><${Icon} name="download" /> 下載備份（JSON）</button>
         ${TIM.backup.supported() ? html`<button class="btn btn-secondary btn-sm" onClick=${() => TIM.app.pickBackupDir()}><${Icon} name="folder" /> ${TIM.backup.ready() ? '變更' : '設定'}自動備份資料夾</button>` : null}
-        ${backend.kind === 'browser' && TIM.fileBackend.supported() ? html`<button class="btn btn-primary btn-sm" onClick=${async () => { props.close(); await TIM.app.moveToFile(); }}><${Icon} name="save" /> 另存為 JSON 檔並改用檔案模式</button>` : null}
       </div>
       <p class="muted" style="font-size:11.5px;margin-top:12px;line-height:1.6">自動備份：開啟工具時、每 3 小時、切換分頁時寫入「tim_db_backup_YYYY-MM-DD.json」，每天一份、保留最近 30 份。<br/>
         沒有被任何專案使用的圖片會在存檔時自動清除（可復原範圍內的圖片會保留）。</p>

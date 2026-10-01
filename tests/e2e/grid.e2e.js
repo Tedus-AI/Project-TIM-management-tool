@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { openTrialWithDemo } = require('./helpers');
+const { openWithDemo } = require('./helpers');
 
 const state = (page, fn, arg) => page.evaluate(fn, arg);
 const item = (page, no) => state(page, n => {
@@ -37,7 +37,7 @@ module.exports = [
   {
     name: 'inline edit, undo / redo, change log',
     async run({ page }) {
-      await openTrialWithDemo(arguments[0], 'Alice');
+      await openWithDemo(arguments[0], 'Alice');
       await openBom(page);
       const pn = cell(page, 2, COL.delta_pn);            // A2
       await pn.click();
@@ -60,7 +60,7 @@ module.exports = [
     name: 'keyboard navigation and Escape revert',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openBom(page);
       await cell(page, 0, COL.item_no).click();
       await page.keyboard.press('ArrowDown');
@@ -82,7 +82,7 @@ module.exports = [
     name: 'parsed cells: size, covered components, 2nd source, used on',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openBom(page);
       const typeInto = async (r, c, text) => { await cell(page, r, c).click(); await page.keyboard.press('Control+A'); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
       await typeInto(4, COL.size, '6 x 6 x 3');
@@ -109,7 +109,7 @@ module.exports = [
     name: 'paste rows from Excel (updates + new rows), range copy, clear, fill down',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openBom(page);
       // paste 2 rows starting at A8 (last visible row, r=8) → 1 update + 1 new item in Top Case
       const tsv = 'A8\tPWR/DDR\tVendor-B\tGF-750\t58*22*3\t5\tDEMO-0103\tBRICK-48V, DDR4-16G*4\tVendor-C TP-750\n' +
@@ -160,7 +160,7 @@ module.exports = [
     name: 'row operations: add, duplicate as variant, move location, delete with cascade',
     async run(env) {
       const { page } = env;
-      await openTrialWithDemo(env);
+      await openWithDemo(env);
       await openBom(page);
       await page.click('.grp-foot button:has-text("新增至 Bottom Case")');
       await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].items.some(i => i.item_no === 'A9'));
@@ -191,7 +191,7 @@ module.exports.push({
   name: 'IME composition (注音 / 倉頡) commits the composed text',
   async run(env) {
     const { page } = env;
-    await openTrialWithDemo(env);
+    await openWithDemo(env);
     await page.click('.proj-name');
     await page.click('.tab:has-text("總覽")');
     const inp = page.locator('.field:has(label:text-is("客戶")) input');
@@ -216,7 +216,7 @@ module.exports.push({
   name: 'drag reorder: drop target follows the pointer back onto an unchanged row',
   async run(env) {
     const { page } = env;
-    await openTrialWithDemo(env);
+    await openWithDemo(env);
     await openBom(page);
     const rowBox = async no => page.locator('tr:has([data-cell="' + (await rowOf(page, no)) + ',0"])').boundingBox();
     const order = () => state(page, () => {

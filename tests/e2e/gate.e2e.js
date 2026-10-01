@@ -44,12 +44,16 @@ module.exports = [
       await page.waitForSelector('.gate');
       assert.equal(await page.locator('.gate-title').innerText(), '專案 TIM 管理器');
       assert.equal(await page.locator('.gate input.inp').count(), 0, 'no name field on the start page');
+      assert.doesNotMatch(await page.locator('.gate').innerText(), /試用|範例|瀏覽器暫存/, 'no trial / demo options');
       await fakeFolder(page, { 'report_builder.json': '{"reports":[]}' });
       await pickFolder(page);
       await page.waitForSelector('.modal:has-text("建立資料庫")');
       assert.match(await page.locator('.modal-body').innerText(), /TIM-share/);
-      await page.click('.modal label.check');                      // with the demo project
+      assert.equal(await page.locator('.modal input[type=checkbox]').count(), 0, 'no demo-project option');
       await page.keyboard.press('Enter');
+      await page.waitForSelector('.empty:has-text("還沒有任何專案")');
+      assert.doesNotMatch(await page.locator('.empty').innerText(), /範例/);
+      await page.evaluate(() => TIM.actions.createProject({ name: 'Gate project' }));
       await page.waitForSelector('.proj-table');
       assert.deepEqual(await files(page), ['report_builder.json', 'tim_db.json']);
       assert.equal(await fileText(page, 'report_builder.json'), '{"reports":[]}', 'other files untouched');

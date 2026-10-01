@@ -55,13 +55,10 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 | 有 `tim_db.json` | 直接開啟並進入工具 |
 | 沒有 `tim_db.json`，但有一個 TIM 資料庫 JSON | 直接開啟它 |
 | 有好幾個 TIM 資料庫（例如每日備份） | 列出來讓你選一個 |
-| 沒有任何 TIM 資料庫 | 詢問是否建立 `tim_db.json`（可勾選加入範例專案），建立後直接進入 |
+| 沒有任何 TIM 資料庫 | 詢問是否建立 `tim_db.json`，建立後直接進入 |
 
 資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫。下次開啟會顯示「上次使用：資料夾 / 檔名」，按「繼續使用」即可。
 工具內右上角的資料庫按鈕（「切換」）會先存檔，再回到這個選擇畫面。
-
-沒有共用資料夾時，可以按下方的「改用瀏覽器暫存（試用）」：資料只存在這個瀏覽器，清除瀏覽器資料就會消失，
-之後可用上方提示列的「另存為 JSON 檔」搬到檔案。
 
 變更紀錄裡的「人員」用的是「設定 → 你的名字」（存在此瀏覽器）。
 
@@ -141,7 +138,7 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 
 > ⚠️ **這個 repository 是公開的。** 請不要把資料庫 JSON、匯出的 Excel、CAD 截圖或任何實際專案資料 commit 進來。
 > `.gitignore` 已排除 `*.json`（設定檔除外）、`*.xlsx`、`backups/`、`data/`、`drawings/`。
-> 工具內的範例專案（DEMO-RRU n78）為虛構資料。
+> 測試用的範例資料（`tests/e2e/fixtures/sample.js`）全部為虛構資料，不會出現在工具裡。
 
 ---
 
@@ -165,12 +162,11 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 index.html            進入點（載入順序即相依順序）
 css/app.css           設計 token 與元件樣式
 js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）
-js/db/                JSON 檔（File System Access API）、瀏覽器暫存（IndexedDB）、每日備份
+js/db/                資料庫資料夾 / JSON 檔（File System Access API）、每日備份
 js/io/                Excel 匯出 / 匯入、圖片處理、視圖繪製、分享檔
 js/ui/                各頁面與共用元件
-js/sample.js          虛構的範例專案
 tests/unit/           Node 單元測試（node --test）
-tests/e2e/            Playwright 瀏覽器測試
+tests/e2e/            Playwright 瀏覽器測試（fixtures/sample.js：測試用虛構專案）
 ```
 
 ```bash

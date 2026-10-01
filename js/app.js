@@ -33,8 +33,7 @@
   }
 
   /** Read + validate the backend content and attach it to the store. Never overwrites unreadable files. */
-  app.attach = async function (backend, opts) {
-    opts = opts || {};
+  app.attach = async function (backend) {
     let text;
     try { text = await backend.read(); } catch (e) { return fail('無法讀取資料庫：' + (e.message || e)); }
     let db;
@@ -51,24 +50,21 @@
     app.gateError = '';
     app.noAutoRestore = false;
     TIM.store.attach(backend, db);
-    if (opts.sample) {
-      try { await TIM.sample.addSampleToStore(); } catch (e) { console.error(e); toast('範例專案建立失敗：' + e.message, 'err'); }
-    }
     startBackground();
     initBackup();
     return true;
   };
 
-  app.connectFile = async function (mode, opts) {
+  /** Continue with the remembered database (click handler: re-grants permission). */
+  app.reconnect = async function () {
     const fb = TIM.fileBackend;
-    const r = mode === 'reconnect' ? await fb.reconnect() : mode === 'create' ? await fb.create('tim_db.json') : await fb.open();
+    const r = await fb.reconnect();
     if (!r.ok) {
-      if (r.reason !== 'cancelled') fail(r.reason === 'denied' ? '沒有取得檔案讀寫權限' : '無法開啟：' + (r.error || r.reason));
+      fail(r.reason === 'denied' ? '沒有取得讀寫權限' : r.reason === 'missing' ? '找不到上次的資料庫（' + r.name + '），請重新選擇資料夾' : '無法開啟：' + (r.error || r.reason));
       return false;
     }
-    if (r.isNew) { try { await fb.write(''); } catch (e) { /* attach will initialise */ } }
-    const ok = await app.attach(fb, { sample: r.isNew && opts && opts.sample });
-    if (ok) toast((r.isNew ? '已建立 ' : '已開啟 ') + r.name, 'ok');
+    const ok = await app.attach(fb);
+    if (ok) toast('已開啟 ' + r.name, 'ok');
     return ok;
   };
 
@@ -90,22 +86,17 @@
       pick = await TIM.ui.chooseDatabase(r.dir.name, found);
       if (!pick) return false;
     }
-    let isNew = false, sample = false;
+    let isNew = false;
     if (pick) fb.useFolderFile(r.dir, pick.handle);
     else {
-      const ans = await TIM.ui.askCreateDatabase(r.dir.name);
-      if (!ans) return false;
+      if (!await TIM.ui.askCreateDatabase(r.dir.name)) return false;
       const c = await fb.createInFolder(r.dir);
       if (!c.ok) return fail('無法建立資料庫：' + (c.error || c.reason));
-      isNew = true; sample = ans.sample;
+      isNew = true;
     }
-    const ok = await app.attach(fb, { sample });
+    const ok = await app.attach(fb);
     if (ok) { await fb.remember(); toast((isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok'); }
     return ok;
-  };
-
-  app.connectBrowser = async function (opts) {
-    return app.attach(TIM.browserBackend, { sample: opts && opts.sample });
   };
 
   app.disconnect = async function () {
@@ -114,20 +105,6 @@
     stopBackground();
     TIM.store.detach();
     go('', true);
-  };
-
-  /** Browser (trial) mode → save everything into a new JSON file and switch to it. */
-  app.moveToFile = async function () {
-    const st = TIM.store;
-    await st.flush();
-    const r = await TIM.fileBackend.create('tim_db.json');
-    if (!r.ok) { if (r.reason !== 'cancelled') toast('無法建立檔案：' + (r.error || r.reason), 'err'); return; }
-    const db = st.db;
-    db.rev = (db.rev || 0) + 1;
-    await TIM.fileBackend.write(merge.serializeDb(db));
-    st.attach(TIM.fileBackend, db);
-    initBackup();
-    toast('已改用 ' + r.name + '（瀏覽器暫存資料保留，可再清除）', 'ok', { timeout: 6000 });
   };
 
   // ───────── backup ─────────
@@ -250,7 +227,7 @@
       <div class="toolbar-right">
         <${SaveState} />
         <button class="db-chip" title=${'目前資料庫：' + (st.backend && st.backend.location ? st.backend.location() : st.backend ? st.backend.label() : '') + '\n點擊回到資料庫選擇畫面（會先存檔）'} onClick=${() => app.disconnect()}>
-          <${Icon} name=${st.backend && st.backend.kind === 'browser' ? 'eye' : 'db'} size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
+          <${Icon} name="db" size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
           <span class="db-chip-exit"><${Icon} name="exit" size=${13} />切換</span>
         </button>
         <button class="btn btn-dark btn-sm btn-icon" title="設定" onClick=${() => TIM.ui.openSettings()}><${Icon} name="gear" /></button>
@@ -264,10 +241,6 @@
     if (st.readonly) {
       out.push(html`<div class="banner err"><${Icon} name="lock" /> <b>唯讀模式</b>：${st.readonlyReason || '資料庫無法寫入'}。檔案不會被修改，請檢查檔案或改開備份。
         <button class="btn btn-secondary btn-sm" onClick=${() => app.disconnect()}>重新選擇資料庫</button></div>`);
-    }
-    if (st.backend && st.backend.kind === 'browser') {
-      out.push(html`<div class="banner info"><${Icon} name="info" /> 試用模式：資料只存在這個瀏覽器，清除瀏覽器資料就會消失。
-        ${TIM.fileBackend.supported() ? html`<button class="btn btn-secondary btn-sm" onClick=${() => app.moveToFile()}>另存為 JSON 檔</button>` : null}</div>`);
     }
     if (st.status.state === 'error') {
       out.push(html`<div class="banner warn"><${Icon} name="warn" /> 儲存失敗：${st.status.error}（會自動重試；也可按 Ctrl+S）

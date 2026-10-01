@@ -1,5 +1,6 @@
-/* Demo project — anonymised, fictional vendors / parts / numbers, synthetic case drawings.
- * Structure mirrors a real 5G RRU TIM list (bottom case + top case, multi-instance pads). */
+/* Test fixture (not shipped with the app): demo project for the browser tests — fictional
+ * vendors / parts / numbers, synthetic case drawings. Structure mirrors a real 5G RRU TIM
+ * list (bottom case + top case, multi-instance pads). Injected by tests/e2e/helpers.js. */
 (function () {
   'use strict';
   const TIM = window.TIM;

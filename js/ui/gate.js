@@ -1,5 +1,5 @@
 /* Database gate: pick the database folder (open what is there, or create a database),
- * continue with the last database, or fall back to browser storage. */
+ * or continue with the last database. */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -7,15 +7,13 @@
   const { html, useState, useEffect, Icon, Modal, openModal } = TIM.ui;
   const { util } = TIM;
 
-  /** Empty folder → ask before creating tim_db.json. Resolves { sample } or null. */
+  /** Empty folder → ask before creating tim_db.json. Resolves true / false. */
   function CreateDbModal(props) {
-    const [sample, setSample] = useState(false);
-    const ok = () => props.close({ sample });
-    return html`<${Modal} title="建立資料庫" onClose=${() => props.close(null)} onEnter=${ok}
-      footer=${html`<button class="btn btn-ghost" onClick=${() => props.close(null)}>取消</button>
+    const ok = () => props.close(true);
+    return html`<${Modal} title="建立資料庫" onClose=${() => props.close(false)} onEnter=${ok}
+      footer=${html`<button class="btn btn-ghost" onClick=${() => props.close(false)}>取消</button>
         <button class="btn btn-primary" data-enter-ok="1" onClick=${ok}>建立並開啟</button>`}>
       <p>資料夾「<b>${props.folder}</b>」裡還沒有 TIM 資料庫。要在這裡建立 <span class="mono">tim_db.json</span> 嗎？</p>
-      <label class="check mt12"><input type="checkbox" checked=${sample} onChange=${e => setSample(e.target.checked)} /> 加入範例專案（虛構資料，可隨時刪除）</label>
     </${Modal}>`;
   }
 
@@ -41,18 +39,15 @@
   function Gate(props) {
     const app = TIM.app;
     const [restore, setRestore] = useState(null);     // { name } when a remembered database needs a click
-    const [hasBrowserData, setHasBrowserData] = useState(false);
     const [busy, setBusy] = useState(false);
-    const fsOk = TIM.fileBackend.supported() && TIM.fileBackend.folderSupported();
+    const fsOk = TIM.fileBackend.supported();
 
     useEffect(() => {
       (async () => {
-        if (fsOk) {
-          const r = await TIM.fileBackend.tryRestore();
-          if (r.ok && !app.noAutoRestore && !props.error) { await app.attach(TIM.fileBackend, {}); return; }
-          if (r.ok || r.needsPermission) setRestore({ name: r.name });
-        }
-        try { setHasBrowserData(await TIM.browserBackend.exists()); } catch (e) { /* ignore */ }
+        if (!fsOk) return;
+        const r = await TIM.fileBackend.tryRestore();
+        if (r.ok && !app.noAutoRestore && !props.error) { await app.attach(TIM.fileBackend); return; }
+        if (r.ok || r.needsPermission) setRestore({ name: r.name });
       })();
     }, []);
 
@@ -70,17 +65,13 @@
         ${restore ? html`<div class="gate-restore">
           <${Icon} name="db" />
           <div style="flex:1">上次使用：<b>${restore.name}</b></div>
-          <button class="btn btn-accent" disabled=${busy} onClick=${() => run(() => app.connectFile('reconnect'))}>繼續使用</button>
+          <button class="btn btn-accent" disabled=${busy} onClick=${() => run(() => app.reconnect())}>繼續使用</button>
         </div>` : null}
 
         ${fsOk ? html`<div class="gate-main">
           <button class="btn btn-accent btn-lg" disabled=${busy} onClick=${() => run(() => app.openFolder())}><${Icon} name="folder" size=${16} /> 選擇資料庫資料夾…</button>
           <p>有資料庫就直接開啟；沒有會詢問是否建立。</p>
-        </div>` : html`<p class="gate-note"><b>此瀏覽器不支援直接讀寫本機資料夾。</b>請用 Chrome 或 Edge 開啟本工具；目前只能使用瀏覽器暫存。</p>`}
-
-        <button class="gate-link" disabled=${busy} onClick=${() => run(() => app.connectBrowser({ sample: !hasBrowserData }))}>
-          ${hasBrowserData ? '繼續上次的瀏覽器暫存資料' : '改用瀏覽器暫存（試用，含範例專案）'}
-        </button>
+        </div>` : html`<p class="gate-note"><b>此瀏覽器不支援直接讀寫本機資料夾。</b>請用 Chrome 或 Edge 開啟本工具。</p>`}
       </div>
     </div>`;
   }

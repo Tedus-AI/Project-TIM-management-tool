@@ -1,8 +1,8 @@
 'use strict';
-// Headless smoke run: trial mode + demo project, visit every page, collect console errors, screenshots.
+// Headless smoke run: in-memory database + demo project, visit every page, collect console errors, screenshots.
 const path = require('path');
 const fs = require('fs');
-const { start, stop, openTrialWithDemo } = require('./helpers');
+const { start, stop, openWithDemo } = require('./helpers');
 
 const OUT = process.env.SHOT_DIR || path.resolve(__dirname, '../../test-results/smoke');
 
@@ -15,9 +15,7 @@ const OUT = process.env.SHOT_DIR || path.resolve(__dirname, '../../test-results/
     await page.goto(base);
     await page.waitForSelector('.gate', { timeout: 20000 });
     await shot('01-gate');
-    await page.evaluate(() => TIM.app.setUserName('Tester'));
-    await page.click('.gate-link:has-text("瀏覽器暫存")');
-    await page.waitForSelector('.proj-table', { timeout: 20000 });
+    await openWithDemo(env, 'Tester');
     await page.waitForTimeout(500);
     await shot('02-home');
     await page.click('.proj-name');

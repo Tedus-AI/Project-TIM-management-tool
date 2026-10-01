@@ -2,7 +2,7 @@
 // Screenshots for manual review at a given viewport: node tests/e2e/visual.js 1366 768
 const path = require('path');
 const fs = require('fs');
-const { start, stop, openTrialWithDemo, ROOT } = require('./helpers');
+const { start, stop, openWithDemo, ROOT } = require('./helpers');
 (async () => {
   const W = parseInt(process.argv[2] || '1366', 10), H = parseInt(process.argv[3] || '768', 10);
   const OUT = path.join(ROOT, 'test-results', 'visual-' + W);
@@ -11,7 +11,7 @@ const { start, stop, openTrialWithDemo, ROOT } = require('./helpers');
   const { page } = env;
   const shot = async n => { await page.waitForTimeout(350); await page.screenshot({ path: path.join(OUT, n + '.png') }); };
   try {
-    await openTrialWithDemo(env, 'Reviewer');
+    await openWithDemo(env, 'Reviewer');
     await shot('01-home');
     await page.click('.proj-name');
     await shot('02-overview');
