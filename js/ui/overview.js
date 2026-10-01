@@ -70,17 +70,13 @@
               <div class="form-grid">
                 <${Field} label="案名" class="span-2"><${TextField} value=${p.name} disabled=${ro} onChange=${v => set('name', v)} /></${Field}>
                 <${Field} label="專案代碼"><${TextField} value=${p.code} disabled=${ro} onChange=${v => set('code', v)} /></${Field}>
-                <${Field} label="產品型號"><${TextField} value=${p.product} disabled=${ro} onChange=${v => set('product', v)} /></${Field}>
+                <${Field} label="產品類型"><${SelectField} value=${p.product_type} options=${schema.PRODUCT_TYPES} disabled=${ro} onChange=${v => set('product_type', v)} /></${Field}>
                 <${Field} label="客戶"><${TextField} value=${p.customer} disabled=${ro} onChange=${v => set('customer', v)} /></${Field}>
                 <${Field} label="Stage"><${SelectField} value=${p.stage} allowEmpty=${false} options=${schema.STAGES} disabled=${ro} onChange=${v => set('stage', v)} /></${Field}>
                 <${Field} label="專案狀態"><${SelectField} value=${p.status} allowEmpty=${false} options=${schema.PROJECT_STATUS} disabled=${ro} onChange=${v => set('status', v)} /></${Field}>
                 <${Field} label="熱流負責人"><${TextField} value=${p.owner} disabled=${ro} onChange=${v => set('owner', v)} /></${Field}>
                 <${Field} label="機構負責人"><${TextField} value=${p.me_owner} disabled=${ro} onChange=${v => set('me_owner', v)} /></${Field}>
-                <${Field} label="機構圖面版次" info="設計間隙是依哪一版 3D / 2D 圖面量測的"><${TextField} value=${p.drawing_rev} disabled=${ro} onChange=${v => set('drawing_rev', v)} /></${Field}>
-                <${Field} label="環境 Ta min"><${NumField} value=${p.env.ta_min} unit="°C" disabled=${ro} onChange=${v => set('env.ta_min', v)} /></${Field}>
-                <${Field} label="環境 Ta max"><${NumField} value=${p.env.ta_max} unit="°C" disabled=${ro} onChange=${v => set('env.ta_max', v)} /></${Field}>
-                <${Field} label="環境備註" class="span-2"><${TextField} value=${p.env.note} placeholder="Outdoor / solar loading / IP65…" disabled=${ro} onChange=${v => set('env.note', v)} /></${Field}>
-                <${Field} label="說明" class="span-all"><${TextField} multiline=${true} rows=${3} value=${p.description} disabled=${ro} onChange=${v => set('description', v)} /></${Field}>
+                <${Field} label="備註" class="span-all"><${TextField} multiline=${true} rows=${3} value=${p.description} disabled=${ro} onChange=${v => set('description', v)} /></${Field}>
               </div>
               <div class="muted" style="font-size:11.5px;margin-top:12px">建立：${util.fmtDateTime(p.created_at)} ${p.created_by} · 最後修改：${util.fmtDateTime(p.updated_at)} ${p.updated_by}</div>
             </div>
@@ -92,10 +88,11 @@
           </div>
 
           <div class="section">
-            <div class="section-head"><div class="section-title">材料用量彙總</div><div class="section-sub">每台用量（不含停用 Item）· 採購 / 備料參考</div></div>
+            <div class="section-head"><div class="section-title">材料用量彙總</div><div class="section-sub">每台用量（不含停用 Item）· 採購 / 備料參考</div>
+              <div class="right"><${InfoDot}><div class="formula">片狀 TIM：Σ Q'ty（pcs）<br/>點膠類：Σ Q'ty × 點膠量（g 或 cc，依 Item 設定）<br/>同一材料有不同單位時分開列出</div></${InfoDot}></div></div>
             ${usage.length ? html`<div class="tbl-wrap"><table class="tbl">
-              <thead><tr><th>Vendor</th><th>Model</th><th class="r">每台片數</th><th>Items</th></tr></thead>
-              <tbody>${usage.map(u => html`<tr><td>${u.vendor}</td><td>${u.model}</td><td class="r mono">${u.pcs}</td><td class="mono" style="font-size:12px">${u.items.join(', ')}</td></tr>`)}</tbody>
+              <thead><tr><th>Vendor</th><th>Model</th><th class="r">每台用量</th><th>Items</th></tr></thead>
+              <tbody>${usage.map(u => html`<tr><td>${u.vendor}</td><td>${u.model}</td><td class="r mono">${u.usage || '—'}</td><td class="mono" style="font-size:12px">${u.items.join(', ')}</td></tr>`)}</tbody>
             </table></div>` : html`<div class="empty"><p>尚無 Item。</p></div>`}
           </div>
         </div>

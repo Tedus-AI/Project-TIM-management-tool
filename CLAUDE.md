@@ -47,7 +47,10 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 9. 外部 fetch 要有 timeout（AbortController）。
 10. 每個 UI 改動都要 headless 驗證（E2E 或 Playwright 腳本）後才 commit，並在 commit message 記錄驗證內容。
     HTML5 拖曳請用合成的 `DragEvent`（Playwright 模擬拖曳會合併 dragover 事件，測不到邊界情況）。
-11. 介面文字用繁體中文，技術名詞保留英文；單位 mm、W、°C、°C/W。紅色只用在錯誤 / Fail。
+11. PDF 匯出（`js/io/pdf-export.js`）與報告產生器相同：每頁先排成 HTML，html2canvas 截圖後放進 jsPDF。
+    html2canvas 的坑：不可用 letter-spacing；`border-collapse: collapse` 會把相鄰格線畫成兩條（改用每格只畫右 / 下框線）；
+    分頁前要用實際字元載入字型再量列高。TIM 清單資料與 Excel 共用 `TIM.xlsxExport.timListGroups`。
+12. 介面文字用繁體中文，技術名詞保留英文；單位 mm、W、°C、°C/W。紅色只用在錯誤 / Fail。
 
 ## 測試慣例
 - `tests/unit/*.test.js`：純邏輯（parse、calc、geom、store 合併與並發）。

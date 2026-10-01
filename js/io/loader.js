@@ -1,5 +1,5 @@
-/* Lazy loader for heavy CDN libraries (ExcelJS): pinned version + SRI, timeout,
- * one retry, then the fallback CDN. */
+/* Lazy loader for heavy CDN libraries (ExcelJS; html2canvas + jsPDF for the PDF report):
+ * pinned version + SRI, timeout, one retry, then the fallback CDN. */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -11,6 +11,23 @@
       urls: [
         'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
         'https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js',
+      ],
+    },
+    // Same versions as the Thermal Test Report Builder.
+    html2canvas: {
+      global: 'html2canvas',
+      integrity: 'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H',
+      urls: [
+        'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
+        'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js',
+      ],
+    },
+    jspdf: {
+      global: 'jspdf',
+      integrity: 'sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/',
+      urls: [
+        'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+        'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
       ],
     },
   };

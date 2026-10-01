@@ -12,6 +12,11 @@
 
   const STAGES = ['Proto', 'EVT', 'DVT', 'PVT', 'MP'];
 
+  const PRODUCT_TYPES = [
+    { v: 'sub6', label: 'Sub-6' },
+    { v: 'mmwave', label: 'mmWave' },
+  ];
+
   const PROJECT_STATUS = [
     { v: 'active', label: '進行中' },
     { v: 'on_hold', label: '暫停' },
@@ -127,17 +132,21 @@
     'dispense.amount': '點膠量', 'dispense.unit': '點膠量單位', 'dispense.blt': 'BLT',
     'validation.coverage_pct': '壓痕覆蓋率', 'validation.result': '驗證判定', 'validation.date': '驗證日期',
     'validation.note': '驗證備註', 'validation.image_id': '驗證照片',
-    'env.ta_min': 'Ta min', 'env.ta_max': 'Ta max', 'env.note': '環境備註', status_p: '專案狀態',
+    status_p: '專案狀態',
     // project fields
-    name: '案名', code: '專案代碼', product: '產品型號', customer: '客戶', stage: 'Stage',
-    owner: '熱流負責人', me_owner: '機構負責人', description: '說明', env: '環境條件',
-    drawing_rev: '圖面版次', locations: 'Location',
+    name: '案名', code: '專案代碼', product_type: '產品類型', customer: '客戶', stage: 'Stage',
+    owner: '熱流負責人', me_owner: '機構負責人', description: '備註', locations: 'Location',
   };
 
   function labelOf(list, v) {
     const f = list.find(x => x.v === v);
     return f ? f.label : (v || '');
   }
+
+  /** "Sub-6" / "mmWave" / "" */
+  function productTypeLabel(v) { const f = PRODUCT_TYPES.find(x => x.v === v); return f ? f.label : ''; }
+  /** "code · type · customer" line shown under project names. */
+  function projectSubline(p) { return [p.code, productTypeLabel(p.product_type), p.customer].filter(Boolean).join(' · '); }
 
   function timType(v) { return TIM_TYPES.find(t => t.v === v) || TIM_TYPES[0]; }
   function isDispense(v) { return timType(v).form === 'dispense'; }
@@ -171,9 +180,8 @@
     const p = {
       id: util.uid('prj'), rev: 0, created_at: now, updated_at: now,
       created_by: user || '', updated_by: user || '',
-      name: '', code: '', product: '', customer: '', stage: 'EVT', status: 'active',
+      name: '', code: '', product_type: '', customer: '', stage: 'EVT', status: 'active',
       owner: user || '', me_owner: '', description: '',
-      env: { ta_min: -40, ta_max: 55, note: '' }, drawing_rev: '',
       locations: locNames.map((n, i) => newLocation(n, i)),
       items: [], views: [], changelog: [], baselines: [],
     };
@@ -294,7 +302,7 @@
     const o = Object.assign(newProject({ id: p && p.id ? p.id : undefined }), isObj(p) ? p : {});
     if (!o.id) o.id = util.uid('prj');
     o.rev = Number.isFinite(o.rev) ? o.rev : 0;
-    o.env = Object.assign({ ta_min: null, ta_max: null, note: '' }, isObj(o.env) ? o.env : {});
+    if (!PRODUCT_TYPES.some(t => t.v === o.product_type)) o.product_type = '';
     o.locations = (Array.isArray(o.locations) ? o.locations : []).filter(isObj).map((l, i) =>
       Object.assign(newLocation('', i), l, { id: l.id || util.uid('loc') }));
     o.items = (Array.isArray(o.items) ? o.items : []).map(normalizeItem);
@@ -354,10 +362,10 @@
   }
 
   return {
-    SCHEMA_ID, SCHEMA_VERSION, STAGES, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
+    SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
     SOURCE_STATUS, AVL_STATUS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
-    labelOf, timType, isDispense, categoryColor, normalizeCategory,
+    labelOf, productTypeLabel, projectSubline, timType, isDispense, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,
     normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeDb, validateDb, projectImageIds,
   };

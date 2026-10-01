@@ -54,6 +54,7 @@
     flag: '<path d="M3.5 14V2.5M3.5 3h8l-2 3 2 3h-8"/>',
     paste: '<rect x="4" y="3" width="8" height="10.5" rx="1"/><path d="M6 3V2h4v1"/><path d="M6.5 7h3M6.5 9.5h3"/>',
     info: '<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5v.3"/>',
+    pdf: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/><path d="M6 8.5h5M6 10.75h5M6 13h3"/>',
     exit: '<path d="M9.5 3H3.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6"/><path d="M6.5 8h7.5M11.5 5.5 14 8l-2.5 2.5"/>',
     db: '<ellipse cx="8" cy="4" rx="5" ry="1.8"/><path d="M3 4v8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4M3 8c0 1 2.2 1.8 5 1.8S13 9 13 8"/>',
   };

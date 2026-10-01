@@ -146,3 +146,22 @@ test('top-side fraction scales the heat through the TIM; compression rounding', 
   const cc = calc.compressionCheck(schema.newItem({ size: { l: 1, w: 1, t: 3 }, gap: { min: 2.3, nom: 2.5, max: 2.7 } }), mat, schema.newDb().settings);
   assert.equal(cc.status, 'ok', '10 % at the edge of a 10–40 % band is not a warning');
 });
+
+test('material usage: pads in pcs, dispensed TIM in g / cc (Q\'ty × amount), obsolete skipped', () => {
+  const { db, mat, p } = mkDb();
+  const loc = p.locations[0].id;
+  p.items.push(schema.newItem({ item_no: 'A1', location_id: loc, material_id: mat.id, qty: 4 }));
+  p.items.push(schema.newItem({ item_no: 'A2', location_id: loc, material_id: mat.id, qty: 2 }));
+  p.items.push(schema.newItem({ item_no: 'A3', location_id: loc, material_id: mat.id, qty: 9, status: 'obsolete' }));
+  p.items.push(schema.newItem({ item_no: 'G1', location_id: loc, vendor: 'Vendor-C', model: 'GF-3500', tim_type: 'gap_filler', qty: 3, dispense: { amount: 1.5, unit: 'g', blt: 0.3 } }));
+  p.items.push(schema.newItem({ item_no: 'G2', location_id: loc, vendor: 'Vendor-C', model: 'GF-3500', tim_type: 'gap_filler', dispense: { amount: 0.25, unit: 'g' } }));
+  p.items.push(schema.newItem({ item_no: 'H1', location_id: loc, vendor: 'Vendor-D', model: 'TG-1', tim_type: 'grease', qty: 2, dispense: { amount: 0.4, unit: 'cc' } }));
+  const u = calc.materialUsage(p, db);
+  const by = m => u.find(x => x.model === m);
+  assert.deepEqual(by('GF-750').amounts, { pcs: 6 });
+  assert.equal(by('GF-750').usage, '6 pcs');
+  assert.deepEqual(by('GF-750').items, ['A1', 'A2']);
+  assert.deepEqual(by('GF-3500').amounts, { g: 4.75 }, '3 × 1.5 g + one dispense of 0.25 g');
+  assert.equal(by('GF-3500').usage, '4.75 g');
+  assert.equal(by('TG-1').usage, '0.8 cc');
+});

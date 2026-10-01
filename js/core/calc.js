@@ -304,6 +304,11 @@
   }
 
   /** Total pieces per material across the project (purchasing summary). */
+  /**
+   * Per-unit usage of each material (non-obsolete items), in its own unit: sheet TIM in pcs
+   * (Q'ty), dispensed TIM in g / cc (Q'ty × dispense amount; no Q'ty = one dispense).
+   * → [{ vendor, model, items, amounts: { pcs, g, cc }, usage: "9 pcs" | "4.5 g" | "6 pcs + 1.2 g" }]
+   */
   function materialUsage(project, db) {
     const m = {};
     (project.items || []).forEach(it => {
@@ -311,11 +316,18 @@
       const eff = effective(it, materialOf(db, it));
       const key = (eff.vendor || '') + ' ' + (eff.model || '');
       if (!key.trim()) return;
-      const e = m[key] = m[key] || { vendor: eff.vendor, model: eff.model, items: [], pcs: 0 };
+      const e = m[key] = m[key] || { vendor: eff.vendor, model: eff.model, items: [], amounts: {} };
       e.items.push(it.item_no);
-      if (fin(it.qty)) e.pcs += it.qty;
+      const add = (unit, v) => { e.amounts[unit] = Math.round(((e.amounts[unit] || 0) + v) * 1e4) / 1e4; };
+      if (schema.isDispense(eff.tim_type)) {
+        const amt = it.dispense && it.dispense.amount;
+        if (fin(amt)) add(it.dispense.unit || 'g', amt * (fin(it.qty) ? it.qty : 1));
+      } else if (fin(it.qty)) add('pcs', it.qty);
     });
-    return Object.values(m).sort((a, b) => b.pcs - a.pcs);
+    const order = ['pcs', 'g', 'cc'];
+    return Object.values(m).map(e => Object.assign(e, {
+      usage: Object.keys(e.amounts).sort((a, b) => order.indexOf(a) - order.indexOf(b)).map(u => util.fmt(e.amounts[u], 3) + ' ' + u).join(' + '),
+    })).sort((a, b) => (b.amounts.pcs || 0) - (a.amounts.pcs || 0) || String(a.vendor + a.model).localeCompare(String(b.vendor + b.model)));
   }
 
   // ───────────────────────── baselines & diff ─────────────────────────
@@ -423,7 +435,7 @@
           ['delta_pn', 'Delta P/N', it.delta_pn], ['vendor_pn', 'Vendor P/N', it.vendor_pn],
           ['covered', '覆蓋元件', (it.covered || []).map(c => [c.part, c.refdes].filter(Boolean).join(' ')).join(', ')],
           ['sources', '2nd source', (it.sources || []).map(s => [s.vendor, s.model, s.mpn, s.delta_pn].filter(Boolean).join(' ')).join(', ') + ' ' + (it.sourcing_note || '')],
-          ['fabricator', '加工廠', it.fabricator], ['note', '備註', it.note], ['project', '專案', p.name + ' ' + (p.code || '') + ' ' + (p.product || '')],
+          ['fabricator', '加工廠', it.fabricator], ['note', '備註', it.note], ['project', '專案', p.name + ' ' + (p.code || '') + ' ' + schema.productTypeLabel(p.product_type)],
         ];
         const ok = terms.every(t => fields.some(f => String(f[2] || '').toUpperCase().includes(t)));
         if (!ok) return;
