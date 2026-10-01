@@ -26,7 +26,7 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 ```
 雲端沙箱沒有對外 CDN 憑證時：把 pinned 的 CDN 檔放在一個資料夾（檔名 = 路徑把 `/` 換成 `_`），
 設 `TIM_CDN_CACHE=<資料夾>`，E2E 會從本機提供（SRI 照樣驗證）；全域安裝的 Playwright 用 `NODE_PATH=$(npm root -g)`。
-**不可關閉 TLS 驗證。**
+**不可關閉 TLS 驗證。** 壓力測試：`TIM_SLOW_FRAMES=1` 讓 animation frame 變慢（模擬忙碌的 CI 機器）。
 
 ## 規則與踩過的坑
 1. **Repo 是公開的**：不可 commit 資料庫 JSON、匯出的 Excel、CAD 截圖、真實料號、真實專案的廠商 / 供應策略 / 元件清單。
@@ -34,6 +34,7 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 2. **Preact + htm 事件名稱**：沒有對應 `on*` DOM 屬性的事件要寫小寫（`oncompositionstart`、`oncompositionend`、`onfocusin`），
    寫成 camelCase 不會觸發（曾造成注音 / 倉頡輸入的字消失）。
 3. `useEffect` 裡註冊的 window / document listener 要透過 ref 讀最新的 props / state（effect 在 paint 後才跑，closure 會過期）。
+   一出現就要接鍵盤的元件（對話框 Enter / Esc）改用 `useLayoutEffect` 註冊，否則開啟瞬間按下的鍵會遺失（CI 上實際發生過）。
 4. **TIM 清單的列有 memo**（`GridRow` + `sig`）：列內畫到的任何值都要放進 `sig`；列內 handler 讀會變的父層狀態時，
    要用 `live.current` 或 ref（例如拖曳目標 `dropRef`），否則會拿到舊值。
 5. `TextField` 聚焦時用本地 buffer，blur / Enter 才 commit；IME 組字中不可 commit 中間字。輸入中絕不整區重繪。

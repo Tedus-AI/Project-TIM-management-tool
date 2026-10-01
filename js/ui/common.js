@@ -32,7 +32,9 @@
     // registered in an effect could call a stale onEnter (e.g. Enter right after typing).
     const cb = useRef(props);
     cb.current = props;
-    useEffect(() => {
+    // Layout effect: listen as soon as the dialog is in the DOM. A plain effect waits for the
+    // next frame, so Enter / Esc pressed right after the dialog appears was lost.
+    useLayoutEffect(() => {
       const onKey = e => {
         // Only the top-most dialog reacts (stacked dialogs, e.g. confirm over a wizard).
         const all = document.querySelectorAll('.modal-backdrop');

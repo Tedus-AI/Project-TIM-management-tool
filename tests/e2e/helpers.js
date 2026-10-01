@@ -32,6 +32,13 @@ async function start(opts) {
   const browser = await chromium.launch({ env: Object.assign({}, process.env, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }) });
   const context = await browser.newContext({ viewport: opts.viewport || { width: 1600, height: 960 }, acceptDownloads: true });
   await routeCdn(context);
+  // Stress option: slow animation frames (as on a busy CI runner) so hook effects run late.
+  if (process.env.TIM_SLOW_FRAMES) {
+    await context.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = cb => raf(t => setTimeout(() => cb(t), 90));
+    });
+  }
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));

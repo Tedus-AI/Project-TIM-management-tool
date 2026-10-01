@@ -105,3 +105,29 @@ module.exports = [
     },
   },
 ];
+
+module.exports.push({
+  name: 'dialogs take Enter / Esc pressed in the same instant they open',
+  async run(env) {
+    const { page } = env;
+    await openTrialWithDemo(env);
+    await page.click('.proj-name');
+    await page.click('.tab:has-text("變更紀錄")');
+    await page.waitForSelector('.baseline-card');
+    // Open the dialog and press the key within one task: no animation frame or timer runs in
+    // between, like a fast typist or a busy machine where effects run late.
+    const openThenKey = (button, key) => page.evaluate(async ([button, key]) => {
+      Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === button).click();
+      for (let i = 0; i < 20 && !document.querySelector('.modal'); i++) await Promise.resolve();
+      if (!document.querySelector('.modal')) return 'dialog not rendered';
+      (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      return 'ok';
+    }, [button, key]);
+    assert.equal(await openThenKey('與目前比較', 'Escape'), 'ok');
+    await page.waitForFunction(() => !document.querySelector('.modal'), null, { timeout: 3000 });
+    assert.equal(await openThenKey('建立基準', 'Enter'), 'ok');    // default name = project stage
+    await page.waitForFunction(() => !document.querySelector('.modal'), null, { timeout: 3000 });
+    const names = await page.evaluate(() => Object.values(TIM.store.db.projects)[0].baselines.map(b => b.name));
+    assert.deepEqual(names, ['EVT', 'DVT']);
+  },
+});
