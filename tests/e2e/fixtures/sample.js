@@ -77,9 +77,8 @@
     mk({ vendor: 'Vendor-C', model: 'TP-750', tim_type: 'pad', k: 7.5, hardness: 45, temp_min: -40, temp_max: 180, comp_rec_min: 10, comp_rec_max: 40, avl_status: 'qualifying' });
 
     const p = schema.newProject({
-      name: 'DEMO-RRU n78（範例專案）', code: 'DEMO-01', product: 'RRU-DEMO-64T', customer: 'Demo', stage: 'DVT',
+      name: 'DEMO-RRU n78（範例專案）', code: 'DEMO-01', product_type: 'sub6', customer: 'Demo', stage: 'DVT',
       owner: user || 'Thermal', me_owner: 'ME', description: '示範用專案：資料、料號、元件與圖面皆為虛構。',
-      env: { ta_min: -40, ta_max: 55, note: 'Outdoor, pole mount, solar loading' }, drawing_rev: 'Case rev C (demo)',
     }, user);
     const [bottom, top] = p.locations;
     const cov = (part, qty, power, pl, pw, cat, refdes, top) => schema.newCovered({ part, qty, power_w: power, top_pct: top == null ? null : top, pkg_l: pl, pkg_w: pw, cat, refdes: refdes || '' });

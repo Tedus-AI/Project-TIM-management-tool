@@ -78,12 +78,10 @@
 
 | 欄位 | 說明 / 為什麼要記 |
 |------|------------------|
-| ☆ 案名 / 專案代碼 / 產品型號 / 客戶 | 識別 |
+| ☆ 案名 / 專案代碼 / 產品類型（Sub-6 / mmWave）/ 客戶 | 識別 |
 | ☆ Stage | Proto / EVT / DVT / PVT / MP；搭配基準快照追蹤每個 build 的 TIM 組態 |
 | ☆ 專案狀態 | 進行中 / 暫停 / 結案（結案專案仍可被反查） |
 | ☆ 熱流負責人 / 機構負責人 | 變更時知道要找誰 |
-| ☆ 環境條件 Ta min / max、備註 | RRU 戶外 −40 ~ +55 °C；TIM 耐溫與低溫硬化都要對照 |
-| ☆ 機構圖面版次 | 間隙數值是依哪一版 3D / 2D 圖面量的 |
 | ☆ 位置分組（Location） | 預設 Bottom Case / Top Case，可自訂（Heatsink、Shield can、PSU cover…）與代表色 |
 
 ### 3.2 TIM 使用項目（Item，一列 = 一個裁切件 / 一種點膠）
@@ -194,8 +192,8 @@
 
 Project {
   id, rev, created_at, updated_at, created_by, updated_by,
-  name, code, product, customer, stage, status, owner, me_owner, description,
-  env: { ta_min, ta_max, note }, drawing_rev,
+  name, code, product_type /* 'sub6' | 'mmwave' | '' */, customer, stage, status, owner, me_owner,
+  description /* 畫面標示「備註」 */,
   locations: [ { id, name, color } ],
   items:     [ Item ],
   views:     [ View ],
@@ -394,7 +392,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 ┌──────────────────────────────────────────────────────────────────────┐
 │ ▲DELTA │ TIM MANAGEMENT │ 專案 · 材料庫        [狀態] [資料庫] [⚙]     │
 ├──────────────────────────────────────────────────────────────────────┤
-│ 專案名稱  [DVT]  Items 9 · 31 pcs · ⚠ 3        [↩][↪] [匯出 Excel]     │
+│ 專案名稱  [DVT]  Items 9 · 31 pcs · ⚠ 3   [↩][↪] [匯出 Excel][匯出 PDF] │
 │ 總覽 │ TIM 清單 │ 位置標註 │ 間隙與熱檢核 │ 變更紀錄                     │
 ├──────────────────────────────────────────────────────────────────────┤
 │ ■ Bottom Case  6 items · 22 pcs                                       │
@@ -437,7 +435,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 ### Phase 2 — 協作與報告
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
-- [ ] PDF 報告（TIM 清單＋位置圖＋檢核結果）
+- [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤
 - [ ] 跨專案比較（衍生機種差異）、料號合併建議
 - [ ] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核

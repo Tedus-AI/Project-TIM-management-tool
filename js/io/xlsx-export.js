@@ -39,6 +39,37 @@
     return it.sourcing_note && it.sources.some(s => s.note) ? it.sourcing_note : parse.formatSources(it);
   }
 
+  const TIM_LIST_HEADERS = ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source'];
+
+  /**
+   * TIM List content shared by the Excel and PDF exports: location groups (in location order)
+   * of rows { it, vals (10 base columns, Location first), extraVals, risk }.
+   */
+  function timListGroups(p, db, opts) {
+    opts = opts || {};
+    const extras = EXTRA_COLUMNS.filter(c => (opts.extra || []).includes(c.key));
+    const placed = calc.placedCounts(p);
+    const items = calc.orderedItems(p).filter(it => opts.includeObsolete || it.status !== 'obsolete');
+    return p.locations.map(loc => ({
+      loc,
+      rows: items.filter(it => it.location_id === loc.id).map(it => {
+        const mat = calc.materialOf(db, it);
+        const eff = calc.effective(it, mat);
+        const ctx = { it, eff, comp: calc.compressionCheck(it, mat, db.settings), th: calc.thermalEstimate(it, mat), placed: placed[it.id] || 0 };
+        return {
+          it,
+          risk: calc.sourceRisk(it),
+          vals: [
+            loc.name, it.item_no, parse.formatUsedOn(it.used_on), eff.vendor, eff.model,
+            schema.isDispense(eff.tim_type) ? (it.dispense.amount != null ? it.dispense.amount + ' ' + it.dispense.unit : '') : parse.formatSize(it.size),
+            Number.isFinite(it.qty) ? it.qty : null, it.delta_pn || '', parse.formatCovered(it.covered), secondSourceText(it, eff),
+          ],
+          extraVals: extras.map(e => { const v = e.get(ctx); return v === undefined ? '' : v; }),
+        };
+      }),
+    })).filter(g => g.rows.length);
+  }
+
   function colLeftPx(ws, colIdx) {
     let px = 0;
     for (let i = 1; i <= colIdx; i++) px += Math.round(((ws.getColumn(i).width || 9) * 7) + 5);
@@ -54,15 +85,10 @@
     wb.creator = 'TIM Management Tool';
     wb.created = new Date();
     const extras = EXTRA_COLUMNS.filter(c => (opts.extra || []).includes(c.key));
-    const placed = calc.placedCounts(p);
 
     // ───────── TIM List ─────────
     const ws = wb.addWorksheet('TIM List', { views: [{ state: 'frozen', ySplit: 1 }] });
-    const base = [
-      { header: 'Location', width: 7 }, { header: 'Item', width: 8 }, { header: 'Used On', width: 11 },
-      { header: 'Vendor', width: 14 }, { header: 'Model', width: 18 }, { header: 'Size', width: 15 },
-      { header: "Q'ty", width: 6 }, { header: 'Delta Part No.', width: 15 }, { header: 'Note', width: 36 }, { header: '2nd source', width: 26 },
-    ];
+    const base = TIM_LIST_HEADERS.map((h, i) => ({ header: h, width: [7, 8, 11, 14, 18, 15, 6, 15, 36, 26][i] }));
     const cols = base.concat(extras.map(e => ({ header: e.header, width: e.width })));
     cols.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
     const head = ws.getRow(1);
@@ -77,21 +103,11 @@
     head.height = 22;
 
     let r = 2;
-    const items = calc.orderedItems(p).filter(it => opts.includeObsolete || it.status !== 'obsolete');
-    p.locations.forEach(loc => {
-      const group = items.filter(it => it.location_id === loc.id);
-      if (!group.length) return;
+    timListGroups(p, db, opts).forEach(({ loc, rows }) => {
       const startRow = r;
       const fg = util.textOn(loc.color) === '#FFFFFF' ? 'FFFFFFFF' : 'FF000000';
-      group.forEach(it => {
-        const mat = calc.materialOf(db, it);
-        const eff = calc.effective(it, mat);
-        const ctx = { it, eff, comp: calc.compressionCheck(it, mat, db.settings), th: calc.thermalEstimate(it, mat), placed: placed[it.id] || 0 };
-        const vals = [
-          loc.name, it.item_no, parse.formatUsedOn(it.used_on), eff.vendor, eff.model,
-          schema.isDispense(eff.tim_type) ? (it.dispense.amount != null ? it.dispense.amount + ' ' + it.dispense.unit : '') : parse.formatSize(it.size),
-          Number.isFinite(it.qty) ? it.qty : null, it.delta_pn || '', parse.formatCovered(it.covered), secondSourceText(it, eff),
-        ].concat(extras.map(e => { const v = e.get(ctx); return v === undefined ? '' : v; }));
+      rows.forEach(({ it, vals: base10, extraVals, risk }) => {
+        const vals = base10.concat(extraVals);
         const row = ws.getRow(r);
         vals.forEach((v, i) => {
           const cell = row.getCell(i + 1);
@@ -102,7 +118,6 @@
           cell.fill = fill(loc.color);
         });
         row.getCell(8).numFmt = '@';
-        const risk = calc.sourceRisk(it);
         const sc = row.getCell(10);
         if (risk === 'single') { sc.fill = fill(PINK); sc.font = { name: 'Arial', size: 10, color: { argb: 'FFB4237A' } }; }
         else if (risk === 'unverified') { sc.fill = fill(AMBER); sc.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } }; }
@@ -150,7 +165,7 @@
       if (col !== 0) r += blockRows;
     }
 
-    if (opts.details !== false) addDetailSheets(wb, p, db, items);
+    if (opts.details !== false) addDetailSheets(wb, p, db, calc.orderedItems(p).filter(it => opts.includeObsolete || it.status !== 'obsolete'));
     return wb;
   }
 
@@ -206,11 +221,10 @@
 
     // Project
     const pr = [
-      ['案名', p.name], ['專案代碼', p.code], ['產品型號', p.product], ['客戶', p.customer], ['Stage', p.stage],
-      ['熱流負責人', p.owner], ['機構負責人', p.me_owner], ['環境 Ta', (p.env.ta_min ?? '') + ' ~ ' + (p.env.ta_max ?? '') + ' °C ' + (p.env.note || '')],
-      ['圖面版次', p.drawing_rev], ['說明', p.description], ['匯出時間', util.fmtDateTime(util.nowIso())],
+      ['案名', p.name], ['專案代碼', p.code], ['產品類型', schema.productTypeLabel(p.product_type)], ['客戶', p.customer], ['Stage', p.stage],
+      ['熱流負責人', p.owner], ['機構負責人', p.me_owner], ['備註', p.description], ['匯出時間', util.fmtDateTime(util.nowIso())],
     ];
-    calc.materialUsage(p, db).forEach(m => pr.push(['材料用量', m.vendor + ' ' + m.model + '：' + m.pcs + ' pcs（' + m.items.join(', ') + '）']));
+    calc.materialUsage(p, db).forEach(m => pr.push(['材料用量', m.vendor + ' ' + m.model + '：' + (m.usage || '—') + '（' + m.items.join(', ') + '）']));
     addSheet(wb, 'Project', ['欄位', '內容'], pr, [14, 80]);
   }
 
@@ -223,5 +237,5 @@
     return name;
   }
 
-  TIM.xlsxExport = { EXTRA_COLUMNS, buildWorkbook, exportProjectXlsx, secondSourceText };
+  TIM.xlsxExport = { EXTRA_COLUMNS, TIM_LIST_HEADERS, PINK, AMBER, timListGroups, buildWorkbook, exportProjectXlsx, secondSourceText };
 })();

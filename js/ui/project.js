@@ -51,6 +51,40 @@
     openModal(close => html`<${ExportModal} pid=${pid} close=${close} />`);
   }
 
+  function PdfModal(props) {
+    const all = TIM.pdfExport.SECTIONS.map(s => s.key);
+    const [sections, setSections] = usePref('pdf_sections', all);
+    const [busy, setBusy] = useState(null);           // null | 'loading' | { done, total }
+    const toggle = k => setSections(sections.includes(k) ? sections.filter(x => x !== k) : all.filter(x => x === k || sections.includes(x)));
+    const run = async () => {
+      if (busy || !sections.length) return;
+      setBusy('loading');
+      try {
+        const r = await TIM.pdfExport.exportProjectPdf(props.pid, { sections, onProgress: (done, total) => setBusy({ done, total }) });
+        toast('已匯出 ' + r.name + '（' + r.pages + ' 頁）', 'ok');
+        props.close(true);
+      } catch (e) {
+        console.error(e);
+        toast('PDF 匯出失敗：' + (e.message || e), 'err');
+        setBusy(null);
+      }
+    };
+    const label = busy === 'loading' ? '準備中…' : busy ? '產生第 ' + Math.min(busy.done + 1, busy.total) + ' / ' + busy.total + ' 頁…' : '匯出';
+    return html`<${Modal} title="匯出 PDF" size="mid" onClose=${() => !busy && props.close(false)} onEnter=${run}
+      footer=${html`<span class="left">A4 橫式，與報告產生器相同的頁框</span>
+        <button class="btn btn-ghost" disabled=${!!busy} onClick=${() => props.close(false)}>取消</button>
+        <button class="btn btn-primary" disabled=${!!busy || !sections.length} onClick=${run}><${Icon} name="download" /> ${label}</button>`}>
+      <div class="field-label" style="margin-bottom:8px">包含的頁面：</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${TIM.pdfExport.SECTIONS.map(s => html`<label class="check"><input type="checkbox" checked=${sections.includes(s.key)} disabled=${!!busy} onChange=${() => toggle(s.key)} /> ${s.label}</label>`)}
+      </div>
+    </${Modal}>`;
+  }
+
+  function openPdfExport(pid) {
+    openModal(close => html`<${PdfModal} pid=${pid} close=${close} />`);
+  }
+
   function ProjectPage(props) {
     const st = TIM.store;
     const p = st.db.projects[props.route.pid];
@@ -89,7 +123,7 @@
           <span class="tag tag-stage">${p.stage}</span>
           ${p.status !== 'active' ? html`<span class="tag tag-mute">${schema.labelOf(schema.PROJECT_STATUS, p.status)}</span>` : null}
           <div class="proj-meta">
-            ${[p.code, p.product, p.customer].filter(Boolean).length ? html`<span>${[p.code, p.product, p.customer].filter(Boolean).join(' · ')}</span>` : null}
+            ${schema.projectSubline(p) ? html`<span>${schema.projectSubline(p)}</span>` : null}
             <span class="mono"><b>${stats.items}</b> items · <b>${stats.pcs}</b> pcs</span>
             ${stats.single ? html`<span class="tag tag-single">單一來源 ${stats.single}</span>` : null}
           </div>
@@ -97,6 +131,7 @@
             <button class="btn btn-ghost btn-sm btn-icon rw-only" title="復原 (Ctrl+Z)" disabled=${!st.canUndo(scope)} onClick=${() => st.undo(scope)}><${Icon} name="undo" /></button>
             <button class="btn btn-ghost btn-sm btn-icon rw-only" title="重做 (Ctrl+Shift+Z)" disabled=${!st.canRedo(scope)} onClick=${() => st.redo(scope)}><${Icon} name="redo" /></button>
             <button class="btn btn-secondary btn-sm" onClick=${() => openExport(p.id)}><${Icon} name="excel" /> 匯出 Excel</button>
+            <button class="btn btn-secondary btn-sm" onClick=${() => openPdfExport(p.id)}><${Icon} name="pdf" /> 匯出 PDF</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="更多" onClick=${more}><${Icon} name="more" /></button>
           </div>
         </div>
@@ -113,4 +148,5 @@
 
   TIM.ui.ProjectPage = ProjectPage;
   TIM.ui.openExport = openExport;
+  TIM.ui.openPdfExport = openPdfExport;
 })();

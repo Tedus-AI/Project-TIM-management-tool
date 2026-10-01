@@ -8,12 +8,12 @@
 
   function NewProjectModal(props) {
     const s = TIM.store.db.settings;
-    const [f, setF] = useState({ name: '', code: '', product: '', customer: '', stage: 'EVT', owner: TIM.app.getUserName(), locations: (s.default_locations || []).join(', ') });
+    const [f, setF] = useState({ name: '', code: '', product_type: '', customer: '', stage: 'EVT', owner: TIM.app.getUserName(), locations: (s.default_locations || []).join(', ') });
     const [err, setErr] = useState('');
     const set = (k, v) => setF(Object.assign({}, f, { [k]: v }));
     const submit = () => {
       if (!f.name.trim()) { setErr('請輸入案名'); return; }
-      const pid = TIM.actions.createProject({ name: f.name.trim(), code: f.code.trim(), product: f.product.trim(), customer: f.customer.trim(), stage: f.stage, owner: f.owner.trim() });
+      const pid = TIM.actions.createProject({ name: f.name.trim(), code: f.code.trim(), product_type: f.product_type, customer: f.customer.trim(), stage: f.stage, owner: f.owner.trim() });
       const names = f.locations.split(/[,，]/).map(x => x.trim()).filter(Boolean);
       if (names.length) TIM.store.mutateProject(pid, p => { p.locations = names.map((n, i) => schema.newLocation(n, i)); }, { noUndo: true });
       props.close(pid);
@@ -23,7 +23,7 @@
       <div class="form-grid" style="grid-template-columns:1fr 1fr">
         <${Field} label="案名 *" class="span-2" error=${err}><input class=${cx('inp', err && 'invalid')} autofocus value=${f.name} placeholder="例如：RRU n78 64T" onInput=${e => { set('name', e.target.value); setErr(''); }} /></${Field}>
         <${Field} label="專案代碼"><input class="inp" value=${f.code} onInput=${e => set('code', e.target.value)} /></${Field}>
-        <${Field} label="產品型號"><input class="inp" value=${f.product} onInput=${e => set('product', e.target.value)} /></${Field}>
+        <${Field} label="產品類型"><${SelectField} value=${f.product_type} options=${schema.PRODUCT_TYPES} onChange=${v => set('product_type', v)} /></${Field}>
         <${Field} label="客戶"><input class="inp" value=${f.customer} onInput=${e => set('customer', e.target.value)} /></${Field}>
         <${Field} label="Stage"><${SelectField} value=${f.stage} allowEmpty=${false} options=${schema.STAGES} onChange=${v => set('stage', v)} /></${Field}>
         <${Field} label="熱流負責人"><input class="inp" value=${f.owner} onInput=${e => set('owner', e.target.value)} /></${Field}>
@@ -61,6 +61,7 @@
       { label: '開啟', icon: 'chevR', onClick: () => go('p/' + p.id) },
       { label: '複製專案…', icon: 'copy', onClick: () => duplicate(p), disabled: TIM.store.readonly },
       { label: '匯出 Excel', icon: 'excel', onClick: () => TIM.app.exportExcel(p.id) },
+      { label: '匯出 PDF', icon: 'pdf', onClick: () => TIM.ui.openPdfExport(p.id) },
       { label: '匯出分享檔（JSON）', icon: 'download', onClick: () => TIM.share.exportProject(p.id) },
       'sep',
       { label: '刪除專案…', icon: 'trash', danger: true, onClick: () => remove(p), disabled: TIM.store.readonly },
@@ -178,7 +179,7 @@
           <tbody>${rows.map(({ p, s }) => html`<tr class="clickable" key=${p.id} onClick=${() => go('p/' + p.id)} onContextMenu=${e => { e.preventDefault(); projectMenu(e, p); }}>
             <td style="min-width:260px">
               <div class="proj-name">${p.name || '(未命名)'}</div>
-              <div class="proj-sub">${[p.code, p.product, p.customer].filter(Boolean).join(' · ') || '—'}${p.status !== 'active' ? html` · <span class="tag tag-mute">${schema.labelOf(schema.PROJECT_STATUS, p.status)}</span>` : null}</div>
+              <div class="proj-sub">${schema.projectSubline(p) || '—'}${p.status !== 'active' ? html` · <span class="tag tag-mute">${schema.labelOf(schema.PROJECT_STATUS, p.status)}</span>` : null}</div>
             </td>
             <td><span class="tag tag-stage">${p.stage}</span></td>
             <td><div class="proj-metrics"><span><b>${s.items}</b> items</span><span><b>${s.pcs}</b> pcs</span><span><b>${s.materials}</b> 材料</span></div></td>
