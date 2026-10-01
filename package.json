@@ -1,0 +1,15 @@
+{
+  "name": "project-tim-management-tool",
+  "private": true,
+  "version": "0.0.0",
+  "description": "專案 TIM 管理工具 — static web app, local JSON database (no build step)",
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js",
+    "test:e2e": "node tests/e2e/run.js",
+    "smoke": "node tests/e2e/smoke.js",
+    "serve": "node tests/e2e/serve.js 8765"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

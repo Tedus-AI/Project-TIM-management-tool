@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tim-version" content="__BUILD_VERSION__">
+  <title>專案 TIM 管理器 · Project TIM Manager</title>
+  <link rel="icon" type="image/png" href="assets/delta-logo-toolbar.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css?v=__BUILD_VERSION__">
+</head>
+<body>
+  <div id="app"><div class="boot">LOADING · TIM MANAGEMENT</div></div>
+
+  <!-- Core logic (pure, shared with the Node unit tests) -->
+  <script src="js/core/util.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/schema.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/parse.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/calc.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/geom.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/merge.js?v=__BUILD_VERSION__"></script>
+  <script src="js/core/store.js?v=__BUILD_VERSION__"></script>
+
+  <!-- Storage backends -->
+  <script src="js/db/idb.js?v=__BUILD_VERSION__"></script>
+  <script src="js/db/fileDb.js?v=__BUILD_VERSION__"></script>
+  <script src="js/db/backup.js?v=__BUILD_VERSION__"></script>
+
+  <!-- Preact + htm (pinned, SRI-checked; jsDelivr with unpkg fallback) -->
+  <script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.umd.js"
+          integrity="sha384-w94Y7k7ToXbmIx5Vi/LxHtprASwddoLhbR/0ZhekgNn8pP9VNRRHzmp2tqrALfKY"
+          crossorigin="anonymous"></script>
+  <script>
+    if (!window.htmPreact) {
+      document.write('<script src="https://unpkg.com/htm@3.1.1/preact/standalone.umd.js" ' +
+        'integrity="sha384-w94Y7k7ToXbmIx5Vi/LxHtprASwddoLhbR/0ZhekgNn8pP9VNRRHzmp2tqrALfKY" crossorigin="anonymous"><\/script>');
+    }
+  </script>
+  <script>
+    if (!window.htmPreact) {
+      document.getElementById('app').innerHTML =
+        '<div class="boot"><div class="boot-fatal"><b>無法載入介面元件庫（Preact / htm）。</b><br>' +
+        '請確認網路或公司防火牆允許 <b>cdn.jsdelivr.net</b> 或 <b>unpkg.com</b>，然後重新整理頁面。<br>' +
+        '資料庫檔案沒有被讀取或修改。</div></div>';
+    }
+  </script>
+
+  <!-- UI -->
+  <script src="js/ui/h.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/common.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/fields.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/loader.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/image.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/render-view.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/xlsx-export.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/xlsx-import.js?v=__BUILD_VERSION__"></script>
+  <script src="js/io/share.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/actions.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/gate.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/home.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/overview.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/bom.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/item-drawer.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/map.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/analysis.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/changelog.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/library.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/import-wizard.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/settings.js?v=__BUILD_VERSION__"></script>
+  <script src="js/ui/project.js?v=__BUILD_VERSION__"></script>
+  <script src="js/app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>
