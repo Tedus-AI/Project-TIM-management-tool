@@ -15,8 +15,8 @@ const OUT = process.env.SHOT_DIR || path.resolve(__dirname, '../../test-results/
     await page.goto(base);
     await page.waitForSelector('.gate', { timeout: 20000 });
     await shot('01-gate');
-    await page.fill('.gate input.inp', 'Tester');
-    await page.click('text=開始試用（含範例專案）');
+    await page.evaluate(() => TIM.app.setUserName('Tester'));
+    await page.click('.gate-link:has-text("瀏覽器暫存")');
     await page.waitForSelector('.proj-table', { timeout: 20000 });
     await page.waitForTimeout(500);
     await shot('02-home');

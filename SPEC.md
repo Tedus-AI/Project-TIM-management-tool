@@ -371,7 +371,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 | 項目 | 規格 |
 |------|------|
-| 主要模式 | 本機 / 網路磁碟上的 JSON 檔（File System Access API，Chrome / Edge） |
+| 主要模式 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續 |
 | 試用模式 | 瀏覽器 IndexedDB（清除瀏覽器資料會消失，介面上明確警示） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |
 | 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料 |

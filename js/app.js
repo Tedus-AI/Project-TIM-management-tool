@@ -72,6 +72,38 @@
     return ok;
   };
 
+  /**
+   * Pick the database folder: an existing database opens directly (several → the user picks
+   * one); an empty folder asks whether to create tim_db.json and then opens it.
+   */
+  app.openFolder = async function () {
+    const fb = TIM.fileBackend;
+    const r = await fb.pickFolder();
+    if (!r.ok) {
+      if (r.reason !== 'cancelled') fail(r.reason === 'denied' ? '沒有取得資料夾讀寫權限' : '無法開啟資料夾：' + (r.error || r.reason));
+      return false;
+    }
+    let found;
+    try { found = await fb.scanFolder(r.dir); } catch (e) { return fail('無法讀取資料夾：' + (e.message || e)); }
+    let pick = found.find(c => c.main) || (found.length === 1 ? found[0] : null);
+    if (!pick && found.length) {
+      pick = await TIM.ui.chooseDatabase(r.dir.name, found);
+      if (!pick) return false;
+    }
+    let isNew = false, sample = false;
+    if (pick) fb.useFolderFile(r.dir, pick.handle);
+    else {
+      const ans = await TIM.ui.askCreateDatabase(r.dir.name);
+      if (!ans) return false;
+      const c = await fb.createInFolder(r.dir);
+      if (!c.ok) return fail('無法建立資料庫：' + (c.error || c.reason));
+      isNew = true; sample = ans.sample;
+    }
+    const ok = await app.attach(fb, { sample });
+    if (ok) { await fb.remember(); toast((isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok'); }
+    return ok;
+  };
+
   app.connectBrowser = async function (opts) {
     return app.attach(TIM.browserBackend, { sample: opts && opts.sample });
   };
@@ -207,7 +239,7 @@
       <div class="brand" onClick=${() => go('')} title="專案列表">
         <img src="assets/delta-logo-toolbar.png" alt="Delta" />
         <div class="brand-divider"></div>
-        <div class="brand-text"><span class="brand-name">DELTA</span><span class="brand-sub">TIM MANAGEMENT</span></div>
+        <div class="brand-text"><span class="brand-name">DELTA</span><span class="brand-sub">TIM MANAGER</span></div>
       </div>
       <nav class="nav">
         <a class=${cx('nav-link', (r.page === 'home' || r.page === 'project') && 'active')} href="#/"><${Icon} name="layers" size=${14} /> 專案</a>
@@ -217,8 +249,9 @@
       <div class="toolbar-spacer"></div>
       <div class="toolbar-right">
         <${SaveState} />
-        <button class="db-chip" title="資料庫與設定" onClick=${() => TIM.ui.openSettings()}>
+        <button class="db-chip" title=${'目前資料庫：' + (st.backend && st.backend.location ? st.backend.location() : st.backend ? st.backend.label() : '') + '\n點擊回到資料庫選擇畫面（會先存檔）'} onClick=${() => app.disconnect()}>
           <${Icon} name=${st.backend && st.backend.kind === 'browser' ? 'eye' : 'db'} size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
+          <span class="db-chip-exit"><${Icon} name="exit" size=${13} />切換</span>
         </button>
         <button class="btn btn-dark btn-sm btn-icon" title="設定" onClick=${() => TIM.ui.openSettings()}><${Icon} name="gear" /></button>
       </div>
@@ -260,7 +293,7 @@
   function App() {
     const st = useStore();
     const route = useRoute();
-    useEffect(() => { document.title = (st.db && route.page === 'project' && st.db.projects[route.pid] ? st.db.projects[route.pid].name + ' · ' : '') + 'TIM Management'; });
+    useEffect(() => { document.title = (st.db && route.page === 'project' && st.db.projects[route.pid] ? st.db.projects[route.pid].name + ' · ' : '') + '專案 TIM 管理器'; });
     if (!st.db) {
       return html`<div class="app" style="grid-template-rows:1fr"><${TIM.ui.Gate} error=${app.gateError} noAutoRestore=${app.noAutoRestore} /><${Overlays} /></div>`;
     }

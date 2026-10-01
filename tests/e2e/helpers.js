@@ -60,8 +60,8 @@ async function stop(env) {
 async function openTrialWithDemo(env, user) {
   await env.page.goto(env.base);
   await env.page.waitForSelector('.gate', { timeout: 30000 });
-  if (user) await env.page.fill('.gate input.inp', user);
-  await env.page.click('text=開始試用（含範例專案）');
+  if (user) await env.page.evaluate(u => TIM.app.setUserName(u), user);
+  await env.page.click('.gate-link:has-text("瀏覽器暫存")');
   await env.page.waitForSelector('.proj-table', { timeout: 30000 });
 }
 
