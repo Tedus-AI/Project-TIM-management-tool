@@ -56,6 +56,7 @@
     info: '<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5v.3"/>',
     pdf: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/><path d="M6 8.5h5M6 10.75h5M6 13h3"/>',
     exit: '<path d="M9.5 3H3.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6"/><path d="M6.5 8h7.5M11.5 5.5 14 8l-2.5 2.5"/>',
+    cloud: '<path d="M4.6 12.5h6.9a2.9 2.9 0 0 0 .3-5.8A4 4 0 0 0 4.1 7.6 2.5 2.5 0 0 0 4.6 12.5z"/>',
     db: '<ellipse cx="8" cy="4" rx="5" ry="1.8"/><path d="M3 4v8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4M3 8c0 1 2.2 1.8 5 1.8S13 9 13 8"/>',
   };
 
@@ -66,10 +67,19 @@
       dangerouslySetInnerHTML=${{ __html: ICONS[props.name] || '' }}></svg>`;
   }
 
-  /** Re-render the calling component whenever the store changes. */
+  /**
+   * Re-render the calling component whenever the store changes. Subscribes in a layout effect
+   * and catches up on a change made between render and subscription (e.g. a database opened
+   * while the start page was still mounting), which would otherwise be missed.
+   */
   function useStore() {
     const [, force] = useReducer(x => x + 1, 0);
-    useEffect(() => TIM.store.subscribe(() => force()), []);
+    const seen = TIM.store.version;
+    useLayoutEffect(() => {
+      const off = TIM.store.subscribe(() => force());
+      if (TIM.store.version !== seen) force();
+      return off;
+    }, []);
     return TIM.store;
   }
 

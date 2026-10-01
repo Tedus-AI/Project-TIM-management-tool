@@ -207,6 +207,12 @@
     return String(s || '').replace(/[\\/:*?"<>|\r\n]+/g, '_').replace(/\s+/g, '_').slice(0, 80) || 'untitled';
   }
 
+  /** File / folder name SharePoint and Windows accept (keeps spaces and CJK; no leading / trailing dots). */
+  function storageName(s) {
+    const t = String(s == null ? '' : s).replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().replace(/^[.\s]+|[.\s]+$/g, '');
+    return (t || '_').slice(0, 120);
+  }
+
   /** Mix a hex colour with white (t=0 → colour, t=1 → white). */
   function tint(hex, t) {
     const c = hexToRgb(hex);
@@ -250,7 +256,7 @@
   return {
     uid, toHalfWidth, num, round, fmt, fmtFixed, clamp, clone, escapeHtml, nowIso,
     fmtDateTime, fmtDate, todayStr, fmtAgo, normalizeKey, naturalCompare, nextItemNo,
-    nextVariantNo, debounce, displayValue, sum, byteLength, fmtBytes, fileSafe,
+    nextVariantNo, debounce, displayValue, sum, byteLength, fmtBytes, fileSafe, storageName,
     tint, shade, hexToRgb, rgbToHex, textOn,
   };
 });

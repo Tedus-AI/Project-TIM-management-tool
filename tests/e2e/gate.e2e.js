@@ -29,7 +29,7 @@ async function fakeFolder(page, files, name) {
     window.showDirectoryPicker = async () => handle;
   }, [files, name || 'TIM-share']);
 }
-const pickFolder = page => page.click('button:has-text("選擇資料庫資料夾")');
+const pickFolder = page => page.click('button:has-text("本機資料夾")');
 const files = page => page.evaluate(() => Object.keys(window.__fakeDir.files).sort());
 const fileText = (page, n) => page.evaluate(n => window.__fakeDir.files[n].text, n);
 const tinyDb = name => JSON.stringify({ schema: 'tim-db', schema_version: 1, rev: 3, settings: {}, materials: {},

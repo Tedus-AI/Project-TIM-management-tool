@@ -67,7 +67,7 @@
               <span><i class="swatch" style="background:var(--d-500)"></i>min~max 壓縮率</span>
               <span><i class="swatch" style="background:var(--ink);width:3px"></i>nom</span>
             </div>
-            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>建議範圍來源：Item 手動 → 材料庫 → 設定的一般建議值<br/>✕ Error：最大間隙 ≥ T（可能未接觸）</div></${InfoDot}>
+            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>建議範圍來源：Item 手動 → 一般建議值（依 TIM 類型）<br/>✕ Error：最大間隙 ≥ T（可能未接觸）</div></${InfoDot}>
           </div>
         </div>
         ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
@@ -81,13 +81,13 @@
             <td class="ellipsis" style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td>
             <td class="r mono">${util.fmt(r.it.size.t)}</td>
             <td class="r mono">${[r.it.gap.min, r.it.gap.nom, r.it.gap.max].map(v => (v == null ? '—' : util.fmt(v))).join(' / ')}</td>
-            <td class="r mono" title=${r.cc.rec ? { item: 'Item 手動', material: '材料庫', generic: '一般建議值（材料庫未填）' }[r.cc.rec.source] : ''}>${r.cc.rec ? r.cc.rec.min + '~' + r.cc.rec.max + (r.cc.rec.source === 'generic' ? '*' : '') : '—'}</td>
+            <td class="r mono" title=${r.cc.rec ? { item: 'Item 手動', generic: '一般建議值' }[r.cc.rec.source] : ''}>${r.cc.rec ? r.cc.rec.min + '~' + r.cc.rec.max + (r.cc.rec.source === 'generic' ? '*' : '') : '—'}</td>
             <td class="r mono">${util.fmt(r.cc.min, 1)}</td><td class="r mono">${util.fmt(r.cc.max, 1)}</td>
             <td class="rangecell"><${RangeCell} cc=${r.cc} hi=${hi} /></td>
             <td><span class=${'tag ' + STATUS[r.cc.status].cls} title=${r.cc.msgs.join('\n')}>${STATUS[r.cc.status].icon} ${STATUS[r.cc.status].label}</span></td>
           </tr>`)}</tbody>
         </table></div>
-        <div class="muted" style="font-size:11px;margin-top:6px">* = 材料庫未填建議壓縮率，使用設定中的一般建議值。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙與壓縮」填入 T 與設計間隙（min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
+        <div class="muted" style="font-size:11px;margin-top:6px">* = 未手動設定建議範圍，使用一般建議值。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙與壓縮」填入 T 與設計間隙（min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
         ${missing.length ? html`<div class="panel panel-pad mt12" style="font-size:12px">
           <b>缺間隙資料：</b> ${missing.map((r, i) => html`${i ? '、' : ''}<a href=${'#/p/' + p.id + '/bom/' + r.it.id}>${r.it.item_no || '(未編號)'}</a>`)}
         </div>` : null}

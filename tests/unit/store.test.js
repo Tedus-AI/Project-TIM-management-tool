@@ -198,3 +198,86 @@ test('remote edit adopted mid-save + local edit of the same project → conflict
   assert.equal(copy.code, 'alice-p');
   assert.equal(disk.projects[Q].customer, 'alice-q');
 });
+
+/**
+ * File with an eTag (simulates SharePoint): a write is rejected with 412 (error.conflict) when
+ * the file changed since this client's last head / read. `f.fail` injects one failing write;
+ * `land: true` means it reached the server anyway (timeout after the upload).
+ */
+function etagFile() {
+  const f = { text: '', etag: 1, writes: 0, rejected: 0, fail: null };
+  return {
+    file: f,
+    backend: () => {
+      let seen = null;
+      return {
+        kind: 'sp', label: () => 'sp',
+        head: async () => { seen = f.etag; return f.text.slice(0, 512); },
+        read: async () => { seen = f.etag; return f.text; },
+        write: async (t) => {
+          if (f.fail) { const x = f.fail; f.fail = null; if (x.land) { f.text = t; f.etag++; } throw x.err; }
+          if (seen !== f.etag) { f.rejected++; throw Object.assign(new Error('412'), { conflict: true, status: 412 }); }
+          f.text = t; f.etag++; seen = f.etag; f.writes++;
+        },
+      };
+    },
+  };
+}
+
+test('eTag storage: two saves at the same moment → the 412 loser merges and writes again', async () => {
+  const file = etagFile();
+  const a = await open(file, 'alice');
+  const P = addProject(a, 'P');
+  const Q = addProject(a, 'Q');
+  await a.flush();
+  const b = await open(file, 'bob');
+  a.mutateProject(P, p => { p.customer = 'alice'; });
+  b.mutateProject(Q, p => { p.customer = 'bob'; });
+  await Promise.all([a.saveNow(), b.saveNow()]);     // both read the same eTag, then both write
+  await a.flush(); await b.flush();
+  assert.equal(file.file.rejected, 1, 'one write was rejected with 412');
+  const disk = JSON.parse(file.file.text);
+  assert.equal(disk.projects[P].customer, 'alice');
+  assert.equal(disk.projects[Q].customer, 'bob');
+  assert.equal(Object.keys(disk.projects).length, 2, 'no conflict copies');
+  assert.equal(a.conflicts.length + b.conflicts.length, 0);
+  assert.equal(b.status.state, 'saved');
+  await a.syncCheck();
+  assert.equal(a.db.projects[Q].customer, 'bob', 'the other client picks it up');
+});
+
+test('eTag storage: a timed-out write that did land is not reported as a conflict with ourselves', async () => {
+  const file = etagFile();
+  const a = await open(file, 'alice');
+  const P = addProject(a, 'P');
+  await a.flush();
+  a.mutateProject(P, p => { p.customer = 'v1'; });
+  file.file.fail = { land: true, err: Object.assign(new Error('SharePoint 連線逾時'), { network: true, uncertain: true }) };
+  await a.saveNow();
+  assert.equal(a.status.state, 'error');
+  assert.equal(JSON.parse(file.file.text).projects[P].customer, 'v1', 'the write reached the file');
+  a.mutateProject(P, p => { p.customer = 'v2'; });
+  await a.saveNow();
+  await a.flush();
+  const disk = JSON.parse(file.file.text);
+  assert.equal(Object.keys(disk.projects).length, 1, 'no conflict copy of our own edit');
+  assert.equal(disk.projects[P].customer, 'v2');
+  assert.equal(a.conflicts.length, 0);
+  assert.equal(a.status.state, 'saved');
+});
+
+test('eTag storage: a failed write that did not land is simply retried', async () => {
+  const file = etagFile();
+  const a = await open(file, 'alice');
+  const P = addProject(a, 'P');
+  await a.flush();
+  a.mutateProject(P, p => { p.customer = 'v1'; });
+  file.file.fail = { land: false, err: Object.assign(new Error('SharePoint 連線逾時'), { network: true, uncertain: true }) };
+  await a.saveNow();
+  assert.equal(a.status.state, 'error');
+  await a.saveNow();
+  const disk = JSON.parse(file.file.text);
+  assert.equal(disk.projects[P].customer, 'v1');
+  assert.equal(Object.keys(disk.projects).length, 1);
+  assert.equal(a.status.state, 'saved');
+});

@@ -10,7 +10,7 @@
   function EntryModal(props) {
     const p = props.p;
     const [f, setF] = useState({ kind: 'ecn', ecn: '', item_no: '', text: '' });
-    const set = (k, v) => setF(Object.assign({}, f, { [k]: v }));
+    const set = (k, v) => setF(prev => Object.assign({}, prev, { [k]: v }));
     const save = () => {
       if (!f.text.trim()) return;
       A().addLogEntry(p.id, { kind: f.kind, ecn: f.kind === 'ecn' ? f.ecn.trim() : '', item_no: f.item_no, text: f.text.trim() });

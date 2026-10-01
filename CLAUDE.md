@@ -11,7 +11,10 @@
   升級 CDN 版本時必須同步更新 SRI hash。
 - **所有資料修改都走 `TIM.actions`（`js/ui/actions.js`）** → `TIM.store.mutateProject / mutateMaterials / mutateDb`，
   才會有 undo scope、變更紀錄、自動存檔。UI 不可直接改 `TIM.store.db`。
-- 儲存：`js/db/`（資料庫資料夾內的 JSON 檔、每日備份；IndexedDB 只用來記住資料夾 handle）；多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）。
+- 儲存：`js/db/sharepoint.js`（SharePoint：Graph + MSAL，`auth.html` 為重新導向頁；寫入帶 If-Match eTag，412 → store 重讀合併再寫）、
+  `js/db/fileDb.js`（本機資料庫資料夾；IndexedDB 只用來記住資料夾 handle）、`js/db/backup.js`（每日備份，SharePoint 寫到 Database/Backup）。
+  後端介面：`head / read / write / size`，規格書檔案走 `backend.files`（`put / blob / webUrl / del`，路徑相對 Datasheets 資料夾）。
+  多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）；`store.js` 處理 412（`error.conflict`）與逾時未知結果（`error.uncertain`）。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。
@@ -36,15 +39,20 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
    寫成 camelCase 不會觸發（曾造成注音 / 倉頡輸入的字消失）。
 3. `useEffect` 裡註冊的 window / document listener 要透過 ref 讀最新的 props / state（effect 在 paint 後才跑，closure 會過期）。
    一出現就要接鍵盤的元件（對話框 Enter / Esc）改用 `useLayoutEffect` 註冊，否則開啟瞬間按下的鍵會遺失（CI 上實際發生過）。
+   `useStore` 同理：layout effect 訂閱，並補上 render 與訂閱之間的變更（否則起始頁掛載中開啟資料庫，畫面會停在起始頁）。
 4. **TIM 清單的列有 memo**（`GridRow` + `sig`）：列內畫到的任何值都要放進 `sig`；列內 handler 讀會變的父層狀態時，
    要用 `live.current` 或 ref（例如拖曳目標 `dropRef`），否則會拿到舊值。
 5. `TextField` 聚焦時用本地 buffer，blur / Enter 才 commit；IME 組字中不可 commit 中間字。輸入中絕不整區重繪。
-6. 對話框：Enter / Esc 由 `Modal` 統一處理；Enter 不可重新觸發開啟對話框的按鈕。
+6. 對話框：Enter / Esc 由 `Modal` 統一處理；Enter 不可重新觸發開啟對話框的按鈕。開啟後的自動聚焦若焦點已在對話框內就不動
+   （否則快速輸入時字會跑到第一個欄位）；表單 state 用函式型更新 `setF(prev => …)`。
 7. 儲存安全：壞檔 / 非本工具檔案 → 唯讀，絕不覆寫；孤兒圖片只在沒有任何引用（含 undo 歷史）時清除。
+   規格書實體檔：存檔成功且沒有材料引用時才刪（`app.queueFileDeletes`；使用者看得到 SharePoint，刪除要真的發生，所以不看 undo 歷史，
+   undo 叫回的紀錄若檔案已刪，檢視時提示並可移除紀錄）。SharePoint 設定（網站、資料夾）在 `sharepoint.js` 的 `CONFIG`。
 8. 版本號不可手改：`__BUILD_VERSION__` 由 Pages workflow 戳記；本地 JS / CSS 掛 `?v=__BUILD_VERSION__`。
    有新版時 `app.checkVersion` → 不可關閉的倒數視窗 → `app.applyUpdate`：先 blur 正在編輯的欄位、flush 存檔，
    存檔失敗絕不重新載入；用 `?v=<新版>` 重新載入，sessionStorage 擋重整迴圈（同一版本最多 2 次）。
-9. 外部 fetch 要有 timeout（AbortController）。
+9. 外部 fetch 要有 timeout（AbortController）。Chrome 會把 4xx 回應記成 console error：SharePoint 測試只放行預期的 404 / 412（`allowHttp`）。
+   SharePoint E2E 用 `tests/e2e/sharepoint.e2e.js` 的假 MSAL（`window.msal`）＋假 Graph（`context.route`），不連真的 Microsoft。
 10. 每個 UI 改動都要 headless 驗證（E2E 或 Playwright 腳本）後才 commit，並在 commit message 記錄驗證內容。
     HTML5 拖曳請用合成的 `DragEvent`（Playwright 模擬拖曳會合併 dragover 事件，測不到邊界情況）。
 11. PDF 匯出（`js/io/pdf-export.js`）與報告產生器相同：每頁先排成 HTML，html2canvas 截圖後放進 jsPDF。

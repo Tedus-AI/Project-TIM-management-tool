@@ -43,6 +43,7 @@
       const nid = util.uid('mat');
       idMap[m0.id] = nid;
       m.id = nid; m.rev = 0;
+      m.datasheets = [];          // the files live in the other database's storage
       newMats[nid] = m;
     });
     // images

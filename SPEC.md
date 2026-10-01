@@ -159,7 +159,6 @@
 | 熱傳導係數 k (W/m·K) **＋量測標準** | 不同標準（ASTM D5470 / Hot Disk ISO 22007-2 / Laser Flash）數值不可直接比較，必須一起記 |
 | 熱阻抗 (°C·cm²/W) ＋條件 | 供應商在特定壓力 / 厚度下的實測值，比 k 值更接近實際 |
 | 硬度（值＋Shore 00 / A） | 太硬會把壓力傳給元件 |
-| 建議壓縮率 min / max (%) | 間隙檢核的預設值 |
 | 可用厚度 | 選厚度時參考（常見 0.5 mm 一級） |
 | 使用溫度 min / max (°C) | 對照 RRU 環境與元件溫度 |
 | 密度、顏色 | 顏色方便產線目視辨識 |
@@ -169,9 +168,11 @@
 | 矽系 / 非矽系、出油 / 揮發 | 矽油揮發會污染光學元件、連接器接點 |
 | UL94 等級、RoHS / REACH / 無鹵 | 合規 |
 | 保存期限 / 保存條件 | 點膠類材料有 shelf life |
-| Datasheet 連結＋版次 | 數值出處 |
+| 規格書檔案（可多份） | 數值出處；上傳到資料庫旁的 `Datasheets/<Vendor>/<Model>/`，記錄檔名、大小、上傳時間與上傳者（舊版的 Datasheet 連結唯讀顯示） |
 | 參考單價 / MOQ / 交期 | 成本與交期 |
-| AVL 狀態 | 已承認 / 承認中 / 未承認 / EOL — EOL 材料會自動在所有專案發出警示 |
+| AVL 狀態 | 已承認 / 承認中 / 未承認 / EOL — EOL 材料會自動在所有專案發出警示（只在材料詳細，列表不顯示） |
+
+> 建議壓縮率不再記在材料上：檢核用 Item 手動範圍，否則用依 TIM 類型的一般建議值（pad / absorber 10–30 %）。
 
 ---
 
@@ -185,7 +186,7 @@
   rev,                         // 整檔版本號（每次寫入 +1，用於樂觀並發）
   updated_at,
   projects:  { [id]: Project },
-  materials: { [id]: Material },
+  materials: { [id]: Material },   // datasheets: [ { path, name, size, at, by } ]（path 相對 Datasheets 資料夾，新的在前）
   images:    { [id]: { data (dataURL), w, h, name, bytes } },   // 圖片獨立存放，不進 undo 快照
   settings:  { ... }
 }
@@ -235,7 +236,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 ## 5. 功能模組
 
 ### 5.1 首頁（專案列表）
-- 專案卡片 / 列表：案名、Stage、狀態、Item 數、總片數、單一來源數、警示數、最後更新。
+- 專案列表：案名、Stage、狀態、負責人（TH: 熱流 / ME: 機構）、Item 數、總片數、單一來源數、警示數、最後更新（下方為熱流負責人）。
 - 新增 / 複製（衍生機種）/ 刪除（確認＋連帶清理圖片）。
 - **全域搜尋**：料號、元件、廠商、型號、RefDes、Item → 跨專案列出結果，點擊直接跳到該 Item。
 - 匯入 Excel、匯入專案分享檔（JSON）。
@@ -261,13 +262,17 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - **Build 基準**：建立快照（如 EVT、DVT），任兩個基準或基準 vs 目前狀態做差異比較（新增 / 刪除 / 修改欄位）。
 
 ### 5.3 材料庫
-- 表格（型態、廠商、型號、k、硬度、耐溫、AVL）＋篩選 / 搜尋。
+- 表格（型態、廠商、型號、k、量測、硬度、使用溫度、矽系、規格書 👁、使用中）＋型態篩選 / 搜尋。
 - 材料詳細抽屜（第 3.3 節全部欄位）。
+- **規格書**（與 AI Thermal pad & stud 工具的規格書欄相同的五顆按鈕）：👁 線上瀏覽（PDF / 圖片 / 文字直接看，多份時上方切換）、
+  ↑ 上傳（可一次多檔，也可拖進來；同檔名取代那一份）、↓ 下載（多份時開清單）、🗑 刪除（多份時開清單）、🕘 清單（每一份的大小、上傳時間、上傳者，可檢視 / 下載 / 取代 / 刪除）。
+  唯讀時仍可檢視 / 下載 / 清單。刪除後存檔成功、且沒有材料再引用時才刪實體檔。
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
 ### 5.4 共通
 - Undo / Redo（Ctrl+Z / Ctrl+Shift+Z），自動存檔（debounce），狀態列顯示儲存狀態。
-- 使用者名稱設定（寫入變更紀錄）。
+- 變更紀錄的使用者：SharePoint 模式為 Microsoft 帳號名稱（本機資料夾模式沿用舊版存在瀏覽器的名字，沒有則空白）。
+- 設定：新專案預設 Location（下拉：Bottom Case + Top Case / Bottom Case / Top Case）、預設幣別、資料庫資訊與備份。
 - 鍵盤快捷鍵、確認對話框 Enter 送出 / Esc 取消。
 
 ---
@@ -316,7 +321,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 錯誤 | 同一台達料號對應不同材料或尺寸 |
 | 錯誤 | 最大間隙 ≥ TIM 厚度（可能完全沒接觸） |
 | 錯誤 | 材料 AVL 狀態為 EOL |
-| 警示 | 壓縮率超出建議範圍 |
+| 警示 | 壓縮率超出建議範圍（Item 手動範圍 → TIM 類型的一般建議值） |
 | 警示 | 單一來源 |
 | 警示 | 位置圖放置數 ≠ Q'ty（有位置圖時） |
 | 警示 | 材料未承認 |
@@ -324,6 +329,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 提示 | 有第二來源但尚未承認 |
 | 提示 | 覆蓋元件總數 ≠ Q'ty（一片對一顆時應相等） |
 | 提示 | 缺尺寸 / 缺間隙 / 缺料號 / 缺 k 值 |
+| 警示 | TIM 溫升 ΔT ≥ 10 °C |
 | 提示 | 電源元件使用的材料未填絕緣耐壓 |
 | 提示 | 相同材料＋尺寸卻用了不同台達料號（可合併料號） |
 
@@ -369,12 +375,14 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 | 項目 | 規格 |
 |------|------|
-| 主要模式 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續 |
+| SharePoint（主要） | MSAL.js 登入（彈出視窗，重新導向頁 `auth.html`）＋ Microsoft Graph；網站 `Thermal-Spec-DB` 的「文件」：`TIM_Manager/Database/tim_db.json`、`TIM_Manager/Database/Backup/`、`TIM_Manager/Datasheets/<Vendor>/<Model>/`。與 AI Thermal 工具共用 Azure 應用程式與網站；登入過一次後自動開啟，登入過期時畫面提示重新登入（存檔時不彈視窗） |
+| 本機資料夾 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續；規格書存 `Datasheets/`。可在設定「搬到 SharePoint」（不覆蓋已存在的資料庫） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |
-| 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料 |
+| 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料。SharePoint 寫入帶 `If-Match: eTag`（eTag 先於內容取得）：讀寫之間有人寫入 → 412 → 重讀、合併、再寫（連續最多 4 次）；寫入逾時但其實已寫入（下次讀到同一 `updated_at` + `rev`）→ 以那次寫入為基準，不會跟自己衝突；剛寫入後讀到較舊的版本（SharePoint 延遲）→ 60 秒內忽略 |
 | 壞檔保護 | JSON 解析失敗或不是 TIM 資料庫 → 進入唯讀並提示，**絕不以空白資料覆寫** |
 | 刪除保護 | 確認對話框；刪除專案連帶清理其圖片 |
-| 自動備份 | 指定資料夾，開啟時補備份、每 3 小時、切換分頁時；每日一檔、保留 30 份 |
+| 自動備份 | SharePoint：`Database/Backup/`；本機：指定資料夾。開啟時補備份、每 3 小時、切換分頁時；每日一檔、保留 30 份 |
+| 規格書檔案 | 刪除：存檔成功且沒有材料再引用時才刪實體檔（SharePoint 進資源回收筒）；紀錄在但檔案不見時，檢視視窗提示並可移除紀錄 |
 | XSS | 所有自由文字逸出，事件以屬性 / 委派綁定，不拼接 inline handler |
 | 機密 | GitHub repo 為公開，**資料庫檔與機殼圖面不可 commit**（`.gitignore` 已排除） |
 
@@ -410,7 +418,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 |------|------|------|
 | 前端 | 原生 JS（classic script）＋ Preact 10 + htm（CDN，SRI 鎖定版本，jsDelivr → unpkg 備援） | 無 build 工具、可 `file://` 直接開、宣告式 UI 減少 DOM 狀態錯誤 |
 | Excel | ExcelJS 4.4（使用時才載入，timeout＋重試＋備援 CDN） | 支援樣式、合併儲存格、嵌入圖片的讀寫 |
-| 資料庫 | `js/db/fileDb.js`（資料庫資料夾 / JSON 檔）、`js/db/backup.js`（每日備份） | 沿用報告產生器的模式並加上並發保護 |
+| 資料庫 | `js/db/sharepoint.js`（Graph + MSAL 2.38，eTag）、`js/db/fileDb.js`（資料庫資料夾 / JSON 檔）、`js/db/backup.js`（每日備份） | 與 AI Thermal 工具相同的 SharePoint 做法；本機模式沿用報告產生器 |
 | 純邏輯模組 | `js/core/*.js`（UMD） | 瀏覽器與 Node 共用，可單元測試 |
 | 測試 | `node --test`（單元）＋ Playwright（E2E） | 每次交付前 headless 驗證 |
 | CI | GitHub Actions：語法檢查＋單元測試＋E2E；Pages 部署時自動戳版本號 | 版本號不手改 |
@@ -434,6 +442,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [x] 單元測試、E2E、CI
 
 ### Phase 2 — 協作與報告
+- [x] SharePoint 共用資料庫（eTag 並發、每日備份、本機資料庫搬移）與材料規格書檔案
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤
@@ -451,7 +460,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 | # | 問題 | 預設做法 |
 |---|------|---------|
-| 1 | 資料庫檔放個人電腦還是網路磁碟共用？ | 兩者皆可；共用時靠 rev 合併保護 |
+| 1 | 資料庫放哪裡？ | SharePoint `Thermal-Spec-DB / TIM_Manager`（共用，eTag ＋ rev 合併保護）；本機資料夾仍可用 |
 | 2 | 第二來源「已承認」的定義（AVL 正式承認 vs 工程驗證通過） | 狀態分五級，由使用者判定 |
 | 3 | 單價幣別 | 預設 USD，可逐項指定 |
 | 4 | 是否需要權限控管（誰能改 Released 的 Item） | Phase 1 不做，Phase 2 隨編輯鎖一起規劃 |

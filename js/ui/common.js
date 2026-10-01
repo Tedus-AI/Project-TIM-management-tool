@@ -58,7 +58,11 @@
       // Focus the first field, else the primary button, so Enter / Esc act on this dialog
       // (and Enter can never re-click the button that opened it).
       const el = ref.current && (ref.current.querySelector('[autofocus], .inp, .sel, .ta') || ref.current.querySelector('[data-enter-ok]') || ref.current.querySelector('.modal-foot .btn-primary'));
-      if (el) setTimeout(() => { el.focus(); if (el.select && el.tagName !== 'BUTTON' && el.dataset.selectAll !== 'false') el.select(); }, 30);
+      // (skipped when focus is already inside the dialog: never pull the caret out of a field being typed in)
+      if (el) setTimeout(() => {
+        if (ref.current && ref.current.contains(document.activeElement)) return;
+        el.focus(); if (el.select && el.tagName !== 'BUTTON' && el.dataset.selectAll !== 'false') el.select();
+      }, 30);
       else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     }, []);
     return html`<div class="modal-backdrop" onMouseDown=${e => { if (e.target === e.currentTarget && props.dismissable !== false) props.onClose && props.onClose(); }}>
@@ -232,5 +236,17 @@
     });
   }
 
-  Object.assign(TIM.ui, { Modal, openModal, confirm, prompt, toast, openMenu, closeMenu, openPopover, closePopover, Overlays, InfoDot, downloadBlob, pickFile });
+  /** Open a multi-file chooser; resolves File[] (empty when cancelled). */
+  function pickFiles(accept) {
+    return new Promise(resolve => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.multiple = true;
+      if (accept) inp.accept = accept;
+      inp.onchange = () => resolve(inp.files ? Array.from(inp.files) : []);
+      inp.click();
+    });
+  }
+
+  Object.assign(TIM.ui, { Modal, openModal, confirm, prompt, toast, openMenu, closeMenu, openPopover, closePopover, Overlays, InfoDot, downloadBlob, pickFile, pickFiles });
 })();

@@ -12,20 +12,20 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 
 | 頁面 | 內容 |
 |---|---|
-| **首頁** | 專案列表（階段、規模、健康度、位置圖片數、每台 TIM 成本）；跨專案搜尋（Item / Vendor / Model / Delta P/N / Vendor P/N / 覆蓋元件與 RefDes / 2nd source / 加工廠 / 備註）；匯入 Excel、匯入分享檔 |
+| **首頁** | 專案列表（階段、負責人 TH / ME、規模、健康度、位置圖片數、最後更新與熱流負責人）；跨專案搜尋（Item / Vendor / Model / Delta P/N / Vendor P/N / 覆蓋元件與 RefDes / 2nd source / 加工廠 / 備註）；匯入 Excel、匯入分享檔 |
 | **總覽** | 專案資料（產品類型 Sub-6 / mmWave、客戶、階段、負責人、備註）、KPI、材料用量彙總（片狀以 pcs、點膠類以 g / cc 計）、**待處理事項**（缺間隙、壓縮率超出建議、單一來源、放置數 ≠ Q'ty、ΔT 超過門檻…）點一下直接跳到該 Item |
 | **TIM 清單** | 類 Excel 表格：沿用現行欄位（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta P/N / Note / 2nd source），可展開「機構 / 熱 / 供應 / 追溯」欄位群組；鍵盤操作、範圍複製、從 Excel 貼上多列、拖曳排序、Undo / Redo |
 | **Item 詳細** | 每個 Item 的完整資料：覆蓋元件（RefDes、封裝尺寸、功耗、頂面散熱 %）、間隙 min / nom / max 與壓縮率、熱估算、第二來源與驗證狀態、成本 / MOQ / 交期、驗證照片、備註連結、修改歷史 |
 | **位置標註** | 在 Bottom / Top case 等 CAD 截圖上標出 TIM 位置：比例尺校正後 pad 以**實際尺寸**放置、可旋轉；標籤自動拉引線到同 Item 的 pad（一個標籤可指多片）；圖例、放置數與 Q'ty 比對、PNG 匯出 |
 | **間隙與熱檢核** | 每個 Item 的壓縮率範圍圖（含建議範圍）、TIM 溫升 ΔT 排行 |
 | **變更紀錄** | 每次修改自動記錄（誰、何時、舊值 → 新值）、手動紀錄 / ECN、Build 基準（EVT / DVT / PVT）與任兩版本差異比較 |
-| **材料庫** | 跨專案共用的 TIM 材料（k 值、硬度、建議壓縮率、溫度範圍、UL、datasheet…），Where-used 反查哪些專案在用；Item 連結材料後，材料資料由材料庫帶入 |
+| **材料庫** | 跨專案共用的 TIM 材料（k 值、硬度、溫度範圍、UL…）與**規格書檔案**（檢視 / 上傳 / 下載 / 刪除 / 清單，可一次多份），Where-used 反查哪些專案在用；Item 連結材料後，材料資料由材料庫帶入 |
 
 ### 比原本 Excel 多記錄的項目（摘要）
 
 細節與每個欄位的理由見 SPEC §3。重點：
 
-- **機構間隙 min / nom / max** → 自動算壓縮率範圍，對照材料建議壓縮率（太鬆可能沒接觸、太緊壓壞元件或撐開殼）
+- **機構間隙 min / nom / max** → 自動算壓縮率範圍，對照建議壓縮率（太鬆可能沒接觸、太緊壓壞元件或撐開殼）
 - **覆蓋元件的 RefDes、封裝尺寸、功耗、頂面散熱比例** → 估算經過 TIM 的溫升，找出「TIM 本身是瓶頸」的位置
 - **第二來源的驗證狀態**（未評估 / 送樣中 / 驗證通過 / 不採用）而不只是一個名字；單一來源自動標示風險
 - **TIM 型式**（pad / gap filler / grease / PCM…）、**離型膜 / 背膠 / 方向**、點膠量與 BLT
@@ -38,17 +38,27 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 
 ### 1. 開啟工具
 
-建議使用 **Chrome 或 Edge**（需要 File System Access API 才能直接讀寫網路磁碟上的 JSON 檔）。三種開法擇一：
+建議使用 **Chrome 或 Edge**。三種開法擇一：
 
 - **直接開檔**：雙擊 `index.html`（`file://` 也能用，已驗證）。
 - **本機伺服器**：`npm run serve` → 開 <http://127.0.0.1:8765>
 - **GitHub Pages**：見下方〈部署〉。
 
-> 介面框架（Preact）與 Excel 函式庫（ExcelJS）由 CDN 載入並以 SRI 驗證，第一次開啟需要網路。
+> 介面框架（Preact）、Excel / PDF 函式庫與 Microsoft 登入（MSAL.js）由 CDN 載入並以 SRI 驗證，第一次開啟需要網路。
 
-### 2. 選擇資料庫資料夾
+### 2. 選擇資料庫
 
-按「選擇資料庫資料夾…」，選放資料庫的資料夾（例如部門網路磁碟上的共用資料夾）：
+起始頁有兩種資料庫，擇一：
+
+**SharePoint 共用資料庫**（建議，多人共用）：按「SharePoint 共用資料庫」→ 以公司 Microsoft 帳號登入（彈出視窗）→
+開啟 `Thermal-Spec-DB` 網站上的 `TIM_Manager/Database/tim_db.json`；還沒有時會詢問是否建立。
+規格書存在同一層的 `TIM_Manager/Datasheets/`。登入過一次之後，下次開啟會自動進入；
+登入過期時畫面上會出現「重新登入 Microsoft」按鈕（不會遺失尚未寫入的修改）。
+變更紀錄、新專案預設的熱流負責人用的是 Microsoft 帳號的名字。
+已經在用本機資料夾的資料庫：開啟後到「設定 → 搬到 SharePoint…」，會把資料庫與規格書上傳並改用 SharePoint
+（SharePoint 上已經有資料庫時不會覆蓋）。
+
+**本機資料夾**：按「本機資料夾…」，選放資料庫的資料夾：
 
 | 資料夾內容 | 結果 |
 |---|---|
@@ -57,10 +67,24 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 | 有好幾個 TIM 資料庫（例如每日備份） | 列出來讓你選一個 |
 | 沒有任何 TIM 資料庫 | 詢問是否建立 `tim_db.json`，建立後直接進入 |
 
-資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫。下次開啟會顯示「上次使用：資料夾 / 檔名」，按「繼續使用」即可。
-工具內右上角的資料庫按鈕（「切換」）會先存檔，再回到這個選擇畫面。
+資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫；規格書存在資料夾內的 `Datasheets/`。
+下次開啟會顯示「上次使用」，按「繼續使用」即可。工具內右上角的資料庫按鈕（「切換」）會先存檔，再回到這個選擇畫面。
 
-變更紀錄裡的「人員」用的是「設定 → 你的名字」（存在此瀏覽器）。
+**設定**（右上角齒輪）：新專案預設 Location（下拉：Bottom Case + Top Case / Bottom Case / Top Case）——
+「新增專案」時預先帶入，決定 TIM 清單的分組與 Excel 的 Location 欄，建立後仍可在專案總覽增減、改名；預設幣別；資料庫位置與備份。
+
+### SharePoint 設定（一次性）
+
+1. 在 `Thermal-Spec-DB` 網站的「文件」底下建立資料夾（資料夾不存在時工具也會自動建立）：
+   ```
+   TIM_Manager/
+   ├── Database/      tim_db.json（資料庫）＋ Backup/（每日備份，自動建立）
+   └── Datasheets/    <Vendor>/<Model>/<規格書檔案>（上傳時自動建立）
+   ```
+2. Azure 應用程式（與 AI Thermal pad & stud 工具共用同一個）：**Microsoft Entra ID → 應用程式註冊 → 驗證 →
+   單頁應用程式（SPA）的重新導向 URI** 加上 `https://tedus-ai.github.io/Project-TIM-management-tool/auth.html`。
+   權限沿用 `Files.ReadWrite.All`、`Sites.Read.All`、`Sites.ReadWrite.All`。
+3. 使用者需要該網站的編輯權限。網站、資料夾路徑在 `js/db/sharepoint.js` 的 `CONFIG`。
 
 ### 3. 把現有的 Excel 搬進來
 
@@ -119,24 +143,29 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 | 項目 | 公式 |
 |---|---|
 | 壓縮率 | C = (T − g) / T × 100%；C<sub>min</sub> 用最大間隙、C<sub>max</sub> 用最小間隙 |
-| 建議壓縮率來源 | Item 手動 → 材料庫 → 設定中的一般建議值（pad / absorber 預設 10–30%） |
+| 建議壓縮率來源 | Item 手動 → 一般建議值（依 TIM 類型；pad / absorber 10–30%） |
 | TIM 熱阻 | R = t<sub>c</sub>[mm] × 1000 / (k × A<sub>eff</sub>[mm²])　[°C/W] |
 | 壓縮後厚度 | t<sub>c</sub> = min(間隙 nom, T)；無間隙資料時用 T（保守）；點膠類用 BLT |
 | 有效面積 | A<sub>eff</sub> = min(pad 面積, 元件頂面面積) |
 | 溫升 | ΔT = P<sub>TIM</sub> × R，P<sub>TIM</sub> = 單顆功耗 × 頂面散熱 %（空白 = 100%） |
 
-ΔT 為 bulk k 估算，不含接觸熱阻與擴散熱阻，用於排序與找出風險位置，不取代模擬或實測。
+ΔT 為 bulk k 估算，不含接觸熱阻與擴散熱阻，用於排序與找出風險位置，不取代模擬或實測；ΔT ≥ 10 °C 列入待處理事項。
 
 ---
 
 ## 資料存放與安全
 
-- **單一 JSON 檔**就是整個資料庫（含圖片），可以放在網路磁碟多人共用。
+- **單一 JSON 檔**就是整個資料庫（含圖片），放在 SharePoint（或本機 / 網路磁碟的資料夾）多人共用；規格書是另外的檔案，資料庫只記路徑。
 - **自動存檔**：修改後約 0.8 秒寫入；每 15 秒檢查檔案是否被別人改過，有的話自動合併。
 - **並發保護**：每個專案與材料各有版本號。不同人改不同專案（或不同材料）→ 自動合併；
   兩人同時改同一個專案 → 保留對方的版本，你的版本另存為「專案名 (衝突副本 M/D HH:MM)」並在畫面上提示，不會互相覆蓋。
+  SharePoint 上每次寫入都帶 eTag（If-Match）：在「讀取 → 寫入」之間有人剛存過，SharePoint 會拒絕（412），工具重新讀取、合併後再寫，
+  連線逾時但其實已寫入的情況也不會被當成衝突。
 - **壞檔 / 非本工具的檔案**：進入唯讀，絕不覆寫。
-- **每日自動備份**：在「設定」指定備份資料夾後，開啟時、每 3 小時與切換視窗時檢查，每天存一份 `tim_db_backup_YYYY-MM-DD.json`，保留 30 份。
+- **每日自動備份**：SharePoint 自動存到 `TIM_Manager/Database/Backup/`；本機資料夾則在「設定」指定備份資料夾。
+  開啟時、每 3 小時與切換視窗時檢查，每天存一份 `tim_db_backup_YYYY-MM-DD.json`，保留 30 份。
+- **規格書刪除**：從清單刪除後，存檔成功且沒有任何材料再引用時才刪實體檔（SharePoint 會進資源回收筒，可還原）；
+  同檔名上傳會取代那一份（SharePoint 保留版本歷程）。
 - 圖片只存在資料庫內；刪除視圖或 Item 時會一併清掉不再使用的圖片。
 
 > ⚠️ **這個 repository 是公開的。** 請不要把資料庫 JSON、匯出的 Excel、CAD 截圖或任何實際專案資料 commit 進來。
@@ -150,6 +179,7 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 網址：<https://tedus-ai.github.io/Project-TIM-management-tool/>
 
 1. 一次性設定：Repository **Settings → Pages → Build and deployment → Source** 選 **GitHub Actions**。
+   部署內容：`index.html`、`auth.html`（Microsoft 登入的重新導向頁，空白頁）、`version.json`、`css/`、`js/`、`assets/`。
 2. 之後每次 push 到 `main` 自動部署；也可到 **Actions → Deploy to GitHub Pages → Run workflow** 手動部署。
 3. 部署時 CI 會把 `__BUILD_VERSION__` 換成 `日期時間-commit`。目前版本顯示在起始頁右下角、左上角標誌的提示，以及「設定」裡。
 
@@ -158,7 +188,7 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 瀏覽器與 CDN 都不會給舊頁面）。存檔失敗時不會更新，會顯示錯誤並等你處理後「重試」。
 同一個新版本重新載入兩次仍沒生效（例如 CDN 還沒更新）時，改為右下角提示，不會一直重整。
 
-網站只包含程式本身，資料一律留在使用者自己的 JSON 檔或瀏覽器中，不會上傳。
+網站只包含程式本身；資料存在你選的位置（公司 SharePoint 或本機資料夾），不會傳到其他地方。
 
 ---
 
@@ -170,7 +200,7 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 index.html            進入點（載入順序即相依順序）
 css/app.css           設計 token 與元件樣式
 js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）
-js/db/                資料庫資料夾 / JSON 檔（File System Access API）、每日備份
+js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、每日備份
 js/io/                Excel 匯出 / 匯入、圖片處理、視圖繪製、分享檔
 js/ui/                各頁面與共用元件
 tests/unit/           Node 單元測試（node --test）

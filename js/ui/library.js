@@ -1,4 +1,4 @@
-/* 材料庫: shared TIM materials with datasheet properties, AVL status and where-used. */
+/* 材料庫: shared TIM materials with datasheet properties and files (規格書), AVL status and where-used. */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -26,7 +26,8 @@
     const primary = wu.filter(w => w.role === 'primary');
     const del = async () => {
       const ok = await confirm({ title: '刪除材料', danger: true, okText: '刪除材料',
-        message: '刪除「' + m.vendor + ' ' + m.model + '」？' + (primary.length ? '\n有 ' + primary.length + ' 個 Item 連結此材料，刪除後會解除連結並保留 Vendor / Model 文字（不會遺失）。' : '') });
+        message: '刪除「' + m.vendor + ' ' + m.model + '」？' + (primary.length ? '\n有 ' + primary.length + ' 個 Item 連結此材料，刪除後會解除連結並保留 Vendor / Model 文字（不會遺失）。' : '') +
+          ((m.datasheets || []).length ? '\n它的 ' + m.datasheets.length + ' 份規格書也會一起刪除。' : '') });
       if (!ok) return;
       A().deleteMaterial(m.id);
       props.onClose();
@@ -56,8 +57,6 @@
           <${Field} label="k 量測標準" info="ASTM D5470 / Hot Disk / Laser Flash 的數值不能直接互相比較，務必一起記錄"><${SelectField} value=${m.k_method} disabled=${ro} options=${schema.K_METHODS} onChange=${v => u('k_method', v)} /></${Field}>
           <${Field} label="熱阻抗"><${NumField} value=${m.impedance} unit="°C·cm²/W" disabled=${ro} onChange=${v => u('impedance', v)} /></${Field}>
           <${Field} label="熱阻抗條件"><${TextField} value=${m.impedance_cond} placeholder="@10 psi, 1 mm" disabled=${ro} onChange=${v => u('impedance_cond', v)} /></${Field}>
-          <${Field} label="建議壓縮率 min"><${NumField} value=${m.comp_rec_min} unit="%" disabled=${ro} onChange=${v => u('comp_rec_min', v)} /></${Field}>
-          <${Field} label="建議壓縮率 max"><${NumField} value=${m.comp_rec_max} unit="%" disabled=${ro} onChange=${v => u('comp_rec_max', v)} /></${Field}>
           <${Field} label="可用厚度" class="span-2"><${TextField} value=${m.thickness_options} placeholder="0.5–5.0 mm（0.5 mm 一級）" disabled=${ro} onChange=${v => u('thickness_options', v)} /></${Field}>
         </div>`)}
         ${sec('m-mech', '機械 / 溫度', html`<div class="form-grid">
@@ -85,12 +84,14 @@
           <${Field} label="保存條件" class="span-2"><${TextField} value=${m.storage} placeholder="5–25 °C、避光、密封…" disabled=${ro} onChange=${v => u('storage', v)} /></${Field}>
         </div>`)}
         ${sec('m-doc', '文件與商務', html`<div class="form-grid">
-          <${Field} label="Datasheet 連結 / 路徑" class="span-2"><${TextField} mono=${true} value=${m.datasheet_url} placeholder="https://… 或 \\\\server\\share\\…" disabled=${ro} onChange=${v => u('datasheet_url', v)} /></${Field}>
-          <${Field} label="Datasheet 版次 / 日期"><${TextField} value=${m.datasheet_rev} disabled=${ro} onChange=${v => u('datasheet_rev', v)} /></${Field}>
+          <${Field} label="規格書" class="span-all" info=${html`檢視 · 上傳 · 下載 · 刪除 · 清單。<br/>可一次選多個檔案（或直接拖進來），同檔名會取代原本那一份。${TIM.datasheets.whereText(m) ? html`<br/>存放：<span class="mono">${TIM.datasheets.whereText(m)}</span>` : null}`}>
+            <${TIM.ui.DatasheetField} mat=${m} /></${Field}>
+          ${m.datasheet_url ? html`<div class="span-all ds-legacy"><span class="muted">舊版 Datasheet 連結：</span>${/^https?:\/\//i.test(m.datasheet_url)
+            ? html`<a href=${m.datasheet_url} target="_blank" rel="noopener noreferrer" class="mono">${m.datasheet_url}</a>` : html`<span class="mono">${m.datasheet_url}</span>`}
+            ${!ro ? html` <button class="btn btn-ghost btn-xs" title="移除舊連結（規格書請改用上傳）" onClick=${() => u('datasheet_url', '')}>移除</button>` : null}</div>` : null}
           <${Field} label="參考價格"><${TextField} value=${m.price_ref} placeholder="USD 0.9 / 10 cm²" disabled=${ro} onChange=${v => u('price_ref', v)} /></${Field}>
           <${Field} label="MOQ"><${NumField} value=${m.moq} disabled=${ro} onChange=${v => u('moq', v)} /></${Field}>
           <${Field} label="交期"><${NumField} value=${m.lead_time_wk} unit="週" disabled=${ro} onChange=${v => u('lead_time_wk', v)} /></${Field}>
-          ${/^https?:\/\//i.test(m.datasheet_url || '') ? html`<div class="span-all"><a href=${m.datasheet_url} target="_blank" rel="noopener noreferrer">開啟 Datasheet ↗</a></div>` : null}
         </div>`)}
         ${sec('m-wu', 'Where-used（反查）', wu.length ? html`<table class="subtbl">
           <thead><tr><th>專案</th><th>Stage</th><th>Item</th><th>Location</th><th class="r">Q'ty</th><th>角色</th></tr></thead>
@@ -110,7 +111,6 @@
     const ro = st.readonly;
     const [q, setQ] = useState('');
     const [type, setType] = usePref('lib_type', '');
-    const [avl, setAvl] = usePref('lib_avl', '');
     const usage = useMemo(() => {
       const u = {};
       Object.values(db.projects).forEach(p => p.items.forEach(it => { if (it.material_id) u[it.material_id] = (u[it.material_id] || 0) + 1; }));
@@ -118,7 +118,7 @@
     }, [st.version]);
     const qq = q.trim().toUpperCase();
     const mats = Object.values(db.materials)
-      .filter(m => (!type || m.tim_type === type) && (!avl || m.avl_status === avl) &&
+      .filter(m => (!type || m.tim_type === type) &&
         (!qq || [m.vendor, m.model, m.note, m.k_method, schema.timType(m.tim_type).label].some(v => String(v || '').toUpperCase().includes(qq))))
       .sort((a, b) => (a.vendor + ' ' + a.model).localeCompare(b.vendor + ' ' + b.model));
     const add = () => {
@@ -132,26 +132,25 @@
         <div><div class="eyebrow">Material Library · ${Object.keys(db.materials).length}</div><h1>材料庫</h1></div>
         <div class="home-actions"><button class="btn btn-primary rw-only" onClick=${add}><${Icon} name="plus" /> 新增材料</button></div>
       </div>
-      <p class="muted" style="margin:-8px 0 14px;max-width:760px;line-height:1.6">跨專案共用的 TIM 材料資料。Item 連結材料後，Vendor / Model / 型態 / k 值 / 建議壓縮率都從這裡帶入（單一事實來源），改這裡就同步所有專案。</p>
+      <p class="muted" style="margin:-8px 0 14px;max-width:760px;line-height:1.6">跨專案共用的 TIM 材料資料。Item 連結材料後，Vendor / Model / 型態 / k 值都從這裡帶入（單一事實來源），改這裡就同步所有專案。</p>
       <div class="lib-filters">
         <div class="searchbox" style="width:280px"><${Icon} name="search" /><input class="inp" placeholder="搜尋廠商、型號…" value=${q} onInput=${e => setQ(e.target.value)} /></div>
         <select class="sel" style="width:170px" value=${type} onChange=${e => setType(e.target.value)}><option value="">全部型態</option>${schema.TIM_TYPES.map(t => html`<option value=${t.v}>${t.label}</option>`)}</select>
-        <select class="sel" style="width:130px" value=${avl} onChange=${e => setAvl(e.target.value)}><option value="">全部 AVL</option>${schema.AVL_STATUS.map(a => html`<option value=${a.v}>${a.label}</option>`)}</select>
       </div>
       ${mats.length ? html`<div class="tbl-wrap"><table class="tbl">
-        <thead><tr><th>型態</th><th>Vendor</th><th>Model</th><th class="r">k W/m·K</th><th>量測</th><th class="r">硬度</th><th>使用溫度 °C</th><th>建議壓縮 %</th><th>矽系</th><th>AVL</th><th class="r">使用中</th></tr></thead>
+        <thead><tr><th>型態</th><th>Vendor</th><th>Model</th><th class="r">k W/m·K</th><th>量測</th><th class="r">硬度</th><th>使用溫度 °C</th><th>矽系</th><th class="c">規格書</th><th class="r">使用中</th></tr></thead>
         <tbody>${mats.map(m => html`<tr key=${m.id} class=${cx('clickable', props.route.mat === m.id && 'sel')} onClick=${() => go('library/' + m.id)}>
           <td>${schema.timType(m.tim_type).label}</td><td>${m.vendor || html`<span class="muted">—</span>`}</td><td><b>${m.model}</b></td>
           <td class="r mono">${util.fmt(m.k, 2)}</td><td class="muted" style="font-size:11.5px">${m.k_method ? m.k_method.split(' ')[0] + ' ' + (m.k_method.split(' ')[1] || '') : ''}</td>
           <td class="r mono" style="white-space:nowrap">${m.hardness == null ? '' : m.hardness + ' ' + (m.hardness_scale || '')}</td>
-          <td class="mono">${range(m.temp_min, m.temp_max)}</td><td class="mono">${range(m.comp_rec_min, m.comp_rec_max)}</td>
+          <td class="mono">${range(m.temp_min, m.temp_max)}</td>
           <td>${schema.labelOf(schema.SILICONE, m.silicone)}</td>
-          <td><span class=${'tag ' + (AVL_CLS[m.avl_status] || 'tag-mute')}>${schema.labelOf(schema.AVL_STATUS, m.avl_status)}</span></td>
+          <td class="c"><${TIM.ui.DatasheetEye} mat=${m} /></td>
           <td class="r mono">${usage[m.id] || ''}</td>
         </tr>`)}</tbody>
       </table></div>` : html`<div class="empty">
         <h3>${Object.keys(db.materials).length ? '沒有符合的材料' : '材料庫是空的'}</h3>
-        <p>新增材料並填入 datasheet 數值（k 值與量測標準、硬度、建議壓縮率…）。匯入 Excel 時也可以自動把清單中的 Vendor / Model 建成材料。</p>
+        <p>新增材料並填入 datasheet 數值（k 值與量測標準、硬度、使用溫度…），並上傳規格書。匯入 Excel 時也可以自動把清單中的 Vendor / Model 建成材料。</p>
         <div class="actions rw-only"><button class="btn btn-primary" onClick=${add}><${Icon} name="plus" /> 新增材料</button></div>
       </div>`}
       ${props.route.mat ? html`<${MaterialDrawer} id=${props.route.mat} onClose=${() => go('library')} />` : null}

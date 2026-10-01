@@ -90,13 +90,13 @@
     const history = (p.changelog || []).filter(c => c.target_id && String(c.target_id).startsWith(it.id)).slice(-30).reverse();
     const covQty = calc.coveredQty(it);
     const totalPower = util.sum(it.covered, c => { const pt = calc.timPower(c); return pt === null ? NaN : pt * (Number.isFinite(c.qty) ? c.qty : 1); });
-    const recSrcLabel = cc.rec ? { item: '手動', material: '材料庫', generic: '一般建議值' }[cc.rec.source] : '';
+    const recSrcLabel = cc.rec ? { item: '手動', generic: '一般建議值' }[cc.rec.source] : '';
 
     const addToLibrary = () => {
       if (!it.vendor && !it.model) { toast('請先輸入 Vendor / Model', 'warn'); return; }
       const mid = A().createMaterial({ vendor: it.vendor, model: it.model, tim_type: it.tim_type });
       A().linkMaterial(p.id, it.id, mid);
-      toast('已加入材料庫並連結，記得到材料庫補 datasheet 數值', 'ok');
+      toast('已加入材料庫並連結，記得到材料庫補 k 值並上傳規格書', 'ok');
     };
     const del = async () => {
       const ok = await confirm({ title: '刪除 Item', danger: true, okText: '刪除', message: '刪除 ' + (it.item_no || '(未編號)') + '？' + (placedN ? '\n位置圖上的 ' + placedN + ' 片 pad 與標籤也會移除。' : '') + '\n可用 Ctrl+Z 復原。' });
@@ -231,7 +231,7 @@
         </${Sec}>
 
         <${Sec} id="d-gap" title="機構間隙與壓縮" sub="間隙請用公差疊加後的範圍（元件高度、PCB 翹曲、機殼加工）"
-          right=${html`<${InfoDot}><div class="formula">壓縮率 C = (T − g) / T × 100%<br/>C<sub>min</sub> 用 g<sub>max</sub>；C<sub>max</sub> 用 g<sub>min</sub><br/>g ≥ T → 可能未接觸（錯誤）<br/>建議範圍：Item 手動 → 材料庫 → 一般建議值（設定）</div></${InfoDot}>`}>
+          right=${html`<${InfoDot}><div class="formula">壓縮率 C = (T − g) / T × 100%<br/>C<sub>min</sub> 用 g<sub>max</sub>；C<sub>max</sub> 用 g<sub>min</sub><br/>g ≥ T → 可能未接觸（錯誤）<br/>建議範圍：Item 手動 → 一般建議值（依 TIM 類型）</div></${InfoDot}>`}>
           ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
           <div class="form-grid">
             <${Field} label="T"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
@@ -240,7 +240,7 @@
             <${Field} label="間隙 max"><${NumField} value=${it.gap.max} unit="mm" disabled=${ro} onChange=${v => u('gap.max', v)} /></${Field}>
             <${Field} label="建議壓縮率" class="span-2">
               <${Locked} unlocked=${!!it.comp_override} source=${recSrcLabel}
-                display=${cc.rec ? html`<span class="mono">${cc.rec.min ?? '—'} ~ ${cc.rec.max ?? '—'} %</span>` : html`<span class="muted">材料庫未填（可解鎖手動輸入）</span>`}
+                display=${cc.rec ? html`<span class="mono">${cc.rec.min ?? '—'} ~ ${cc.rec.max ?? '—'} %</span>` : html`<span class="muted">無建議範圍（可解鎖手動輸入）</span>`}
                 onUnlock=${ro ? null : () => u('comp_override', { min: cc.rec ? cc.rec.min : 10, max: cc.rec ? cc.rec.max : 30 })}
                 onRelock=${ro ? null : () => u('comp_override', null)}>
                 <div class="triple" style="grid-template-columns:1fr 1fr">
