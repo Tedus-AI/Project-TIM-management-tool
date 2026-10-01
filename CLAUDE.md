@@ -42,6 +42,8 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
 6. 對話框：Enter / Esc 由 `Modal` 統一處理；Enter 不可重新觸發開啟對話框的按鈕。
 7. 儲存安全：壞檔 / 非本工具檔案 → 唯讀，絕不覆寫；孤兒圖片只在沒有任何引用（含 undo 歷史）時清除。
 8. 版本號不可手改：`__BUILD_VERSION__` 由 Pages workflow 戳記；本地 JS / CSS 掛 `?v=__BUILD_VERSION__`。
+   有新版時 `app.checkVersion` → 不可關閉的倒數視窗 → `app.applyUpdate`：先 blur 正在編輯的欄位、flush 存檔，
+   存檔失敗絕不重新載入；用 `?v=<新版>` 重新載入，sessionStorage 擋重整迴圈（同一版本最多 2 次）。
 9. 外部 fetch 要有 timeout（AbortController）。
 10. 每個 UI 改動都要 headless 驗證（E2E 或 Playwright 腳本）後才 commit，並在 commit message 記錄驗證內容。
     HTML5 拖曳請用合成的 `DragEvent`（Playwright 模擬拖曳會合併 dragover 事件，測不到邊界情況）。
