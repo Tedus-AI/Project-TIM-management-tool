@@ -52,6 +52,8 @@
           <${Field} label="Vendor"><${TextField} value=${m.vendor} disabled=${ro} onChange=${v => u('vendor', v)} /></${Field}>
           <${Field} label="Model"><${TextField} value=${m.model} disabled=${ro} onChange=${v => u('model', v)} /></${Field}>
           <${Field} label="型態"><${SelectField} value=${m.tim_type} allowEmpty=${false} disabled=${ro} options=${schema.TIM_TYPES.map(t => ({ v: t.v, label: t.label + '｜' + t.zh }))} onChange=${v => u('tim_type', v)} /></${Field}>
+          ${schema.hasParts(m.tim_type) ? html`<${Field} label="劑型" info="單劑型：開封即可點膠；雙劑型：A / B 兩劑依比例混合後點膠（要看混合比、可操作時間與固化條件）">
+            <${SelectField} value=${m.parts} emptyLabel="— 請選擇 —" disabled=${ro} options=${schema.PARTS} onChange=${v => u('parts', v)} /></${Field}>` : null}
           <${Field} label="AVL 狀態" info="EOL 材料會在所有使用它的專案發出錯誤警示"><${SelectField} value=${m.avl_status} allowEmpty=${false} disabled=${ro} options=${schema.AVL_STATUS} onChange=${v => u('avl_status', v)} /></${Field}>
           <${Field} label="顏色（目視辨識）"><${TextField} value=${m.color} placeholder="Gray / Blue / Pink…" disabled=${ro} onChange=${v => u('color', v)} /></${Field}>
           <${Field} label="備註" class="span-all"><${TextField} multiline=${true} rows=${2} value=${m.note} disabled=${ro} onChange=${v => u('note', v)} /></${Field}>
@@ -123,7 +125,7 @@
     const qq = q.trim().toUpperCase();
     const mats = Object.values(db.materials)
       .filter(m => (!type || m.tim_type === type) &&
-        (!qq || [m.vendor, m.model, m.note, m.k_method, schema.timType(m.tim_type).label].some(v => String(v || '').toUpperCase().includes(qq))))
+        (!qq || [m.vendor, m.model, m.note, m.k_method, schema.materialTypeText(m)].some(v => String(v || '').toUpperCase().includes(qq))))
       .sort((a, b) => (a.vendor + ' ' + a.model).localeCompare(b.vendor + ' ' + b.model));
     const add = () => {
       const id = A().createMaterial({ vendor: '', model: '新材料' });
@@ -147,7 +149,7 @@
       ${mats.length ? html`<div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>型態</th><th>Vendor</th><th>Model</th><th class="r">k W/m·K</th><th>量測</th><th class="r">硬度</th><th>使用溫度 °C</th><th>矽系</th><th class="c">規格書</th><th class="r">使用中</th></tr></thead>
         <tbody>${mats.map(m => html`<tr key=${m.id} class=${cx('clickable', props.route.mat === m.id && 'sel')} onClick=${() => go('library/' + m.id)}>
-          <td>${schema.timType(m.tim_type).label}</td><td>${m.vendor || html`<span class="muted">—</span>`}</td><td><b>${m.model}</b></td>
+          <td>${schema.materialTypeText(m)}</td><td>${m.vendor || html`<span class="muted">—</span>`}</td><td><b>${m.model}</b></td>
           <td class="r mono">${util.fmt(m.k, 2)}</td><td class="muted" style="font-size:11.5px">${m.k_method ? m.k_method.split(' ')[0] + ' ' + (m.k_method.split(' ')[1] || '') : ''}</td>
           <td class="r mono" style="white-space:nowrap">${m.hardness == null ? '' : m.hardness + ' ' + (m.hardness_scale || '')}</td>
           <td class="mono">${range(m.temp_min, m.temp_max)}</td>

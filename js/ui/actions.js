@@ -419,7 +419,11 @@
   function updateMaterial(id, field, value) {
     const m = st().db.materials[id];
     if (!m || m[field] === value) return;
-    st().mutateMaterials(mats => { mats[id][field] = value; }, { coalesce: 'mat:' + id + ':' + field, touched: [id] });
+    st().mutateMaterials(mats => {
+      mats[id][field] = value;
+      // 劑型 only exists for Gap Filler / Thermal Putty: changing to another type clears it (same undo step)
+      if (field === 'tim_type' && !schema.hasParts(value)) mats[id].parts = '';
+    }, { coalesce: 'mat:' + id + ':' + field, touched: [id] });
   }
   /** Replace a material's datasheet list (upload / replace / remove). Removed files: TIM.app.queueFileDeletes. */
   function setDatasheets(id, list) {

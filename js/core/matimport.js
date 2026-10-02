@@ -24,6 +24,8 @@
     { key: 'model', label: 'Model', kind: 'text', required: true, hint: '型號（產品系列名，不含厚度）' },
     { key: 'tim_type', label: '型態', kind: 'enum', values: schema.TIM_TYPES.map(t => t.v),
       hint: schema.TIM_TYPES.map(t => t.v + ' = ' + t.label + '（' + t.zh + '）').join('、') },
+    { key: 'parts', label: '劑型', kind: 'enum', values: schema.PARTS.map(p => p.v),
+      hint: '只有 ' + schema.TIM_TYPES.filter(t => t.parts).map(t => t.v).join(' / ') + ' 才填：one_part = 單劑型（1-part）、two_part = 雙劑型（2-part，A / B 兩劑混合）；其他型態填 null' },
     { key: 'color', label: '顏色', kind: 'text' },
     { key: 'k', label: '熱傳導係數 k', kind: 'num', unit: 'W/m·K' },
     { key: 'k_method', label: 'k 量測標準', kind: 'enum', values: schema.K_METHODS, hint: '規格書沒寫量測方法時填 "Other / 未註明"' },
@@ -111,6 +113,11 @@
       if (/silicon|矽|siloxane/.test(s)) return 'silicone';
       return undefined;
     }
+    if (f.key === 'parts') {
+      if (v === 2 || /雙|兩劑|二液|2液|\btwo\b|^2$|\b2\s*-?\s*(part|k|c)\b|\ba\s*[\/+&]\s*b\b/.test(s)) return 'two_part';
+      if (v === 1 || /單|一液|1液|\bone\b|\bsingle\b|^1$|\b1\s*-?\s*(part|k|c)\b/.test(s)) return 'one_part';
+      return undefined;
+    }
     if (f.key === 'ul94') {
       const m = /v-?\s*([012])/.exec(s);
       if (m) return 'V-' + m[1];
@@ -182,6 +189,10 @@
       });
       if (unknown.length) ew.push('沒有對應欄位，未匯入：' + unknown.join('、'));
       if (!fields.vendor && !fields.model) { warnings.push('第 ' + (i + 1) + ' 筆沒有 vendor / model，略過'); return; }
+      if (fields.parts && !schema.hasParts(fields.tim_type)) {
+        ew.push('「劑型」只用在 ' + schema.TIM_TYPES.filter(t => t.parts).map(t => t.label).join(' / ') + '，未匯入');
+        delete fields.parts;
+      }
       const ev = m.evidence || m._evidence;
       const evidence = {};
       if (ev && typeof ev === 'object') Object.keys(ev).forEach(k => { const f = BY_KEY[k.toLowerCase()]; if (f && !empty(ev[k])) evidence[f.key] = String(ev[k]); });
@@ -215,6 +226,14 @@
       if (existing && from === to) return;
       out.push({ key: f.key, label: f.label, unit: f.unit || '', from: empty(from) ? null : from, to });
     });
+    // 劑型 follows the resulting type: dropped when it ends up without one, cleared when the type changes away
+    const tt = out.find(c => c.key === 'tim_type');
+    const typeAfter = tt ? tt.to : existing ? existing.tim_type : entry.fields.tim_type;
+    if (!schema.hasParts(typeAfter)) {
+      const i = out.findIndex(c => c.key === 'parts');
+      if (i >= 0) out.splice(i, 1);
+      if (existing && !empty(existing.parts)) out.push({ key: 'parts', label: BY_KEY.parts.label, unit: '', from: existing.parts, to: '' });
+    }
     return out;
   }
 
@@ -232,7 +251,7 @@
     return {
       format: FORMAT, version: VERSION,
       materials: [{
-        vendor: 'Vendor-B', model: 'GF-750', tim_type: 'pad', color: 'Gray',
+        vendor: 'Vendor-B', model: 'GF-750', tim_type: 'pad', parts: null, color: 'Gray',
         k: 7.5, k_method: 'ASTM D5470', impedance: 0.45, impedance_cond: '@10 psi, 1.0 mm',
         thickness_options: '0.5–5.0 mm（0.5 mm 一級）', hardness: 45, hardness_scale: 'Shore 00', density: 3.2,
         temp_min: -40, temp_max: 200, dielectric_kv_mm: 6, volume_resistivity: '1E13 Ω·cm', dk: 7.1, dk_freq: '1 MHz', absorber_freq: null,

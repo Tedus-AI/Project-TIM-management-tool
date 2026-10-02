@@ -62,3 +62,33 @@ test('prompt and example agree with the parser', () => {
   assert.equal(r.entries.length, 1);
   assert.equal(r.entries[0].warnings.length, 0, 'the example imports without warnings');
 });
+
+test('劑型 (parts): only for Gap Filler / Thermal Putty; synonyms; follows the type when merging', () => {
+  assert.deepEqual(schema.TIM_TYPES.filter(t => schema.hasParts(t.v)).map(t => t.v), ['gap_filler', 'putty']);
+  const r = mi.parse(JSON.stringify({ format: 'tim-material', version: 1, materials: [
+    { vendor: 'Vendor-C', model: 'GF-D1', tim_type: 'Gap Filler', parts: '1-Part Dispensable' },
+    { vendor: 'Vendor-C', model: 'GF-D2', tim_type: 'gap_filler', parts: '2K (A/B 1:1)' },
+    { vendor: 'Vendor-C', model: 'TP-P2', tim_type: 'putty', parts: 'two_part' },
+    { vendor: 'Vendor-C', model: 'TP-800', tim_type: 'grease', parts: 'one_part' },
+  ] }));
+  assert.deepEqual(r.entries.map(e => e.fields.parts), ['one_part', 'two_part', 'two_part', undefined]);
+  const pf = mi.FIELDS.find(f => f.key === 'parts');
+  assert.deepEqual(['One-component', 'Two-component', '單液', '雙劑型', 'single', 2, 'None', 'phone', 'N/A'].map(v => mi.enumValue(pf, v)),
+    ['one_part', 'two_part', 'one_part', 'two_part', 'one_part', 'two_part', undefined, undefined, undefined]);
+  assert.ok(r.entries[3].warnings.some(w => /劑型.*Gap Filler \/ Thermal Putty.*未匯入/.test(w)), 'grease: dropped with a warning');
+  assert.equal(schema.materialTypeText(Object.assign(schema.newMaterial(), r.entries[1].fields)), 'Gap Filler · 雙劑');
+  assert.equal(schema.materialTypeText(schema.newMaterial({ tim_type: 'gap_filler' })), 'Gap Filler', 'not chosen yet → type only');
+
+  // existing Thermal Pad + fill: the type stays pad, so 劑型 is not offered as a change
+  const pad = schema.newMaterial({ vendor: 'Vendor-C', model: 'GF-D1' });
+  assert.ok(!mi.changesFor(r.entries[0], pad, 'fill').some(c => c.key === 'parts'));
+  assert.deepEqual(mi.changesFor(r.entries[0], pad, 'overwrite').filter(c => /tim_type|parts/.test(c.key)).map(c => [c.key, c.to]),
+    [['tim_type', 'gap_filler'], ['parts', 'one_part']]);
+  // existing two-part gap filler overwritten as a grease → 劑型 cleared
+  const gf = schema.newMaterial({ vendor: 'Vendor-C', model: 'TP-800', tim_type: 'gap_filler', parts: 'two_part' });
+  assert.deepEqual(mi.changesFor(r.entries[3], gf, 'overwrite').find(c => c.key === 'parts'), { key: 'parts', label: '劑型', unit: '', from: 'two_part', to: '' });
+  // loading: a stray 劑型 on another type, or an unknown value, is dropped
+  assert.equal(schema.normalizeMaterial({ tim_type: 'pad', parts: 'one_part' }).parts, '');
+  assert.equal(schema.normalizeMaterial({ tim_type: 'putty', parts: 'three' }).parts, '');
+  assert.equal(schema.normalizeMaterial({ tim_type: 'putty', parts: 'one_part' }).parts, 'one_part');
+});
