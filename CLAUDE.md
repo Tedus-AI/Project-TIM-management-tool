@@ -15,6 +15,10 @@
   `js/db/fileDb.js`（本機資料庫資料夾；IndexedDB 只用來記住資料夾 handle）、`js/db/backup.js`（每日備份，SharePoint 寫到 Database/Backup）。
   後端介面：`head / read / write / size`，規格書檔案走 `backend.files`（`put / blob / webUrl / del`，路徑相對 Datasheets 資料夾）。
   多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）；`store.js` 處理 412（`error.conflict`）與逾時未知結果（`error.uncertain`）。
+  **SharePoint 是主資料**：`js/db/sync.js` — `mirror`（SharePoint 模式把最新內容寫到本機副本，只寫不讀，被別處改過的副本先另存）、
+  `push`（本機資料夾模式每次存檔經 `store.onSaved` 取得寫入的紀錄，用 `merge.mergePush` 合併進 SharePoint；推不出去的記在 IndexedDB，
+  之後補寫，含 SharePoint 模式開啟時的 `applyLeftovers`）。提醒 / 警告視窗與提醒列在 `app.js`。
+  人員下拉 `PersonField`（`fields.js`）讀 SharePoint 清單 `Project_Members`（`sharepoint.js` 的 `members()`，欄位 Title / MemberName / MemberEmail / Function / IsActive）。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。
@@ -52,7 +56,8 @@ for f in $(git ls-files '*.js'); do node --check "$f"; done   # 語法檢查（C
    有新版時 `app.checkVersion` → 不可關閉的倒數視窗 → `app.applyUpdate`：先 blur 正在編輯的欄位、flush 存檔，
    存檔失敗絕不重新載入；用 `?v=<新版>` 重新載入，sessionStorage 擋重整迴圈（同一版本最多 2 次）。
 9. 外部 fetch 要有 timeout（AbortController）。Chrome 會把 4xx 回應記成 console error：SharePoint 測試只放行預期的 404 / 412（`allowHttp`）。
-   SharePoint E2E 用 `tests/e2e/sharepoint.e2e.js` 的假 MSAL（`window.msal`）＋假 Graph（`context.route`），不連真的 Microsoft。
+   SharePoint E2E 用 `tests/e2e/fake-sharepoint.js` 的假 MSAL（`window.msal`）＋假 Graph（`context.route`，含 `Project_Members`、`g.down` 模擬斷線），
+   不連真的 Microsoft；假資料夾用 `tests/e2e/fake-fs.js`。E2E 預設關閉同步（`window.__TIM_TEST_SYNC_OFF`），`sync.e2e.js` 自己打開。
 10. 每個 UI 改動都要 headless 驗證（E2E 或 Playwright 腳本）後才 commit，並在 commit message 記錄驗證內容。
     HTML5 拖曳請用合成的 `DragEvent`（Playwright 模擬拖曳會合併 dragover 事件，測不到邊界情況）。
 11. PDF 匯出（`js/io/pdf-export.js`）與報告產生器相同：每頁先排成 HTML，html2canvas 截圖後放進 jsPDF。

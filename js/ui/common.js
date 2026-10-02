@@ -5,8 +5,8 @@
   if (!TIM.ui) return;
   const { html, useState, useEffect, useRef, useLayoutEffect, useReducer, Icon, cx } = TIM.ui;
 
-  const ov = { modals: [], toasts: [], menu: null, popover: null, listeners: new Set() };
-  const emit = () => ov.listeners.forEach(f => f());
+  const ov = { modals: [], toasts: [], menu: null, popover: null, listeners: new Set(), version: 0 };
+  const emit = () => { ov.version++; ov.listeners.forEach(f => f()); };
   let seq = 0;
 
   function openModal(render, opts) {
@@ -195,7 +195,14 @@
 
   function Overlays() {
     const [, force] = useReducer(x => x + 1, 0);
-    useEffect(() => { ov.listeners.add(force); return () => ov.listeners.delete(force); }, []);
+    // Layout effect + catch-up (as useStore): a dialog opened between render and subscription —
+    // e.g. right after the start page / app screen switch, or on a busy machine — is not lost.
+    const seen = ov.version;
+    useLayoutEffect(() => {
+      ov.listeners.add(force);
+      if (ov.version !== seen) force();
+      return () => ov.listeners.delete(force);
+    }, []);
     return html`<div>
       ${ov.modals.map((m, i) => html`<div key=${m.id}>${m.render(m.close, i === ov.modals.length - 1)}</div>`)}
       ${ov.menu ? html`<${MenuView} menu=${ov.menu} key=${'menu' + ov.menu.x + ',' + ov.menu.y} />` : null}

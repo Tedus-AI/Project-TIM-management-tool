@@ -115,6 +115,67 @@
     return { merged, conflicts };
   }
 
+  /** Revs of every record: { rev, projects:{id:rev}, materials:{id:rev} }. */
+  function revsOf(db) {
+    const b = { rev: db.rev || 0, projects: {}, materials: {} };
+    Object.values(db.projects || {}).forEach(p => { b.projects[p.id] = p.rev || 0; });
+    Object.values(db.materials || {}).forEach(m => { b.materials[m.id] = m.rev || 0; });
+    return b;
+  }
+
+  /**
+   * Push the records changed in another copy of the database (a local folder copy) into the
+   * shared one, with the same rules as mergeForSave but on copies: the local copy keeps its
+   * own revs, and `base` holds the shared revs the local records were based on.
+   *   taken:  { projects:[ids], materials:[ids], images:[ids], settings, deletedProjects:[ids], deletedMaterials:[ids] }
+   *   copies: { projects:{ [localId]: { id, suffix } }, materials:{…} } — a local record that once
+   *           conflicted keeps updating its conflict copy instead of making a new one on every push.
+   * Returns { merged, conflicts, base, copies } (base / copies: to use for the next push).
+   */
+  function mergePush(disk, local, base, taken, copies) {
+    copies = copies || { projects: {}, materials: {} };
+    copies = { projects: Object.assign({}, copies.projects), materials: Object.assign({}, copies.materials) };
+    const nameKey = { projects: 'name', materials: 'model' };
+    const view = { projects: {}, materials: {}, images: local.images || {}, settings: local.settings };
+    const t = {
+      projects: new Set(), materials: new Set(), images: new Set(taken.images || []), settings: !!taken.settings,
+      deletedProjects: new Set(), deletedMaterials: new Set(),
+    };
+    const back = { projects: {}, materials: {} };          // id in the shared copy → local id
+    ['projects', 'materials'].forEach(kind => {
+      const dirty = t[kind];
+      const deleted = kind === 'projects' ? t.deletedProjects : t.deletedMaterials;
+      (taken[kind] || []).forEach(id => {
+        const rec = local[kind] && local[kind][id];
+        if (!rec) return;
+        const v = util.clone(rec);
+        const c = copies[kind][id];
+        if (c) { v.id = c.id; v[nameKey[kind]] = (v[nameKey[kind]] || '') + c.suffix; }
+        view[kind][v.id] = v;
+        dirty.add(v.id);
+        back[kind][v.id] = id;
+      });
+      (taken[kind === 'projects' ? 'deletedProjects' : 'deletedMaterials'] || []).forEach(id => {
+        const c = copies[kind][id];
+        deleted.add(c ? c.id : id);
+        delete copies[kind][id];
+      });
+    });
+    const r = mergeForSave(disk, view, base, t);
+    r.conflicts.forEach(c => {
+      if (c.type !== 'conflict') return;
+      const localId = back[c.kind][c.id];
+      const copy = r.merged[c.kind][c.copyId];
+      if (!localId || !copy) return;
+      const own = String(local[c.kind][localId][nameKey[c.kind]] || '');
+      const full = String(copy[nameKey[c.kind]] || '');
+      copies[c.kind][localId] = { id: c.copyId, suffix: full.startsWith(own) ? full.slice(own.length) : '' };
+    });
+    r.merged.rev = (disk.rev || 0) + 1;
+    r.merged.updated_at = util.nowIso();
+    return { merged: r.merged, conflicts: r.conflicts, base: revsOf(r.merged), copies };
+  }
+
   /** Remove images no project references (keep ids in `keep`, e.g. referenced by undo history). */
   function pruneImages(db, keep) {
     const used = new Set(keep ? Array.from(keep) : []);
@@ -132,5 +193,5 @@
     return into;
   }
 
-  return { serializeDb, revFromHead, mergeForSave, pruneImages, imageIdsInText };
+  return { serializeDb, revFromHead, mergeForSave, mergePush, revsOf, pruneImages, imageIdsInText };
 });

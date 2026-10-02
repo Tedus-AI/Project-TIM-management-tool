@@ -9,7 +9,7 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useRef, useLayoutEffect, Icon, cx } = TIM.ui;
+  const { html, useState, useRef, useEffect, useLayoutEffect, Icon, cx } = TIM.ui;
   const util = TIM.util;
 
   /** Strict number parse for inputs: "", "2", "-0.5", "1,234.5", "２．５" → number|null; junk → NaN. */
@@ -146,5 +146,49 @@
     </div>`;
   }
 
-  Object.assign(TIM.ui, { TextField, NumField, SelectField, Field, Locked, YesNo, ColorField, strictNum });
+  /**
+   * People of a function (e.g. "TH/ME") in SharePoint's Project_Members list — the list the
+   * AI Thermal tool keeps. null while loading or when it cannot be read (not signed in, offline,
+   * no such list): callers then fall back to free text.
+   */
+  function usePeople(func) {
+    const [people, setPeople] = useState(null);
+    useEffect(() => {
+      const sp = TIM.spBackend;
+      if (!sp || !sp.account()) return undefined;
+      let dead = false;
+      sp.members().then(list => { if (!dead) setPeople(list.filter(p => !func || p.funcs.includes(func))); }, () => { /* free text */ });
+      return () => { dead = true; };
+    }, [func]);
+    return people;
+  }
+
+  const MANUAL = '__manual__';
+  /**
+   * Person picker: the people of `func` from Project_Members as a dropdown (+ 「手動輸入…」 for
+   * someone not on the list); a text field while the list is not available.
+   */
+  function PersonField(props) {
+    const people = usePeople(props.func);
+    const [manual, setManual] = useState(false);
+    const box = useRef(null);
+    useEffect(() => { if (manual && box.current) { const i = box.current.querySelector('input'); if (i) { i.focus(); i.select(); } } }, [manual]);   // typing replaces the old name
+    const v = props.value == null ? '' : String(props.value);
+    if (!people || !people.length || manual) {
+      return html`<div class="person-field" ref=${box}>
+        <${TextField} value=${v} placeholder=${props.placeholder || ''} disabled=${props.disabled} onChange=${props.onChange} />
+        ${people && people.length ? html`<button type="button" class="btn btn-ghost btn-xs" title="從 SharePoint 的 Project_Members 名單選" disabled=${props.disabled} onClick=${() => setManual(false)}>名單</button>` : null}
+      </div>`;
+    }
+    const cur = people.find(p => p.name === v);
+    return html`<select class="sel" value=${v} disabled=${props.disabled} title=${cur ? cur.email : ''}
+        onChange=${e => { if (e.target.value === MANUAL) { setManual(true); return; } if (props.onChange) props.onChange(e.target.value); }}>
+      <option value="">—</option>
+      ${people.map(p => html`<option key=${p.email || p.name} value=${p.name} title=${p.email}>${p.name}</option>`)}
+      ${v && !cur ? html`<option value=${v}>${v}（不在名單）</option>` : null}
+      <option value=${MANUAL}>手動輸入…</option>
+    </select>`;
+  }
+
+  Object.assign(TIM.ui, { TextField, NumField, SelectField, Field, Locked, YesNo, ColorField, PersonField, usePeople, strictNum });
 })();

@@ -12,6 +12,14 @@
       locations: schema.locationPresetOf(s.default_locations) || 'both' });
     const [err, setErr] = useState('');
     const set = (k, v) => setF(prev => Object.assign({}, prev, { [k]: v }));
+    // Thermal owner: the signed-in person as written in Project_Members (matched by e-mail)
+    const thme = TIM.ui.usePeople('TH/ME');
+    const me = TIM.spBackend && TIM.spBackend.account();
+    useEffect(() => {
+      if (!thme || !me || !me.email) return;
+      const p = thme.find(x => x.email && x.email.toLowerCase() === me.email.toLowerCase());
+      if (p) setF(prev => (prev.owner === TIM.app.currentUser() ? Object.assign({}, prev, { owner: p.name }) : prev));
+    }, [thme]);
     const submit = () => {
       if (!f.name.trim()) { setErr('請輸入案名'); return; }
       const pid = TIM.actions.createProject({ name: f.name.trim(), code: f.code.trim(), product_type: f.product_type, customer: f.customer.trim(), stage: f.stage, owner: f.owner.trim(), me_owner: f.me_owner.trim() });
@@ -27,8 +35,8 @@
         <${Field} label="產品類型"><${SelectField} value=${f.product_type} options=${schema.PRODUCT_TYPES} onChange=${v => set('product_type', v)} /></${Field}>
         <${Field} label="客戶"><input class="inp" value=${f.customer} onInput=${e => set('customer', e.target.value)} /></${Field}>
         <${Field} label="Stage"><${SelectField} value=${f.stage} allowEmpty=${false} options=${schema.STAGES} onChange=${v => set('stage', v)} /></${Field}>
-        <${Field} label="熱流負責人"><input class="inp" value=${f.owner} onInput=${e => set('owner', e.target.value)} /></${Field}>
-        <${Field} label="機構負責人"><input class="inp" value=${f.me_owner} onInput=${e => set('me_owner', e.target.value)} /></${Field}>
+        <${Field} label="熱流負責人"><${TIM.ui.PersonField} func="TH/ME" value=${f.owner} onChange=${v => set('owner', v)} /></${Field}>
+        <${Field} label="機構負責人"><${TIM.ui.PersonField} func="TH/ME" value=${f.me_owner} onChange=${v => set('me_owner', v)} /></${Field}>
         <${Field} label="Location" hint="之後可在專案總覽增減、改名、改顏色"><${SelectField} value=${f.locations} allowEmpty=${false} options=${schema.LOCATION_PRESETS} onChange=${v => set('locations', v)} /></${Field}>
       </div>
     </${Modal}>`;

@@ -71,6 +71,7 @@
     TIM.store.attach(backend, db);
     startBackground();
     initBackup();
+    startSync(backend, db);
     return true;
   };
 
@@ -188,6 +189,7 @@
     }
     try { await sp.write(await fb.read()); } catch (e) { toast('上傳資料庫失敗：' + (e.message || e), 'err'); return false; }
     stopBackground();
+    await stopSync();
     const done = await app.attach(sp);
     if (!done) { startBackground(); toast(app.gateError || '無法開啟 SharePoint 資料庫', 'err'); return false; }
     setDbMode('sharepoint');
@@ -199,6 +201,7 @@
     try { await TIM.store.flush(); } catch (e) { /* ignore */ }
     app.noAutoRestore = true;
     stopBackground();
+    await stopSync();
     const b = TIM.store.backend;
     await runFileGc();
     fileDeletes.clear();
@@ -206,6 +209,112 @@
     if (b && b.close) b.close();
     go('', true);
   };
+
+  // ───────── SharePoint is the master copy (js/db/sync.js) ─────────
+  // SharePoint mode: every save also refreshes the local copy (write-only).
+  // Local folder mode: every save is also merged into SharePoint; the user is reminded (on open and
+  // again on a save at least REMIND_MS later) to switch to SharePoint, and warned when a push fails.
+  const sync = TIM.sync;
+  const REMIND_MS = 10 * 60 * 1000;
+  const FAIL_WARN_MS = 10 * 60 * 1000;
+  let remindedAt = 0, failWarnedAt = 0, mirrorRev = null, wasFailing = false, warnedFailures = 0;
+  let closingSync = false, remindModal = null, failModal = null;
+
+  function startSync(backend, db) {
+    mirrorRev = null;
+    if (backend.kind !== 'file') sync.push.stop();
+    if (sync.__disableForTest) return;
+    if (backend.kind === 'sharepoint') { sync.onSharePointOpened(); backend.members().catch(() => { /* list optional */ }); return; }
+    if (backend.kind !== 'file') return;
+    sync.push.start(backend.startIn ? backend.startIn() : null, backend.location ? backend.location() : backend.label(), db);
+    remindedAt = 0;
+    setTimeout(() => remindLocal(), 0);
+  }
+  async function stopSync() {
+    if (!sync.push.active) return;
+    closingSync = true;
+    // let a running push finish, then push what is left (whatever fails stays remembered for later)
+    try { await sync.push.run(); if (sync.push.pendingCount()) await sync.push.run(); } catch (e) { /* stays pending */ }
+    sync.push.stop();
+    if (remindModal) remindModal.close(false);
+    if (failModal) failModal.close('');
+    closingSync = false;
+  }
+  TIM.store.onSaved = taken => {
+    const b = TIM.store.backend;
+    if (b && b.kind === 'file' && sync.push.active) {
+      sync.push.saved(taken);
+      if (Date.now() - remindedAt >= REMIND_MS) remindLocal();
+    }
+  };
+  // SharePoint content changed (our save, or other people's changes pulled in) → refresh the local copy
+  TIM.store.subscribe(st => {
+    if (!st.db || !st.backend || st.backend.kind !== 'sharepoint' || st.status.state === 'saving' || st.status.state === 'dirty') return;
+    if (st.db.rev === mirrorRev) return;
+    mirrorRev = st.db.rev;
+    sync.mirror.schedule();
+  });
+  // local work that cannot reach SharePoint → warn (when it starts failing, then at most every FAIL_WARN_MS)
+  sync.subscribe(() => {
+    const p = sync.push;
+    if (!p.active) wasFailing = false;
+    else if (p.state !== 'pushing' && p.state !== 'checking') {          // a retry in progress changes nothing
+      const failing = (p.state === 'error' || p.state === 'login') && p.pendingCount() > 0;
+      if (failing && !closingSync && (!wasFailing || (p.failures > warnedFailures && Date.now() - failWarnedAt >= FAIL_WARN_MS))) {
+        failWarnedAt = Date.now(); warnedFailures = p.failures;
+        setTimeout(() => warnPushFailed(), 0);
+      }
+      wasFailing = failing;
+    }
+    if (sync.mirror.leftovers) { toast('已把本機副本中 ' + sync.mirror.leftovers + ' 筆尚未同步的修改合併到 SharePoint', 'ok', { timeout: 6000 }); sync.mirror.leftovers = 0; }
+    if (sync.mirror.kept) { toast('本機副本在其他地方被修改過，已另存為 ' + sync.mirror.kept + '，沒有覆蓋', 'info', { timeout: 8000 }); sync.mirror.kept = ''; }
+    TIM.store.emit();
+  });
+
+  /** Local folder → SharePoint: save, push what is left, then open the SharePoint database (click). */
+  app.switchToSharePoint = async function () {
+    try { await TIM.store.flush(); } catch (e) { /* reported by the store */ }
+    if (sync.push.active) await sync.push.run();
+    if (sync.push.active && sync.push.pendingCount()) {
+      const go2 = await confirm({ title: '還有修改沒同步到 SharePoint', okText: '仍要切換', message: '有 ' + sync.push.pendingCount() + ' 筆修改還沒寫入 SharePoint（' + (sync.push.error || '連線問題') + '）。\n它們已存在本機資料夾，下次開啟 SharePoint 且能存取這個資料夾時會自動合併。' });
+      if (!go2) return false;
+    }
+    await app.disconnect();
+    return app.openSharePoint();
+  };
+  app.pushNow = () => sync.push.run({ interactive: true });
+
+  function remindLocal() {
+    const st = TIM.store;
+    if (!st.db || !st.backend || st.backend.kind !== 'file' || remindModal) return;
+    remindedAt = Date.now();
+    remindModal = TIM.ui.openModal(close => html`<${TIM.ui.Modal} title="目前在本機資料夾作業" size="sync-remind" onClose=${() => close(false)} onEnter=${() => close(true)}
+        footer=${html`<button class="btn btn-ghost" onClick=${() => close(false)}>繼續在本機作業</button>
+          <button class="btn btn-primary" data-enter-ok="1" onClick=${() => close(true)}><${Icon} name="cloud" /> 切換到 SharePoint</button>`}>
+      <p>資料以 <b>SharePoint 共用資料庫</b>為準。你現在開的是本機資料夾「<b>${st.backend.location ? st.backend.location() : st.backend.label()}</b>」。</p>
+      <p class="mt8">在這裡的每次存檔也會同步寫入 SharePoint（不會覆蓋別人的修改），但請盡快切換到線上版本。</p>
+      ${sync.push.state === 'login' ? html`<p class="mt8 text-err">尚未登入 Microsoft 帳號：在登入之前，修改不會寫入 SharePoint。</p>` : null}
+    </${TIM.ui.Modal}>`);
+    remindModal.promise.then(ok => { remindModal = null; if (ok) app.switchToSharePoint(); });
+  }
+
+  function warnPushFailed() {
+    const p = sync.push;
+    if (!p.active || closingSync || failModal) return;
+    const login = p.state === 'login';
+    failModal = TIM.ui.openModal(close => html`<${TIM.ui.Modal} title="未同步到 SharePoint" size="sync-fail" onClose=${() => close('')}
+        footer=${html`<button class="btn btn-ghost" onClick=${() => close('')}>知道了</button>
+          ${login ? html`<button class="btn btn-secondary" onClick=${() => close('login')}>登入 Microsoft</button>` : html`<button class="btn btn-secondary" onClick=${() => close('retry')}>立即重試</button>`}
+          <button class="btn btn-primary" onClick=${() => close('switch')}><${Icon} name="cloud" /> 切換到 SharePoint</button>`}>
+      <p class="text-err">${login ? '尚未登入 Microsoft 帳號，修改無法寫入 SharePoint。' : '寫入 SharePoint 失敗：' + (p.error || '未知錯誤')}</p>
+      <p class="mt8">修改已存在本機資料夾（${p.pendingCount()} 筆待同步）${login ? '，登入後會補寫。' : '，會自動重試；恢復連線後會補上。'}</p>
+    </${TIM.ui.Modal}>`);
+    failModal.promise.then(a => {
+      failModal = null;
+      if (a === 'login' || a === 'retry') sync.push.run({ interactive: a === 'login' });
+      else if (a === 'switch') app.switchToSharePoint();
+    });
+  }
 
   // ───────── backup ─────────
   async function latestText() {
@@ -459,6 +568,35 @@
       });
       out.push(html`<div class="banner warn"><${Icon} name="warn" /><div>${msg.map(m => html`<div>${m}</div>`)}</div>
         <button class="btn btn-secondary btn-sm" onClick=${() => st.dismissConflicts()}>知道了</button></div>`);
+    }
+    const p = sync.push;
+    if (st.backend && st.backend.kind === 'file' && p.active) {
+      const fail = p.state === 'error' || p.state === 'login';
+      const stateText = p.state === 'pushing' ? '同步到 SharePoint 中…'
+        : p.state === 'checking' ? '正在連線 SharePoint…'
+        : p.state === 'login' ? '未登入 Microsoft，修改還沒寫入 SharePoint（' + p.pendingCount() + ' 筆待同步）'
+        : p.state === 'error' ? '寫入 SharePoint 失敗：' + p.error + '（' + p.pendingCount() + ' 筆待同步，會自動重試）'
+        : p.state === 'pending' ? p.pendingCount() + ' 筆修改等待同步到 SharePoint'
+        : p.at ? '已同步到 SharePoint ' + util.fmtDateTime(p.at).slice(11) : '已連線 SharePoint，存檔時會同步寫入';
+      out.push(html`<div class=${cx('banner sync-banner', fail ? 'err' : 'warn')}><${Icon} name=${fail ? 'warn' : 'folder'} />
+        <div style="flex:1"><b>目前在本機資料夾作業</b>，資料以 SharePoint 為準，請切換到線上版本。<div class="sync-state">${stateText}</div></div>
+        ${p.state === 'login' ? html`<button class="btn btn-secondary btn-sm" onClick=${() => app.pushNow()}>登入 Microsoft</button>` : null}
+        ${p.state === 'error' ? html`<button class="btn btn-secondary btn-sm" onClick=${() => sync.push.run()}>立即重試</button>` : null}
+        <button class="btn btn-primary btn-sm" onClick=${() => app.switchToSharePoint()}><${Icon} name="cloud" /> 切換到 SharePoint</button></div>`);
+    }
+    if (p.conflicts.length && st.backend && st.backend.kind === 'file') {
+      out.push(html`<div class="banner warn"><${Icon} name="warn" /><div>${p.conflicts.map(c => html`<div>${c.type === 'conflict'
+          ? (c.kind === 'projects' ? '專案' : '材料') + '「' + c.name + '」在 SharePoint 上也被修改：SharePoint 的版本保留，你在本機的修改存成「衝突副本」'
+          : c.type === 'delete_skipped' ? '「' + c.name + '」在 SharePoint 上被修改過，沒有刪除' : '「' + c.name + '」在 SharePoint 上已被刪除，已用你的版本補回'}</div>`)}</div>
+        <button class="btn btn-secondary btn-sm" onClick=${() => { p.conflicts = []; st.emit(); }}>知道了</button></div>`);
+    }
+    const mr = sync.mirror;
+    if (st.backend && st.backend.kind === 'sharepoint' && mr.state === 'needs-permission') {
+      out.push(html`<div class="banner info"><${Icon} name="folder" /> 本機副本資料夾「${mr.name()}」需要重新授權，才能繼續寫入最新內容。
+        <button class="btn btn-secondary btn-sm" onClick=${() => mr.grant()}>授權</button></div>`);
+    } else if (st.backend && st.backend.kind === 'sharepoint' && mr.state === 'error') {
+      out.push(html`<div class="banner err"><${Icon} name="warn" /> 本機副本沒有寫入：${mr.error}
+        <button class="btn btn-secondary btn-sm" onClick=${() => mr.write()}>重試</button></div>`);
     }
     if (app.backupState === 'needs-permission') {
       out.push(html`<div class="banner info"><${Icon} name="folder" /> 自動備份資料夾需要重新授權才能繼續備份。

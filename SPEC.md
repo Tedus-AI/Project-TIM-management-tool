@@ -81,7 +81,7 @@
 | ☆ 案名 / 專案代碼 / 產品類型（Sub-6 / mmWave）/ 客戶 | 識別 |
 | ☆ Stage | Proto / EVT / DVT / PVT / MP；搭配基準快照追蹤每個 build 的 TIM 組態 |
 | ☆ 專案狀態 | 進行中 / 暫停 / 結案（結案專案仍可被反查） |
-| ☆ 熱流負責人 / 機構負責人 | 變更時知道要找誰 |
+| ☆ 熱流負責人 / 機構負責人 | 變更時知道要找誰；下拉選單來自 SharePoint 清單 `Project_Members`（Function = TH/ME、IsActive，同一人一筆），可手動輸入名單外的人 |
 | ☆ 位置分組（Location） | 預設 Bottom Case / Top Case，可自訂（Heatsink、Shield can、PSU cover…）與代表色 |
 
 ### 3.2 TIM 使用項目（Item，一列 = 一個裁切件 / 一種點膠）
@@ -376,6 +376,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 項目 | 規格 |
 |------|------|
 | SharePoint（主要） | MSAL.js 登入（彈出視窗，重新導向頁 `auth.html`）＋ Microsoft Graph；網站 `Thermal-Spec-DB` 的「文件」：`TIM_Manager/Database/tim_db.json`、`TIM_Manager/Database/Backup/`、`TIM_Manager/Datasheets/<Vendor>/<Model>/`。與 AI Thermal 工具共用 Azure 應用程式與網站；登入過一次後自動開啟，登入過期時畫面提示重新登入（存檔時不彈視窗） |
+| 本機副本（SharePoint 模式） | 設定的資料夾裡寫入 `tim_db.json` = SharePoint 最新內容（每次存檔、每次同步到別人的修改），只寫不讀。該檔在別處被改過（`updated_at` 不是工具最後寫的）→ 先另存 `tim_db_local_<日期時間>.json`；不是 TIM 資料庫 → 不寫 |
+| 本機資料夾 → SharePoint | 本機模式每次存檔後，把這次寫入的專案 / 材料 / 刪除 / 設定以 `merge.mergePush` 合併進 SharePoint（以 SharePoint 的 rev 為基準、If-Match；兩邊都改 → 衝突副本，之後的推送更新同一份副本）；材料的規格書檔案一併上傳。推不出去的記在 IndexedDB（依資料夾），下次存檔、重新開這個資料夾、或改開 SharePoint 時補寫。畫面：常駐提醒列＋「切換到 SharePoint」；開啟時與相隔 10 分鐘以上的存檔跳提醒視窗；寫入失敗（含未登入）立即跳警告，之後最多 10 分鐘一次 |
 | 本機資料夾 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續；規格書存 `Datasheets/`。可在設定「搬到 SharePoint」（不覆蓋已存在的資料庫） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |
 | 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料。SharePoint 寫入帶 `If-Match: eTag`（eTag 先於內容取得）：讀寫之間有人寫入 → 412 → 重讀、合併、再寫（連續最多 4 次）；寫入逾時但其實已寫入（下次讀到同一 `updated_at` + `rev`）→ 以那次寫入為基準，不會跟自己衝突；剛寫入後讀到較舊的版本（SharePoint 延遲）→ 60 秒內忽略 |
@@ -443,6 +445,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 ### Phase 2 — 協作與報告
 - [x] SharePoint 共用資料庫（eTag 並發、每日備份、本機資料庫搬移）與材料規格書檔案
+- [x] SharePoint 為主：本機副本（只寫不讀）、本機資料夾作業時合併寫入 SharePoint ＋ 提醒 / 失敗警告
+- [x] 熱流 / 機構負責人下拉（SharePoint `Project_Members` 的 TH/ME 人員）
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤

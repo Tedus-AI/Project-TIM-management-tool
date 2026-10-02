@@ -13,8 +13,19 @@ async function openMap(page) {
   await page.waitForTimeout(300);
 }
 /** Click at a relative position (0..1) of the drawing in the current view. */
+/** Image position once the view has stopped re-fitting (fit-to-stage runs after paint, late on a busy machine). */
+async function stableBox(page) {
+  let prev = null;
+  for (let i = 0; i < 50; i++) {
+    const b = await page.locator('.map-stage svg image').boundingBox();
+    if (prev && b && ['x', 'y', 'width', 'height'].every(k => Math.abs(b[k] - prev[k]) < 0.5)) return b;
+    prev = b;
+    await page.waitForTimeout(60);
+  }
+  return prev;
+}
 async function clickImg(page, fx, fy, opts) {
-  const box = await page.locator('.map-stage svg image').boundingBox();
+  const box = await stableBox(page);
   await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy, opts);
 }
 

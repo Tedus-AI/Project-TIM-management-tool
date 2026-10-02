@@ -74,8 +74,8 @@
                 <${Field} label="客戶"><${TextField} value=${p.customer} disabled=${ro} onChange=${v => set('customer', v)} /></${Field}>
                 <${Field} label="Stage"><${SelectField} value=${p.stage} allowEmpty=${false} options=${schema.STAGES} disabled=${ro} onChange=${v => set('stage', v)} /></${Field}>
                 <${Field} label="專案狀態"><${SelectField} value=${p.status} allowEmpty=${false} options=${schema.PROJECT_STATUS} disabled=${ro} onChange=${v => set('status', v)} /></${Field}>
-                <${Field} label="熱流負責人"><${TextField} value=${p.owner} disabled=${ro} onChange=${v => set('owner', v)} /></${Field}>
-                <${Field} label="機構負責人"><${TextField} value=${p.me_owner} disabled=${ro} onChange=${v => set('me_owner', v)} /></${Field}>
+                <${Field} label="熱流負責人"><${TIM.ui.PersonField} func="TH/ME" value=${p.owner} disabled=${ro} onChange=${v => set('owner', v)} /></${Field}>
+                <${Field} label="機構負責人"><${TIM.ui.PersonField} func="TH/ME" value=${p.me_owner} disabled=${ro} onChange=${v => set('me_owner', v)} /></${Field}>
                 <${Field} label="備註" class="span-all"><${TextField} multiline=${true} rows=${3} value=${p.description} disabled=${ro} onChange=${v => set('description', v)} /></${Field}>
               </div>
               <div class="muted" style="font-size:11.5px;margin-top:12px">建立：${util.fmtDateTime(p.created_at)} ${p.created_by} · 最後修改：${util.fmtDateTime(p.updated_at)} ${p.updated_by}</div>

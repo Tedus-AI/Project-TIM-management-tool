@@ -37,6 +37,7 @@
   let wrote = null;                // { rev, at, text }: our last successful write
   let trustDisk = false;           // after a 412 the next read must take the disk as it is
   let needsLogin = false;
+  let membersP = null;             // Project_Members list (cached for the session)
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const enc = p => String(p).split('/').filter(Boolean).map(encodeURIComponent).join('/');
@@ -220,7 +221,7 @@
         const r = await pca.loginPopup({ scopes: CONFIG.scopes, prompt: 'select_account' });
         account = r.account;
         needsLogin = false;
-        siteId = null; itemId = null; cache = null; wrote = null;
+        siteId = null; itemId = null; cache = null; wrote = null; membersP = null;
         return { ok: true };
       } catch (e) {
         const code = (e && e.errorCode) || '';
@@ -265,6 +266,46 @@
       }
     },
 
+    /**
+     * People in the site's Project_Members list (kept by the AI Thermal tool; columns ProjectID
+     * (Title), MemberName, MemberEmail, Function, IsActive): active rows only, one entry per
+     * person → [{ name, email, funcs:[…], projects:[…] }] sorted by name. Cached for the session.
+     */
+    members() {
+      if (!account) return Promise.reject(mkErr('尚未登入 Microsoft 帳號', { auth: true }));
+      if (!membersP) {
+        membersP = (async () => {
+          await resolveSite(false);
+          const lr = await graph('/sites/' + siteId + '/lists?$select=id,displayName&$filter=' + encodeURIComponent("displayName eq 'Project_Members'"));
+          const list = ((await lr.json()).value || [])[0];
+          if (!list) throw mkErr('SharePoint 上沒有 Project_Members 清單', { status: 404 });
+          const people = new Map();
+          let url = '/sites/' + siteId + '/lists/' + list.id + '/items?$expand=fields&$top=500';
+          while (url) {
+            const j = await (await graph(url)).json();
+            (j.value || []).forEach(it => {
+              const f = it.fields || {};
+              const name = String(f.MemberName || '').trim();
+              if (!name || f.IsActive === false) return;
+              const email = String(f.MemberEmail || '').trim();
+              const key = (email || name).toLowerCase();
+              const p = people.get(key) || { name, email, funcs: [], projects: [] };
+              [].concat(f.Function || 'TH/ME').forEach(fn => { if (!p.funcs.includes(fn)) p.funcs.push(fn); });
+              if (f.Title && !p.projects.includes(f.Title)) p.projects.push(f.Title);
+              people.set(key, p);
+            });
+            url = j['@odata.nextLink'] || null;
+          }
+          return Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name));
+        })();
+        membersP.catch(() => { membersP = null; });
+      }
+      return membersP;
+    },
+
+    /** The database text last read from / written to SharePoint ('' before the first read). */
+    currentText() { return cache ? cache.text : ''; },
+
     /** Forget the open database (keeps the Microsoft sign-in). */
     close() { itemId = null; cache = null; wrote = null; trustDisk = false; },
 
@@ -293,10 +334,12 @@
     files: {
       where() { return CONFIG.siteName + ' / ' + CONFIG.datasheetFolder.split('/').join(' / '); },
       supported() { return !!itemId; },
-      async put(rel, blob) {
-        await resolveSite(true);
+      /** Upload (replaces a file with the same path). o.quiet: background use, never opens a sign-in popup. */
+      async put(rel, blob, o) {
+        const interactive = !(o && o.quiet);
+        await resolveSite(interactive);
         const res = await graph(byPath(CONFIG.datasheetFolder + '/' + rel) + ':/content',
-          { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'application/octet-stream' }, interactive: true });
+          { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type || 'application/octet-stream' }, interactive });
         const m = await res.json().catch(() => ({}));
         return { size: m.size != null ? m.size : blob.size };
       },
@@ -306,6 +349,12 @@
         const res = await graph(byPath(CONFIG.datasheetFolder + '/' + rel) + ':/content', { interactive: true, ok: s => s === 404 });
         if (res.status === 404) throw mkErr('SharePoint 上找不到這份規格書（可能已被移動或刪除）', { status: 404 });
         return res.blob();
+      },
+      /** Is the file there? (background use: no sign-in popup) */
+      async exists(rel) {
+        await resolveSite(false);
+        const res = await graph(byPath(CONFIG.datasheetFolder + '/' + rel) + '?$select=id', { ok: s => s === 404 });
+        return res.status !== 404;
       },
       /** Link that opens the file in SharePoint / Office Online. */
       async webUrl(rel) {
@@ -321,7 +370,7 @@
     },
 
     // Test seams.
-    __reset() { pca = null; initP = null; account = null; siteId = null; itemId = null; cache = null; wrote = null; trustDisk = false; needsLogin = false; },
+    __reset() { pca = null; initP = null; account = null; siteId = null; itemId = null; cache = null; wrote = null; trustDisk = false; needsLogin = false; membersP = null; },
   };
 
   TIM.spBackend = sp;

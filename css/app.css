@@ -681,3 +681,6 @@ td > .ds-btn { width: 28px; height: 24px; }
 .ds-text { flex: 1; margin: 0; padding: 14px; overflow: auto; font: 12px/1.5 var(--font-mono); background: #fff; white-space: pre-wrap; }
 .ds-msg { margin: auto; padding: 24px; text-align: center; max-width: 520px; }
 .ds-foot { font-size: 11px; }
+.sync-banner .sync-state { margin-top: 2px; font-size: 11.5px; opacity: .85; }
+.person-field { display: flex; gap: 6px; align-items: center; }
+.person-field .inp { flex: 1; min-width: 0; }
