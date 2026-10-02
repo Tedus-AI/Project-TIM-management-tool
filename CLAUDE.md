@@ -19,6 +19,8 @@
   `push`（本機資料夾模式每次存檔經 `store.onSaved` 取得寫入的紀錄，用 `merge.mergePush` 合併進 SharePoint；推不出去的記在 IndexedDB，
   之後補寫，含 SharePoint 模式開啟時的 `applyLeftovers`）。提醒 / 警告視窗與提醒列在 `app.js`。
   人員下拉 `PersonField`（`fields.js`）讀 SharePoint 清單 `Project_Members`（`sharepoint.js` 的 `members()`，欄位 Title / MemberName / MemberEmail / Function / IsActive）。
+- 材料匯入：`js/core/matimport.js` 的 `FIELDS` 是唯一定義 —— 同時產生給 AI 的指令（`prompt()`）、範例與解析 / 正規化規則；
+  加材料欄位時一併更新這裡（README 的格式說明以「複製 AI 指令」內容為準）。UI 在 `js/ui/material-import.js`，寫入走 `actions.importMaterials`（一個 undo 步驟）。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。

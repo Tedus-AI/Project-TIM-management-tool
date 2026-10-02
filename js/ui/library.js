@@ -3,7 +3,7 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useMemo, useEffect, useRef, Icon, cx, go, usePref, TextField, NumField, SelectField, Field, YesNo, confirm, toast } = TIM.ui;
+  const { html, useState, useMemo, useEffect, useRef, useLayoutEffect, Icon, cx, go, usePref, TextField, NumField, SelectField, Field, YesNo, confirm, toast } = TIM.ui;
   const { util, schema, calc } = TIM;
   const A = () => TIM.actions;
 
@@ -15,11 +15,15 @@
     const ro = st.readonly;
     const m = db.materials[props.id];
     const bodyRef = useRef(null);
-    useEffect(() => {
-      const on = e => { if (e.key === 'Escape' && !document.querySelector('.modal-backdrop, .menu, .popover')) { const a = document.activeElement; if (a && bodyRef.current && bodyRef.current.contains(a) && a.blur) a.blur(); props.onClose(); } };
+    // Esc closes: registered once (layout effect), the latest onClose read through a ref — re-registering on
+    // every render (onClose is a new function each time) left gaps where an Esc was lost.
+    const live = useRef(props);
+    live.current = props;
+    useLayoutEffect(() => {
+      const on = e => { if (e.key === 'Escape' && !document.querySelector('.modal-backdrop, .menu, .popover')) { const a = document.activeElement; if (a && bodyRef.current && bodyRef.current.contains(a) && a.blur) a.blur(); live.current.onClose(); } };
       window.addEventListener('keydown', on);
       return () => window.removeEventListener('keydown', on);
-    }, [props.onClose]);
+    }, []);
     if (!m) return html`<aside class="drawer"><div class="drawer-head"><h2>找不到材料</h2><div class="right"><button class="icon-btn" onClick=${props.onClose}><${Icon} name="x" /></button></div></div></aside>`;
     const u = (f, v) => A().updateMaterial(m.id, f, v);
     const wu = calc.whereUsed(db, m.id);
@@ -130,7 +134,10 @@
     return html`<div class="page"><div class="page-inner">
       <div class="home-head">
         <div><div class="eyebrow">Material Library · ${Object.keys(db.materials).length}</div><h1>材料庫</h1></div>
-        <div class="home-actions"><button class="btn btn-primary rw-only" onClick=${add}><${Icon} name="plus" /> 新增材料</button></div>
+        <div class="home-actions">
+          <button class="btn btn-secondary rw-only" title="廠商規格書交給 AI 讀，匯入 AI 輸出的檔案" onClick=${() => TIM.ui.openMaterialImport()}><${Icon} name="upload" /> 匯入材料</button>
+          <button class="btn btn-primary rw-only" onClick=${add}><${Icon} name="plus" /> 新增材料</button>
+        </div>
       </div>
       <p class="muted" style="margin:-8px 0 14px;max-width:760px;line-height:1.6">跨專案共用的 TIM 材料資料。Item 連結材料後，Vendor / Model / 型態 / k 值都從這裡帶入（單一事實來源），改這裡就同步所有專案。</p>
       <div class="lib-filters">
@@ -150,8 +157,11 @@
         </tr>`)}</tbody>
       </table></div>` : html`<div class="empty">
         <h3>${Object.keys(db.materials).length ? '沒有符合的材料' : '材料庫是空的'}</h3>
-        <p>新增材料並填入 datasheet 數值（k 值與量測標準、硬度、使用溫度…），並上傳規格書。匯入 Excel 時也可以自動把清單中的 Vendor / Model 建成材料。</p>
-        <div class="actions rw-only"><button class="btn btn-primary" onClick=${add}><${Icon} name="plus" /> 新增材料</button></div>
+        <p>把廠商規格書交給 AI 讀，匯入 AI 輸出的檔案就建好材料（k 值與量測標準、硬度、使用溫度…）；也可以手動新增。匯入 Excel 時也可以自動把清單中的 Vendor / Model 建成材料。</p>
+        <div class="actions rw-only">
+          <button class="btn btn-primary" onClick=${() => TIM.ui.openMaterialImport()}><${Icon} name="upload" /> 匯入材料（規格書 → AI → 匯入）</button>
+          <button class="btn btn-secondary" onClick=${add}><${Icon} name="plus" /> 新增材料</button>
+        </div>
       </div>`}
       ${props.route.mat ? html`<${MaterialDrawer} id=${props.route.mat} onClose=${() => go('library')} />` : null}
     </div></div>`;

@@ -263,6 +263,10 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 ### 5.3 材料庫
 - 表格（型態、廠商、型號、k、量測、硬度、使用溫度、矽系、規格書 👁、使用中）＋型態篩選 / 搜尋。
+- **匯入材料**：使用者把廠商規格書交給 AI，AI 依工具提供的指令輸出 `tim-material` JSON（`{format, version, materials:[{欄位…, evidence:{欄位: 原文與頁碼}}]}`），
+  拖進來或貼上即可。預覽：Vendor + Model 已存在 → 預設只補空白欄位（可覆蓋 / 略過），否則新增；明細顯示匯入值、目前值與 AI 依據。
+  數值單位固定（k W/m·K、熱阻抗 °C·cm²/W、溫度 °C、絕緣 kV/mm、密度 g/cm³…），常見寫法自動正規化，看不懂的值列提醒不匯入。
+  規格書檔案可一起拖入並附到指定材料。一次匯入 = 一個 Undo 步驟。欄位定義（`js/core/matimport.js` 的 FIELDS）同時產生 AI 指令與解析規則。
 - 材料詳細抽屜（第 3.3 節全部欄位）。
 - **規格書**（與 AI Thermal pad & stud 工具的規格書欄相同的五顆按鈕）：👁 線上瀏覽（PDF / 圖片 / 文字直接看，多份時上方切換）、
   ↑ 上傳（可一次多檔，也可拖進來；同檔名取代那一份）、↓ 下載（多份時開清單）、🗑 刪除（多份時開清單）、🕘 清單（每一份的大小、上傳時間、上傳者，可檢視 / 下載 / 取代 / 刪除）。
@@ -447,6 +451,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [x] SharePoint 共用資料庫（eTag 並發、每日備份、本機資料庫搬移）與材料規格書檔案
 - [x] SharePoint 為主：本機副本（只寫不讀）、本機資料夾作業時合併寫入 SharePoint ＋ 提醒 / 失敗警告
 - [x] 熱流 / 機構負責人下拉（SharePoint `Project_Members` 的 TH/ME 人員）
+- [x] 匯入材料：規格書 → AI → `tim-material` JSON → 預覽（新增 / 補空白 / 覆蓋）→ 匯入＋附規格書
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤

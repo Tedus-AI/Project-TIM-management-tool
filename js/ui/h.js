@@ -109,14 +109,16 @@
     return r;
   }
 
-  /** Run cb on Escape while mounted. */
+  /** Run cb on Escape while mounted (registered once per `active` change; the latest cb via a ref). */
   function useEscape(cb, active) {
-    useEffect(() => {
-      if (active === false) return;
-      const on = e => { if (e.key === 'Escape') cb(e); };
+    const live = useRef(cb);
+    live.current = cb;
+    useLayoutEffect(() => {
+      if (active === false) return undefined;
+      const on = e => { if (e.key === 'Escape') live.current(e); };
       window.addEventListener('keydown', on);
       return () => window.removeEventListener('keydown', on);
-    }, [cb, active]);
+    }, [active]);
   }
 
   /** Persisted UI preference (per browser) — never used for real data. */

@@ -426,6 +426,31 @@
     if (!st().db.materials[id]) return false;
     return st().mutateMaterials(mats => { mats[id].datasheets = list; }, { touched: [id] });
   }
+  /**
+   * Import materials (材料匯入) in one undo step. rows: [{ fields, matchId, action: 'new'|'fill'|'overwrite'|'skip' }].
+   * Returns { ids (per row, null when skipped), created, updated }.
+   */
+  function importMaterials(rows) {
+    const ids = [], touched = [];
+    let created = 0, updated = 0;
+    const ok = st().mutateMaterials(mats => {
+      rows.forEach(r => {
+        if (r.action === 'skip') { ids.push(null); return; }
+        const cur = r.matchId && mats[r.matchId];
+        if (r.action === 'new' || !cur) {
+          const m = schema.newMaterial(r.fields);
+          mats[m.id] = m; ids.push(m.id); touched.push(m.id); created++;
+          return;
+        }
+        const ch = TIM.matImport.changesFor({ fields: r.fields }, cur, r.action);
+        ch.forEach(c => { cur[c.key] = c.to; });
+        ids.push(cur.id);
+        if (ch.length) { touched.push(cur.id); updated++; }
+      });
+      if (!touched.length) return false;
+    }, { touched });
+    return { ids, created: ok ? created : 0, updated: ok ? updated : 0 };
+  }
   /** Delete a material; linked items keep its vendor/model as free text (cascade unlink). */
   function deleteMaterial(id) {
     const m = st().db.materials[id];
@@ -517,7 +542,7 @@
     setCovered, updateCovered, addCovered, removeCovered,
     addSource, updateSource, removeSource,
     linkMaterial, unlinkMaterial, findMaterial,
-    createMaterial, updateMaterial, setDatasheets, deleteMaterial, duplicateMaterial,
+    createMaterial, updateMaterial, setDatasheets, importMaterials, deleteMaterial, duplicateMaterial,
     addView, updateView, updateViewStyle, deleteView, moveView, editView,
     addLogEntry, deleteLogEntry, createBaseline, deleteBaseline,
     updateSettings,

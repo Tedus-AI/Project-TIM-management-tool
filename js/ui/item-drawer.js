@@ -3,7 +3,7 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useMemo, useEffect, useRef, Icon, cx, go, Modal, openModal, confirm, toast, TextField, NumField, SelectField, Field, Locked, ColorField, InfoDot, pickFile } = TIM.ui;
+  const { html, useState, useMemo, useEffect, useRef, useLayoutEffect, Icon, cx, go, Modal, openModal, confirm, toast, TextField, NumField, SelectField, Field, Locked, ColorField, InfoDot, pickFile } = TIM.ui;
   const { util, schema, parse, calc } = TIM;
   const A = () => TIM.actions;
 
@@ -61,17 +61,20 @@
     const ro = st.readonly;
     const it = p.items.find(x => x.id === props.itemId);
     const bodyRef = useRef(null);
-    useEffect(() => {
+    // registered once, latest onClose through a ref (see CLAUDE.md rule 3)
+    const live = useRef(props);
+    live.current = props;
+    useLayoutEffect(() => {
       const on = e => {
         if (e.key !== 'Escape' || document.querySelector('.modal-backdrop, .menu, .popover')) return;
         const a = document.activeElement;
         if (a && a.closest && a.closest('.grid-scroll')) return;          // Esc in the grid reverts the cell instead
         if (a && bodyRef.current && bodyRef.current.contains(a) && a.blur) a.blur();   // commit, then close
-        props.onClose();
+        live.current.onClose();
       };
       window.addEventListener('keydown', on);
       return () => window.removeEventListener('keydown', on);
-    }, [props.onClose]);
+    }, []);
     if (!it) return html`<aside class="drawer"><div class="drawer-head"><h2>找不到 Item</h2><div class="right"><button class="icon-btn" onClick=${props.onClose}><${Icon} name="x" /></button></div></div></aside>`;
 
     const mat = calc.materialOf(db, it);
