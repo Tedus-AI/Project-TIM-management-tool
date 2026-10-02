@@ -425,6 +425,18 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .subtbl td.r, .subtbl th.r { text-align: right; }
 .subtbl .inp.r { text-align: right; }
 .subtbl tfoot td { font-size: 11.5px; color: var(--ink-3); padding: 6px; border-bottom: none; }
+/* 元件快選: part number field + list of the components entered before */
+.part-field { position: relative; }
+.suggest { position: absolute; left: 0; top: calc(100% + 2px); z-index: 30; width: 440px; max-width: calc(100vw - 48px); max-height: 340px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); animation: fadeIn .1s; }
+.suggest-head { position: sticky; top: 0; padding: 5px 10px; font-size: 10.5px; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.suggest-row { display: block; width: 100%; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+.suggest-row:last-child { border-bottom: none; }
+.suggest-row.on { background: var(--d-50); box-shadow: inset 3px 0 0 var(--d-500); }
+.suggest-row .sg-top { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); }
+.suggest-row .sg-uses { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.suggest-row .sg-sum { margin-top: 2px; font-size: 11.5px; color: var(--ink-2); }
+.suggest-row .sg-src { margin-top: 1px; font-size: 11px; color: var(--ink-3); }
 .calc-box { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0; border: 1px solid var(--line); background: var(--surface-2); }
 .calc-box > div { padding: 8px 12px; border-right: 1px solid var(--line); }
 .calc-box .k { font-size: 10.5px; color: var(--ink-3); }
