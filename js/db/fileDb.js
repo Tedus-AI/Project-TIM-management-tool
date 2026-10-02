@@ -158,9 +158,23 @@
         await w.close();
         return { size: blob.size };
       },
+      /**
+       * File content. SharePoint is the master copy: a file that is not in this folder (uploaded
+       * on SharePoint; the local copy of the database holds no files) is read from SharePoint
+       * when signed in.
+       */
       async blob(rel) {
+        try { return await fileBackend.files.localBlob(rel); }
+        catch (e) {
+          const sp = TIM.spBackend;
+          if (e && e.notFound && sp && sp.account()) { try { return await sp.files.blob(rel); } catch (x) { /* report the local error */ } }
+          throw e;
+        }
+      },
+      /** File content from this folder only. */
+      async localBlob(rel) {
         try { const { dir, name } = await walk(rel, false); return await (await dir.getFileHandle(name)).getFile(); }
-        catch (e) { if (e && e.name === 'NotFoundError') throw new Error('資料庫資料夾裡找不到這份規格書（可能已被移動或刪除）'); throw e; }
+        catch (e) { if (e && e.name === 'NotFoundError') throw Object.assign(new Error('資料庫資料夾裡找不到這份規格書（可能已被移動或刪除）'), { notFound: true }); throw e; }
       },
       async webUrl() { return null; },
       async del(rel) {

@@ -32,6 +32,8 @@ async function start(opts) {
   const browser = await chromium.launch({ env: Object.assign({}, process.env, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }) });
   const context = await browser.newContext({ viewport: opts.viewport || { width: 1600, height: 960 }, acceptDownloads: true });
   await routeCdn(context);
+  // SharePoint sync of local folders (js/db/sync.js) is off unless a scenario turns it on
+  await context.addInitScript(() => { window.__TIM_TEST_SYNC_OFF = true; });
   // Stress option: slow animation frames (as on a busy CI runner) so hook effects run late.
   if (process.env.TIM_SLOW_FRAMES) {
     await context.addInitScript(() => {

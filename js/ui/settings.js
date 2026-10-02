@@ -3,11 +3,11 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useEffect, Icon, Modal, openModal, Field } = TIM.ui;
+  const { html, useState, useEffect, Icon, Modal, openModal, Field, useStore, toast } = TIM.ui;
   const { util } = TIM;
 
   function SettingsModal(props) {
-    const st = TIM.store;
+    const st = useStore();
     const db = st.db;
     const s = db.settings;
     const ro = st.readonly;
@@ -21,6 +21,18 @@
     const isSp = backend.kind === 'sharepoint';
     const acc = isSp ? backend.account() : null;
     const files = backend.files;
+    const mr = TIM.sync.mirror, push = TIM.sync.push;
+    const mirrorText = mr.state === 'needs-permission' ? '需要重新授權' : mr.state === 'error' ? '沒有寫入：' + mr.error
+      : mr.state === 'writing' ? '寫入中…' : mr.at ? '最近寫入 ' + util.fmtDateTime(mr.at) : '已設定';
+    const pushText = push.state === 'login' ? '未登入 Microsoft（修改不會寫入 SharePoint）' : push.state === 'error' ? '失敗：' + push.error
+      : push.state === 'pushing' ? '同步中…' : push.state === 'pending' ? push.pendingCount() + ' 筆等待同步'
+      : push.at ? '已同步 ' + util.fmtDateTime(push.at) : push.active ? '已連線，存檔時同步寫入' : '—';
+    const pickMirror = async () => {
+      const r = await mr.pick();
+      if (r.ok) toast('本機副本：' + r.name + ' / tim_db.json', 'ok');
+      else if (r.reason === 'foreign') toast('這個資料夾裡的 tim_db.json 不是 TIM 資料庫，不會覆蓋，請換一個資料夾', 'err', { timeout: 8000 });
+      else if (r.reason !== 'cancelled') toast('無法設定本機副本：' + (r.error || r.reason), 'err');
+    };
 
     const close = () => props.close();
     const setLocs = v => { const f = TIM.schema.LOCATION_PRESETS.find(x => x.v === v); if (f) TIM.actions.updateSettings({ default_locations: f.names.slice() }); };
@@ -40,14 +52,23 @@
         <dt>內容</dt><dd>${counts.p} 個專案 · ${counts.m} 種材料 · ${counts.i} 張圖片 · ${counts.d} 份規格書 · rev ${db.rev}</dd>
         <dt>規格書</dt><dd class="mono">${files && files.supported() ? files.where() : html`<span class="muted" style="font-family:var(--font-body)">需以資料夾或 SharePoint 開啟資料庫</span>`}</dd>
         <dt>自動備份</dt><dd>${TIM.backup.ready() ? TIM.backup.name() + (TIM.backup.lastAt() ? '（最近 ' + util.fmtDateTime(new Date(TIM.backup.lastAt()).toISOString()) + '）' : '') : '未設定'}</dd>
+        ${isSp ? html`<dt>本機副本</dt><dd>${mr.dir ? html`<span class="mono">${mr.name()} / tim_db.json</span> <span class=${mr.state === 'error' ? 'text-err' : 'muted'}>· ${mirrorText}</span>`
+          : html`<span class="muted">未設定 — 每次存檔把 SharePoint 的最新內容寫一份到本機資料夾（只寫不讀）</span>`}</dd>`
+        : html`<dt>同步到 SharePoint</dt><dd class=${push.state === 'error' || push.state === 'login' ? 'text-err' : ''}>${pushText}</dd>`}
       </dl>
       <div class="row wrap mt12" style="gap:8px">
         <button class="btn btn-secondary btn-sm" onClick=${() => TIM.app.downloadBackup()}><${Icon} name="download" /> 下載備份（JSON）</button>
         ${!isSp && TIM.backup.supported() ? html`<button class="btn btn-secondary btn-sm" onClick=${() => TIM.app.pickBackupDir()}><${Icon} name="folder" /> ${TIM.backup.ready() ? '變更' : '設定'}自動備份資料夾</button>` : null}
         ${!isSp && !ro ? html`<button class="btn btn-secondary btn-sm" onClick=${async () => { if (await TIM.app.moveToSharePoint()) props.close(); }}><${Icon} name="cloud" /> 搬到 SharePoint…</button>` : null}
+        ${!isSp ? html`<button class="btn btn-primary btn-sm" onClick=${() => { props.close(); TIM.app.switchToSharePoint(); }}><${Icon} name="cloud" /> 切換到 SharePoint</button>` : null}
+        ${isSp && typeof window.showDirectoryPicker === 'function' ? html`<button class="btn btn-secondary btn-sm" onClick=${pickMirror}><${Icon} name="folder" /> ${mr.dir ? '變更' : '設定'}本機副本資料夾…</button>` : null}
+        ${isSp && mr.state === 'needs-permission' ? html`<button class="btn btn-secondary btn-sm" onClick=${() => mr.grant()}>授權本機副本</button>` : null}
+        ${isSp && mr.dir ? html`<button class="btn btn-ghost btn-sm" onClick=${() => mr.disable()}>停用本機副本</button>` : null}
       </div>
       <p class="muted" style="font-size:11.5px;margin-top:12px;line-height:1.6">自動備份：開啟工具時、每 3 小時、切換分頁時寫入「tim_db_backup_YYYY-MM-DD.json」${isSp ? '（SharePoint 的 Database / Backup 資料夾）' : ''}，每天一份、保留最近 30 份。<br/>
-        ${isSp ? html`多人同時編輯：每次存檔都會比對 SharePoint 上的版本，有人剛存過就先合併再寫入，不會互相覆蓋。<br/>` : null}
+        ${isSp ? html`多人同時編輯：每次存檔都會比對 SharePoint 上的版本，有人剛存過就先合併再寫入，不會互相覆蓋。<br/>
+          本機副本：每次存檔（與同步到別人的修改後）寫入資料夾裡的 tim_db.json；那個檔案若在別處被改過，會先另存為 tim_db_local_日期時間.json，不覆蓋。<br/>`
+          : html`本機資料夾模式：每次存檔也會合併寫入 SharePoint（不覆蓋別人的修改）；寫不進去的修改會記住，下次有機會再補寫。<br/>`}
         沒有被任何專案使用的圖片會在存檔時自動清除（可復原範圍內的圖片會保留）。</p>
       <p class="muted mono" style="font-size:10.5px;margin-top:8px">版本 ${TIM.app.version}</p>
     </${Modal}>`;

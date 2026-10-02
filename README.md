@@ -54,7 +54,10 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 開啟 `Thermal-Spec-DB` 網站上的 `TIM_Manager/Database/tim_db.json`；還沒有時會詢問是否建立。
 規格書存在同一層的 `TIM_Manager/Datasheets/`。登入過一次之後，下次開啟會自動進入；
 登入過期時畫面上會出現「重新登入 Microsoft」按鈕（不會遺失尚未寫入的修改）。
-變更紀錄、新專案預設的熱流負責人用的是 Microsoft 帳號的名字。
+變更紀錄用的是 Microsoft 帳號的名字。
+**熱流 / 機構負責人**是下拉選單：列出 SharePoint 清單 `Project_Members`（AI Thermal 工具維護的那一份）裡
+Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案時熱流負責人預設為自己（以 e-mail 比對）；
+名單裡沒有的人選「手動輸入…」。沒有登入或讀不到清單時是一般文字欄位。
 已經在用本機資料夾的資料庫：開啟後到「設定 → 搬到 SharePoint…」，會把資料庫與規格書上傳並改用 SharePoint
 （SharePoint 上已經有資料庫時不會覆蓋）。
 
@@ -70,8 +73,23 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫；規格書存在資料夾內的 `Datasheets/`。
 下次開啟會顯示「上次使用」，按「繼續使用」即可。工具內右上角的資料庫按鈕（「切換」）會先存檔，再回到這個選擇畫面。
 
+### SharePoint 為主、本機副本只寫不讀
+
+| 你在用的 | 每次存檔（自動：修改後約 0.8 秒；或 Ctrl+S） |
+|---|---|
+| **SharePoint**（平常） | 寫入 SharePoint；有設定「本機副本」時，再把 SharePoint 的最新內容寫一份到那個資料夾的 `tim_db.json`（只寫不讀）。別人的修改每 15 秒同步進來時，本機副本也跟著更新 |
+| **本機資料夾**（不小心開到） | 寫入本機資料夾，**同時合併寫入 SharePoint**（以專案 / 材料為單位，不覆蓋別人的修改；兩邊都改了同一個專案時，SharePoint 的版本保留、你的另存「衝突副本」）；本機新上傳的規格書也一起上傳 |
+
+- **本機副本**：SharePoint 模式下到「設定 → 設定本機副本資料夾…」。重新開瀏覽器後可能要按一次「授權」。
+  那個資料夾裡的 `tim_db.json` 若在別處被改過（不是工具最後寫的那份），會先另存為 `tim_db_local_日期時間.json` 再寫入，不會覆蓋；
+  資料夾裡的 `tim_db.json` 不是 TIM 資料庫時不會寫入。規格書檔案不複製（都在 SharePoint）。
+- **在本機資料夾作業時**：頂端一直有提醒列與「切換到 SharePoint」按鈕；開啟時、以及之後每隔 10 分鐘以上的存檔，會跳出
+  「目前在本機資料夾作業」視窗。寫入 SharePoint 失敗（斷線、未登入）時立即跳出「未同步到 SharePoint」警告，
+  修改先留在本機並記住，之後自動重試、下次開啟這個資料夾、或改開 SharePoint 時（資料夾還能存取）會自動補寫。
+
 **設定**（右上角齒輪）：新專案預設 Location（下拉：Bottom Case + Top Case / Bottom Case / Top Case）——
-「新增專案」時預先帶入，決定 TIM 清單的分組與 Excel 的 Location 欄，建立後仍可在專案總覽增減、改名；預設幣別；資料庫位置與備份。
+「新增專案」時預先帶入，決定 TIM 清單的分組與 Excel 的 Location 欄，建立後仍可在專案總覽增減、改名；預設幣別；
+資料庫位置、備份、本機副本（SharePoint 模式）或同步狀態（本機模式）。
 
 ### SharePoint 設定（一次性）
 
@@ -200,7 +218,8 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 index.html            進入點（載入順序即相依順序）
 css/app.css           設計 token 與元件樣式
 js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）
-js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、每日備份
+js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、每日備份、
+                      sync.js（SharePoint → 本機副本；本機資料夾 → 合併寫入 SharePoint）
 js/io/                Excel 匯出 / 匯入、圖片處理、視圖繪製、分享檔
 js/ui/                各頁面與共用元件
 tests/unit/           Node 單元測試（node --test）

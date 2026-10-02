@@ -29,6 +29,7 @@
       conflicts: [],
       version: 0,
       saveDelay: opts.saveDelay == null ? 800 : opts.saveDelay,
+      onSaved: null,          // (taken) after every successful write: { projects:Set, materials:Set, images:Set, settings, deletedProjects:Set, deletedMaterials:Set }
     };
     let base = { rev: 0, projects: {}, materials: {} };
     let dirty = freshDirty();
@@ -409,6 +410,12 @@
           }
           recordBase(mergedDb, skipped);
           setStatus(hasDirty() ? 'dirty' : 'saved');
+          if (S.onSaved) {
+            // what this save wrote (records, deletions, images, settings) — e.g. to copy it elsewhere
+            const copies = conflicts.filter(c => c.type === 'conflict' && c.copyId);
+            copies.forEach(c => (c.kind === 'projects' ? t.projects : t.materials).add(c.copyId));
+            try { S.onSaved(t); } catch (x) { console.error(x); }
+          }
         } catch (e) {
           if (e && e.corrupt) {
             S.readonly = true; S.readonlyReason = e.message;
