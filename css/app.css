@@ -422,7 +422,8 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .subtbl .inp, .subtbl .sel { height: 27px; font-size: 12px; padding: 0 6px; border-color: transparent; background: transparent; }
 .subtbl .inp:hover, .subtbl .sel:hover { border-color: var(--line); }
 .subtbl .inp:focus, .subtbl .sel:focus { background: #fff; }
-.subtbl td.r { text-align: right; }
+.subtbl td.r, .subtbl th.r { text-align: right; }
+.subtbl .inp.r { text-align: right; }
 .subtbl tfoot td { font-size: 11.5px; color: var(--ink-3); padding: 6px; border-bottom: none; }
 .calc-box { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0; border: 1px solid var(--line); background: var(--surface-2); }
 .calc-box > div { padding: 8px 12px; border-right: 1px solid var(--line); }

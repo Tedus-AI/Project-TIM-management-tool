@@ -32,7 +32,7 @@
     if (path === 'tim_type') return schema.timType(v).label;
     if (path === 'gap') return [v && v.min, v && v.nom, v && v.max].map(x => (x == null ? '-' : x)).join(' / ');
     if (path === 'comp_override') return v && v.min != null ? v.min + '%' : '自動';
-    if (path === 'gap_manual') return v ? '手動' : '公差疊加';
+    if (path === 'gap_manual') return v ? '手動' : '設計間距';
     if (v && typeof v === 'object') return JSON.stringify(v);
     return v;
   }

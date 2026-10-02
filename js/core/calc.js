@@ -61,12 +61,12 @@
   const PSI_PA = 6894.757;
   const r4 = v => Math.round(v * 1e4) / 1e4;
 
-  /** 機構高度 (PCB → heat-sink surface) as { min, nom, max } from nominal ± tolerances; null without a nominal. */
-  function mechRange(item) {
-    const m = item && item.mech;
-    if (!m || !fin(m.nom)) return null;
-    const plus = fin(m.plus) ? Math.abs(m.plus) : 0, minus = fin(m.minus) ? Math.abs(m.minus) : 0;
-    return { min: r4(m.nom - minus), nom: m.nom, max: r4(m.nom + plus) };
+  /** 設計間距 (pedestal → component top, nominal) as { min, nom, max } with its ± tolerance; null without a nominal. */
+  function designRange(item) {
+    const d = item && item.gap_design;
+    if (!d || !fin(d.nom)) return null;
+    const plus = fin(d.plus) ? Math.abs(d.plus) : 0, minus = fin(d.minus) ? Math.abs(d.minus) : 0;
+    return { min: r4(d.nom - minus), nom: d.nom, max: r4(d.nom + plus) };
   }
 
   /** Component height { min, nom, max } (missing values fall back to the others); null when none given. */
@@ -78,22 +78,34 @@
   }
 
   /**
-   * Design gap of an item. With 機構高度 and at least one component height it is derived per component,
-   * worst case: g_min = 機構 min − 元件 max, g_nom = 機構 nom − 元件 nom, g_max = 機構 max − 元件 min
-   * (unless item.gap_manual); otherwise the manual item.gap.
-   * → { source: 'stack'|'manual'|null, min, nom, max, mech, stackReady,
+   * Design gap of an item. With a 設計間距 (pedestal → component top at nominal height, ± tolerance) the gap
+   * is derived per component, worst case, adding the component's height tolerance:
+   *   g_min = (間距 − 下公差) − (h_max − h_nom),  g_nom = 間距,  g_max = (間距 + 上公差) + (h_nom − h_min)
+   * Several components under one pad: the 設計間距 is to the tallest one (nominal); a lower component gets
+   * the height difference on top. Components without a height count as the reference height, no tolerance.
+   * Otherwise (or with item.gap_manual) the manual item.gap.
+   * → { source: 'stack'|'manual'|null, min, nom, max, design, stackReady, ref,
    *     comps: [{ id, c, h, min, nom, max }] }  (item min / nom = the tightest component, max = the loosest)
    */
   function gapInfo(item) {
-    const mech = mechRange(item);
-    const withH = ((item && item.covered) || []).map(c => ({ c, h: heightRange(c) })).filter(x => x.h);
-    const out = { source: null, min: null, nom: null, max: null, mech, stackReady: !!mech && withH.length > 0, comps: [] };
-    if (out.stackReady && !item.gap_manual) {
+    const design = designRange(item);
+    const covered = (item && item.covered) || [];
+    const hs = covered.map(heightRange);
+    const noms = hs.filter(Boolean).map(h => h.nom);
+    const ref = noms.length ? Math.max.apply(null, noms) : null;
+    const out = { source: null, min: null, nom: null, max: null, design, stackReady: !!design, ref, comps: [] };
+    if (design && !item.gap_manual) {
       out.source = 'stack';
-      out.comps = withH.map(x => ({ id: x.c.id, c: x.c, h: x.h, min: r4(mech.min - x.h.max), nom: r4(mech.nom - x.h.nom), max: r4(mech.max - x.h.min) }));
-      out.min = Math.min.apply(null, out.comps.map(x => x.min));
-      out.nom = Math.min.apply(null, out.comps.map(x => x.nom));
-      out.max = Math.max.apply(null, out.comps.map(x => x.max));
+      out.comps = covered.map((c, i) => {
+        const h = hs[i];
+        const off = h ? ref - h.nom : 0;
+        return { id: c.id, c, h, min: r4(design.min + off - (h ? h.max - h.nom : 0)), nom: r4(design.nom + off), max: r4(design.max + off + (h ? h.nom - h.min : 0)) };
+      });
+      if (out.comps.length) {
+        out.min = Math.min.apply(null, out.comps.map(x => x.min));
+        out.nom = Math.min.apply(null, out.comps.map(x => x.nom));
+        out.max = Math.max.apply(null, out.comps.map(x => x.max));
+      } else Object.assign(out, { min: design.min, nom: design.nom, max: design.max });
       return out;
     }
     const g = (item && item.gap) || {};
@@ -102,7 +114,7 @@
     out.min = fin(g.min) ? g.min : fin(g.nom) ? g.nom : null;
     out.nom = fin(g.nom) ? g.nom : null;
     out.max = fin(g.max) ? g.max : fin(g.nom) ? g.nom : null;
-    out.comps = ((item && item.covered) || []).map(c => ({ id: c.id, c, h: heightRange(c), min: out.min, nom: out.nom, max: out.max }));
+    out.comps = covered.map((c, i) => ({ id: c.id, c, h: hs[i], min: out.min, nom: out.nom, max: out.max }));
     return out;
   }
 
@@ -234,8 +246,8 @@
       else if (row.msg) out.notes.push(name + '：' + row.msg);
       return row;
     });
-    if (gi.source === 'stack') {
-      (item.covered || []).filter(c => !heightRange(c)).forEach(c => out.notes.push(([c.part, c.refdes].filter(Boolean).join(' ') || '元件') + '：未填元件高度，沒有計算它的間隙與壓力'));
+    if (gi.source === 'stack' && gi.ref !== null) {
+      (item.covered || []).filter(c => !heightRange(c)).forEach(c => out.notes.push(([c.part, c.refdes].filter(Boolean).join(' ') || '元件') + '：未填元件高度，視為與基準元件同高、不含元件公差'));
     }
     return out;
   }
@@ -393,7 +405,7 @@
       const cc = compressionCheck(it, mat, settings);
       if (cc.status === 'error') cc.msgs.forEach(m => add('error', 'comp_error', it, label + '：' + m));
       else if (cc.status === 'warn') cc.msgs.forEach(m => add('warn', 'comp_warn', it, label + '：' + m));
-      else if (cc.status === 'na' && !dispense && fin(it.size.t)) add('info', 'no_gap', it, label + '：未填設計間隙（或機構高度 + 元件高度），無法檢核壓縮率');
+      else if (cc.status === 'na' && !dispense && fin(it.size.t)) add('info', 'no_gap', it, label + '：未填設計間距（或手動間隙），無法檢核壓縮率');
       cc.notes.forEach(m => add('info', 'pressure_na', it, label + '：' + m));
 
       const risk = sourceRisk(it);
@@ -483,7 +495,7 @@
   // ───────────────────────── baselines & diff ─────────────────────────
 
   const DIFF_FIELDS = ['location', 'used_on', 'vendor', 'model', 'tim_type', 'size', 'qty', 'delta_pn', 'vendor_pn',
-    'fabricator', 'covered', 'mech', 'gap', 'sources', 'status', 'price', 'note'];
+    'fabricator', 'covered', 'gap_design', 'gap', 'sources', 'status', 'price', 'note'];
 
   /** Flatten an item into comparable display strings (uses the snapshot's own locations). */
   function itemDigest(item, locations, db) {
@@ -499,7 +511,7 @@
       qty: fin(item.qty) ? String(item.qty) : '',
       delta_pn: item.delta_pn || '', vendor_pn: item.vendor_pn || '', fabricator: item.fabricator || '',
       covered: parse.formatCovered(item.covered),
-      mech: item.mech && fin(item.mech.nom) ? util.fmt(item.mech.nom) + ' +' + util.fmt(fin(item.mech.plus) ? item.mech.plus : 0) + ' / −' + util.fmt(fin(item.mech.minus) ? item.mech.minus : 0) : '',
+      gap_design: item.gap_design && fin(item.gap_design.nom) ? util.fmt(item.gap_design.nom) + ' +' + util.fmt(fin(item.gap_design.plus) ? item.gap_design.plus : 0) + ' / −' + util.fmt(fin(item.gap_design.minus) ? item.gap_design.minus : 0) : '',
       gap: [item.gap && item.gap.min, item.gap && item.gap.nom, item.gap && item.gap.max].map(v => fin(v) ? util.fmt(v) : '-').join(' / ').replace(/^- \/ - \/ -$/, ''),
       sources: parse.formatSources(item),
       status: schema.labelOf(schema.ITEM_STATUS, item.status),
@@ -521,7 +533,7 @@
     const A = (a && a.items) || [], B = (b && b.items) || [];
     const used = new Set();
     const res = { added: [], removed: [], changed: [] };
-    const label = f => ({ location: 'Location', used_on: 'Used On', vendor: 'Vendor', model: 'Model', tim_type: '型態', size: 'Size', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N', fabricator: '加工廠', covered: '覆蓋元件', mech: '機構高度 ± 公差', gap: '間隙 min/nom/max', sources: '2nd source', status: '狀態', price: '單價', note: '備註' }[f] || f);
+    const label = f => ({ location: 'Location', used_on: 'Used On', vendor: 'Vendor', model: 'Model', tim_type: '型態', size: 'Size', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N', fabricator: '加工廠', covered: '覆蓋元件', gap_design: '設計間距 ± 公差', gap: '間隙 min/nom/max', sources: '2nd source', status: '狀態', price: '單價', note: '備註' }[f] || f);
     A.forEach(ia => {
       let j = B.findIndex((ib, k) => !used.has(k) && ib.id === ia.id);
       if (j < 0) j = B.findIndex((ib, k) => !used.has(k) && ib.item_no && String(ib.item_no).toUpperCase() === String(ia.item_no).toUpperCase());
@@ -601,7 +613,7 @@
 
   return {
     materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
-    mechRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
+    designRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
     sourceRisk, placedCount, placedCounts, coveredQty, itemCost, itemColor, locationOf, orderedItems,
     projectChecks, projectStats, materialUsage, itemDigest, makeSnapshot, diffSnapshots,
     whereUsed, materialUseCount, searchItems,

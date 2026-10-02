@@ -164,7 +164,7 @@
     dispense: '點膠量', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N',
     fabricator: '裁切加工廠', drawing_no: '裁切圖號', covered: '覆蓋元件',
     gap: '設計間隙', comp_override: '最小壓縮率', sources: '2nd source',
-    mech: '機構高度', 'mech.nom': '機構高度 nom', 'mech.plus': '機構公差 +', 'mech.minus': '機構公差 −', gap_manual: '間隙手動輸入',
+    gap_design: '設計間距', 'gap_design.nom': '設計間距 nom', 'gap_design.plus': '間距公差 +', 'gap_design.minus': '間距公差 −', gap_manual: '間隙手動輸入',
     sourcing_note: '供應策略', price: '單價', moq: 'MOQ', lead_time_wk: '交期 (週)',
     validation: '驗證', note: '備註', links: '連結', color: '標註顏色',
     'gap.nom': '間隙 nom', 'gap.min': '間隙 min', 'gap.max': '間隙 max',
@@ -244,9 +244,10 @@
       dispense: { amount: null, unit: 'g', blt: null },
       qty: null, delta_pn: '', vendor_pn: '', fabricator: '', drawing_no: '',
       covered: [], gap: { nom: null, min: null, max: null }, comp_override: null,
-      // 機構高度: PCB top surface → heat-sink / chassis contact surface, nominal ± tolerance. With component
-      // heights (covered[].h_*) the gap is derived (worst case) unless gap_manual.
-      mech: { nom: null, plus: null, minus: null }, gap_manual: false,
+      // 設計間距: heat-sink pedestal → component top at the component's nominal height (the gap given to ME),
+      // ± mechanical tolerance. With it the gap is derived per component, adding the component height
+      // tolerance (covered[].h_*), unless gap_manual.
+      gap_design: { nom: null, plus: null, minus: null }, gap_manual: false,
       sources: [], sourcing_note: '',
       price: { unit: null, currency: '' }, moq: null, lead_time_wk: null,
       validation: { coverage_pct: null, result: '', date: '', note: '', image_id: null },
@@ -312,6 +313,15 @@
   const numOrNull = v => util.num(v);
   const str = v => (v === null || v === undefined) ? '' : String(v);
 
+  /** Nominal height of a covered component (h_nom, else the middle of min / max, else either); null if none. */
+  function nominalHeight(c) {
+    const n = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const lo = n(c.h_min), mid = n(c.h_nom), hi = n(c.h_max);
+    if (mid !== null) return mid;
+    if (lo !== null && hi !== null) return Math.round((lo + hi) / 2 * 1e4) / 1e4;
+    return lo !== null ? lo : hi;
+  }
+
   function normalizeItem(it) {
     const d = newItem({ id: it && it.id ? it.id : undefined });
     const o = Object.assign(d, isObj(it) ? it : {});
@@ -335,8 +345,17 @@
     });
     o.gap = Object.assign({ nom: null, min: null, max: null }, isObj(o.gap) ? o.gap : {});
     ['nom', 'min', 'max'].forEach(k => { o.gap[k] = numOrNull(o.gap[k]); });
-    o.mech = Object.assign({ nom: null, plus: null, minus: null }, isObj(o.mech) ? o.mech : {});
-    ['nom', 'plus', 'minus'].forEach(k => { o.mech[k] = numOrNull(o.mech[k]); });
+    o.gap_design = Object.assign({ nom: null, plus: null, minus: null }, isObj(o.gap_design) ? o.gap_design : {});
+    ['nom', 'plus', 'minus'].forEach(k => { o.gap_design[k] = numOrNull(o.gap_design[k]); });
+    // earlier format: mech = PCB → pedestal height. Same gaps as 設計間距 = height − tallest component (nom).
+    if (isObj(o.mech)) {
+      const H = numOrNull(o.mech.nom);
+      const ref = o.covered.map(nominalHeight).filter(v => v !== null);
+      if (H !== null && o.gap_design.nom === null && ref.length) {
+        o.gap_design = { nom: Math.round((H - Math.max.apply(null, ref)) * 1e4) / 1e4, plus: numOrNull(o.mech.plus), minus: numOrNull(o.mech.minus) };
+      }
+    }
+    delete o.mech;
     o.gap_manual = o.gap_manual === true;
     if (o.comp_override && isObj(o.comp_override)) {
       o.comp_override = { min: numOrNull(o.comp_override.min), max: numOrNull(o.comp_override.max) };

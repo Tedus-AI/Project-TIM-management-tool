@@ -229,7 +229,7 @@
     });
     const blocks = [
       { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' },
-      { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 機構高度 ± 公差 − 元件高度；* = 一般值最小壓縮 10%；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
+      { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差；* = 一般值最小壓縮 10%；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
     ];
     const pages = [];
     let cur = '', room = BODY_H;
@@ -279,7 +279,7 @@
     const db = TIM.store.db;
     const p = db.projects[pid];
     const sample = [p.name, p.description, p.customer, ...p.items.map(i => [i.item_no, i.vendor, i.model, i.note, i.sourcing_note, parse(i)].join(' ')),
-      ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小機構高度公差疊加曲線'].join(' ');
+      ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小設計間距公差元件高度曲線'].join(' ');
     await loadFonts(sample);
 
     const pages = [];

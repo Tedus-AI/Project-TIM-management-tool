@@ -16,7 +16,7 @@ module.exports = [
       await page.click('tr[data-id] >> nth=2 >> .row-end button[title^="詳細"]');     // A2
       await page.waitForSelector('.drawer h2:text-is("A2")');
       await page.waitForTimeout(300);
-      // manual gap (no 機構高度): T 2 mm, max gap 1.75 → C min 12.5 % ≥ 10 % → OK; heavy compression is not a % warning any more
+      // manual gap (no 設計間距): T 2 mm, max gap 1.75 → C min 12.5 % ≥ 10 % → OK; heavy compression is not a % warning any more
       const gap = page.locator('#d-gap .field:has(> label:text-is("間隙 min / nom / max")) input');
       await gap.nth(0).fill('1.0');
       await gap.nth(1).fill('1.6');
@@ -62,7 +62,7 @@ module.exports = [
     },
   },
   {
-    name: 'stack-up: 機構高度 ± 公差 − 元件高度 → gaps per component, pressure from the material curve vs 耐壓 (Warning / Fail), ✂ manual gap, grid read-only',
+    name: '設計間距 ± 公差 + 元件高度公差 → gaps per component, pressure from the material curve vs 耐壓 (Warning / Fail), ✂ manual gap, grid read-only',
     async run(env) {
       const { page } = env;
       await openWithDemo(env);
@@ -76,23 +76,34 @@ module.exports = [
         TIM.actions.updateMaterial(it.material_id, 'pressure_curves', [{ t: 2, points: [[10, 10], [20, 25], [40, 45], [60, 55]] }]);
       });
       await page.waitForTimeout(200);
-      await field(page, '機構高度 nom').fill('3.0');
-      await field(page, '上公差 +').fill('0.05');
-      await field(page, '下公差 −').fill('0.05');
+      // 設計間距 = pedestal → top of the tallest component (PLL, nominal 1.4 mm)
+      await field(page, '設計間距 nom').fill('1.6');
+      await field(page, '間距公差 +').fill('0.05');
+      await field(page, '間距公差 −').fill('0.05');
       const hrow = n => page.locator('#d-gap .h-table tbody tr').nth(n);
       await hrow(0).locator('td >> nth=1 >> input').fill('1.35');     // PLL: 1.35 / 1.4 / 1.45
       await hrow(0).locator('td >> nth=2 >> input').fill('1.4');
       await hrow(0).locator('td >> nth=3 >> input').fill('1.45');
       await hrow(1).locator('td >> nth=2 >> input').fill('1.3');      // MIX: nom only
-      // derived gaps (locked, ✂ to edit): PLL 1.5 / 1.6 / 1.7, MIX 1.65 / 1.7 / 1.75 → item 1.5 / 1.6 / 1.75
+      // derived gaps (locked, ✂ to edit): PLL 1.5 / 1.6 / 1.7; MIX is 0.1 mm lower → 1.65 / 1.7 / 1.75 → item 1.5 / 1.6 / 1.75
       const gapField = page.locator('#d-gap .field:has(> label:text-is("間隙 min / nom / max"))');
       await page.waitForFunction(() => /1\.5 \/ 1\.6 \/ 1\.75 mm/.test(document.querySelector('#d-gap').innerText));
-      assert.match(await gapField.innerText(), /公差疊加/);
+      assert.match(await gapField.innerText(), /設計間距/);
       // pressures: PLL C max 25 % → 20 psi; MIX 17.5 % → 15 psi; no allowable yet → no judgement on pressure
       const prow = n => page.locator('#d-gap .p-table tbody tr').nth(n);
       await page.waitForFunction(() => document.querySelectorAll('#d-gap .p-table tbody tr').length === 2);
       assert.match(await prow(0).innerText(), /1\.5 \/ 1\.6 \/ 1\.7\t15 ~ 25\t13\.3 ~ 20\t/);
       assert.match(await prow(1).innerText(), /1\.65 \/ 1\.7 \/ 1\.75\t12\.5 ~ 17\.5\t11\.7 ~ 15\t/);
+      // numeric headers line up with their right-aligned values (component table and the thermal table)
+      const aligned = await page.evaluate(() => ['#d-gap .p-table', '#d-th .subtbl'].map(sel => {
+        const t = document.querySelector(sel);
+        return Array.from(t.querySelectorAll('thead th.r')).every((th, k) => {
+          const col = Array.from(th.parentElement.children).indexOf(th);
+          const td = t.querySelector('tbody tr').children[col];
+          return getComputedStyle(th).textAlign === 'right' && getComputedStyle(td).textAlign === 'right';
+        });
+      }));
+      assert.deepEqual(aligned, [true, true]);
       // allowable: PLL 22 psi → 91 % → Warning; MIX 10 psi → Fail
       await hrow(0).locator('td >> nth=4 >> input').fill('22');
       await hrow(1).locator('td >> nth=4 >> input').fill('10');
@@ -107,7 +118,7 @@ module.exports = [
       await page.waitForSelector('#d-gap .calc-box .tag-ok:text-is("OK")');
       assert.match(await prow(0).innerText(), /10 N[\s\S]*68%/);
       const a2 = await item(page, 'A2');
-      assert.deepEqual(a2.mech, { nom: 3, plus: 0.05, minus: 0.05 });
+      assert.deepEqual(a2.gap_design, { nom: 1.6, plus: 0.05, minus: 0.05 });
       assert.deepEqual([a2.covered[0].h_min, a2.covered[0].h_nom, a2.covered[0].h_max, a2.covered[0].p_allow, a2.covered[0].p_unit], [1.35, 1.4, 1.45, 10, 'N']);
       // ✂ manual gap: the derived values are copied, then typed values win; ↺ back to the stack-up
       await gapField.locator('button[title="解鎖，改為手動輸入"]').click();

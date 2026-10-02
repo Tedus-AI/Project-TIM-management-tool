@@ -65,7 +65,7 @@
     add({ key: 'tim_type', label: '型態', width: 120, kind: 'select', path: 'tim_type', options: schema.TIM_TYPES.map(t => ({ v: t.v, label: t.label, zh: t.zh })), lockedByMaterial: true });
     add({ key: 'status', label: '狀態', width: 82, kind: 'select', path: 'status', options: schema.ITEM_STATUS });
     if (groups.mech) {
-      // stack-up (機構高度 − 元件高度) → the gap is derived: shown read-only, edited in the Item drawer
+      // 設計間距 (± tolerance + component height tolerance) → the gap is derived: read-only, edited in the Item drawer
       const stacked = ctx => ctx.comp.gap && ctx.comp.gap.source === 'stack';
       ['min', 'nom', 'max'].forEach(k => add({ key: 'gap_' + k, group: 'mech', label: 'Gap ' + k, sub: 'mm', width: 72, kind: 'num', path: 'gap.' + k, align: 'r',
         derived: (it, ctx) => (stacked(ctx) ? ctx.comp.gap[k] : undefined) }));
@@ -561,7 +561,7 @@
       }
       if (col.kind === 'num' && col.derived && col.derived(it, ctx) !== undefined) {
         const d = col.derived(it, ctx);
-        return html`<td class=${cls} title="機構高度 ± 公差 − 元件高度（在 Item 詳細修改，或 ✂ 改手動）"><div class="cell-ro r mono" tabindex="0" data-cell=${dc}
+        return html`<td class=${cls} title="由設計間距 ± 公差與元件高度公差算出（在 Item 詳細修改，或 ✂ 改手動）"><div class="cell-ro r mono" tabindex="0" data-cell=${dc}
           onDblClick=${() => go('p/' + p.id + '/bom/' + it.id)}>${d == null ? '' : fmtNum(d, 3)}</div></td>`;
       }
       if (col.kind === 'num') {

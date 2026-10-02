@@ -219,9 +219,9 @@
         <${Sec} id="d-cov" title="覆蓋元件" sub=${it.covered.length ? '共 ' + covQty + ' 顆 · 經 TIM 總熱量 ' + (Number.isFinite(totalPower) && totalPower ? util.fmt(totalPower, 2) + ' W' : '—') : '取代 Excel 的 Note 欄'}
           right=${html`<button class="btn btn-ghost btn-sm rw-only" onClick=${() => A().addCovered(p.id, it.id, { cat: it.used_on[0] || '' })}><${Icon} name="plus" /> 新增元件</button>`}>
           ${it.covered.length ? html`<table class="subtbl">
-            <thead><tr><th style="width:19%">元件料號</th><th style="width:16%">RefDes</th><th style="width:7%">數量</th><th style="width:10%">類別</th><th style="width:10%">功耗 W/顆</th>
-              <th style="width:9%" title="經由頂面 TIM 散出的比例；空白 = 100%">頂面 % <${InfoDot}><div style="max-width:300px;line-height:1.6">元件功耗經由頂面 TIM 散出的比例。<br/>底部散熱為主的封裝（QFN / PA 走 PCB、copper coin）只有一小部分走頂面；有 lid 的 BGA 大部分走頂面。<br/>可由模擬（FloTHERM 熱流分配）或 θ<sub>JC-top</sub> / θ<sub>JB</sub> 估算。空白 = 100%。</div></${InfoDot}></th>
-              <th style="width:8%">封裝 L</th><th style="width:8%">封裝 W</th><th>備註</th><th></th></tr></thead>
+            <thead><tr><th style="width:19%">元件料號</th><th style="width:16%">RefDes</th><th class="r" style="width:7%">數量</th><th style="width:10%">類別</th><th class="r" style="width:10%">功耗 W/顆</th>
+              <th class="r" style="width:9%" title="經由頂面 TIM 散出的比例；空白 = 100%">頂面 % <${InfoDot}><div style="max-width:300px;line-height:1.6">元件功耗經由頂面 TIM 散出的比例。<br/>底部散熱為主的封裝（QFN / PA 走 PCB、copper coin）只有一小部分走頂面；有 lid 的 BGA 大部分走頂面。<br/>可由模擬（FloTHERM 熱流分配）或 θ<sub>JC-top</sub> / θ<sub>JB</sub> 估算。空白 = 100%。</div></${InfoDot}></th>
+              <th class="r" style="width:8%">封裝 L</th><th class="r" style="width:8%">封裝 W</th><th>備註</th><th></th></tr></thead>
             <tbody>${it.covered.map(c => html`<tr key=${c.id}>
               <td><${TextField} class="inp mono" value=${c.part} disabled=${ro} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'part', v)} /></td>
               <td><${TextField} class="inp mono" value=${c.refdes} placeholder="U101,U102" disabled=${ro} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'refdes', v)} /></td>
@@ -240,31 +240,31 @@
           </table>` : html`<div class="muted" style="font-size:12px">尚未記錄。可在 TIM 清單的 Note 欄直接輸入 <span class="mono">LDO-A*2, BUCK-B*4</span>，或在此新增並補上 RefDes 與功耗。</div>`}
         </${Sec}>
 
-        <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="機構高度 ± 公差 − 元件高度 → 間隙（最壞情況）→ 壓縮率 → 壓力"
-          right=${html`<${InfoDot}><div class="formula">間隙 min = 機構 (nom − 下公差) − 元件 max<br/>間隙 nom = 機構 nom − 元件 nom<br/>間隙 max = 機構 (nom + 上公差) − 元件 min<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率 → 接觸可能不足；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
+        <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="設計間距 ± 公差 + 元件高度公差 → 間隙（最壞情況）→ 壓縮率 → 壓力"
+          right=${html`<${InfoDot}><div class="formula">設計間距 = 凸台到元件頂面（元件高度 nom 時）<br/>間隙 min = (間距 − 下公差) − (元件 max − 元件 nom)<br/>間隙 nom = 間距<br/>間隙 max = (間距 + 上公差) + (元件 nom − 元件 min)<br/>一片 pad 蓋多顆元件：間距以最高（nom）的元件為準，較矮的元件加上高度差<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率 → 接觸可能不足；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
           ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率與壓力；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
           <div class="form-grid">
             <${Field} label="T（未壓縮厚度）"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
-            <${Field} label="機構高度 nom" info="PCB 上表面到散熱面（散熱片凸台 / 機殼）的距離，由機構公差疊加"><${NumField} value=${it.mech.nom} unit="mm" disabled=${ro} onChange=${v => u('mech.nom', v)} /></${Field}>
-            <${Field} label="上公差 +"><${NumField} value=${it.mech.plus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('mech.plus', v)} /></${Field}>
-            <${Field} label="下公差 −"><${NumField} value=${it.mech.minus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('mech.minus', v)} /></${Field}>
+            <${Field} label="設計間距 nom" info="散熱片凸台（或機殼）到元件頂面的間距，以元件高度 nom 為準 —— 也就是給機構的間距；一片 pad 蓋多顆元件時，以最高的那顆為準"><${NumField} value=${it.gap_design.nom} unit="mm" disabled=${ro} onChange=${v => u('gap_design.nom', v)} /></${Field}>
+            <${Field} label="間距公差 +" info="機構公差：凸台加工、PCB 翹曲、組裝；+ 讓間距變大（壓得少）"><${NumField} value=${it.gap_design.plus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('gap_design.plus', v)} /></${Field}>
+            <${Field} label="間距公差 −" info="− 讓間距變小（壓得多）"><${NumField} value=${it.gap_design.minus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('gap_design.minus', v)} /></${Field}>
           </div>
           ${it.covered.length ? html`<table class="subtbl mt12 h-table">
             <thead><tr><th style="width:26%">元件（覆蓋元件）</th><th class="r">高度 min mm</th><th class="r">高度 nom mm</th><th class="r">高度 max mm</th>
-              <th>耐壓 <${InfoDot}><div style="max-width:300px;line-height:1.6">元件頂面可承受的壓力或力（元件規格書的 max static load / compressive force）。<br/>填力（N / kgf / lbf）時以 min(pad 面積, 封裝 L × W) 換算成壓力。</div></${InfoDot}></th><th style="width:13%">單位</th></tr></thead>
+              <th class="r">耐壓 <${InfoDot}><div style="max-width:300px;line-height:1.6">元件頂面可承受的壓力或力（元件規格書的 max static load / compressive force）。<br/>填力（N / kgf / lbf）時以 min(pad 面積, 封裝 L × W) 換算成壓力。</div></${InfoDot}></th><th style="width:13%">單位</th></tr></thead>
             <tbody>${it.covered.map(c => html`<tr key=${c.id}>
-              <td class="mono">${c.part || html`<span class="muted">（未命名）</span>`}${c.refdes ? html` <span class="muted">${c.refdes}</span>` : null}</td>
+              <td class="mono">${c.part || c.refdes || html`<span class="muted">（未命名）</span>`}${c.part && c.refdes ? html` <span class="muted">${c.refdes}</span>` : null}</td>
               <td><${NumField} class="inp" right=${true} value=${c.h_min} disabled=${ro} onChange=${v => uc(c, 'h_min', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.h_nom} disabled=${ro} onChange=${v => uc(c, 'h_nom', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.h_max} disabled=${ro} onChange=${v => uc(c, 'h_max', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.p_allow} disabled=${ro} onChange=${v => uc(c, 'p_allow', v)} /></td>
               <td><${SelectField} class="sel" value=${c.p_unit} allowEmpty=${false} disabled=${ro} options=${schema.P_UNITS.map(x => x.v)} onChange=${v => uc(c, 'p_unit', v)} /></td>
             </tr>`)}</tbody>
-            <tfoot><tr><td colspan="6">元件高度照封裝圖的上 / 中 / 下限填（例如 1.10 / 1.20 / 1.30）；只填 nom 也可以。耐壓沒填就只顯示壓力、不判定。</td></tr></tfoot>
+            <tfoot><tr><td colspan="6">元件高度照封裝圖的上 / 中 / 下限填（例如 1.10 / 1.20 / 1.30），用來加上元件高度公差；沒填就只算間距公差。耐壓沒填就只顯示壓力、不判定。</td></tr></tfoot>
           </table>` : !dispense ? html`<div class="muted mt8" style="font-size:12px">在「覆蓋元件」新增元件後，可填元件高度（自動算間隙）與耐壓（判定過壓）。</div>` : null}
           <div class="form-grid mt12">
             <${Field} label="間隙 min / nom / max" class="span-2">
-              ${gi.stackReady ? html`<${Locked} unlocked=${!!it.gap_manual} source="公差疊加"
+              ${gi.stackReady ? html`<${Locked} unlocked=${!!it.gap_manual} source="設計間距"
                   display=${html`<span class="mono">${[gi.min, gi.nom, gi.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')} mm</span>`}
                   onUnlock=${ro ? null : () => A().patchItems(p.id, [{ itemId: it.id, patch: { gap_manual: true, gap: { min: gi.min, nom: gi.nom, max: gi.max } } }], '間隙手動輸入')}
                   onRelock=${ro ? null : () => u('gap_manual', false)}>
@@ -289,7 +289,6 @@
               </${Locked}>
             </${Field}>
           </div>
-          ${gi.mech && !gi.stackReady && !dispense ? html`<div class="muted mt8" style="font-size:12px">已填機構高度：再填至少一顆元件的高度，就會自動算出間隙。</div>` : null}
           ${cc.status !== 'na' ? html`<div class="calc-box mt12">
               <div><div class="k">壓縮率 min</div><div class="v">${cc.min == null ? '—' : util.fmt(cc.min, 1) + '%'}</div></div>
               <div><div class="k">壓縮率 nom</div><div class="v">${cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%'}</div></div>
@@ -301,7 +300,7 @@
             ${cc.comps.length ? html`<table class="subtbl mt12 p-table">
               <thead><tr><th>元件</th><th class="r">間隙 min / nom / max mm</th><th class="r">壓縮率 %</th><th class="r">壓力 psi</th><th class="r">受力 N</th><th class="r">耐壓</th><th>判定</th></tr></thead>
               <tbody>${cc.comps.map(r => html`<tr key=${r.id}>
-                <td class="mono">${r.part || '—'}${r.refdes ? html` <span class="muted">${r.refdes}</span>` : null}</td>
+                <td class="mono">${r.part || r.refdes || '—'}${r.part && r.refdes ? html` <span class="muted">${r.refdes}</span>` : null}</td>
                 <td class="r mono">${[r.gap.min, r.gap.nom, r.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}</td>
                 <td class="r mono">${r.cMin == null ? '—' : util.fmt(r.cMin, 1)} ~ ${r.cMax == null ? '—' : util.fmt(r.cMax, 1)}</td>
                 <td class="r mono" title=${basisTxt(r.pMax)}>${r.pMax ? (r.pMin ? psiTxt(r.pMin) + ' ~ ' : '') + psiTxt(r.pMax) : '—'}</td>
@@ -313,7 +312,7 @@
             ${cc.msgs.length ? html`<ul style="margin:8px 0 0 18px;font-size:12px">${cc.msgs.map((m, i) => html`<li class=${cc.levels[i] === 'error' ? 'text-err' : 'text-warn'}>${m}</li>`)}</ul>` : null}
             ${cc.notes.length ? html`<ul style="margin:6px 0 0 18px;font-size:12px" class="muted">${cc.notes.map(m => html`<li>${m}</li>`)}</ul>` : null}
             ${cc.pressure && cc.pressure.basis !== 'exact' ? html`<div class="muted mt8" style="font-size:11.5px">壓力${basisTxt(cc.pressure)}（材料庫沒有 ${util.fmt(it.size.t)} mm 的曲線）。</div>` : null}`
-            : !dispense ? html`<div class="muted mt8" style="font-size:12px">填入 T 與間隙（或機構高度 + 元件高度）後自動計算。</div>` : null}
+            : !dispense ? html`<div class="muted mt8" style="font-size:12px">填入 T 與設計間距（或手動間隙）後自動計算。</div>` : null}
         </${Sec}>
 
         <${Sec} id="d-th" title="TIM 熱阻估算"
