@@ -301,4 +301,63 @@ module.exports = [
       assert.deepEqual(got, [['GF-D1', 'gap_filler', 'one_part'], ['TP-800', 'grease', '']]);
     },
   },
+  {
+    name: '壓力–壓縮曲線: add a thickness, paste points from Excel, chart; 重新匯入 updates the material (覆蓋, names kept), undo',
+    async run(env) {
+      const { page, base, context } = env;
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base.replace(/\/$/, '') });
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      await installFakeFs(page);
+      assert.equal(await page.evaluate(() => { window.__root = __fs.dir('TIM-local'); return __fs.open(window.__root); }), true);
+      const mid = await page.evaluate(() => TIM.actions.createMaterial({ vendor: 'Vendor-B', model: 'GF-750', tim_type: 'pad', k: 7, note: 'kept' }));
+      await page.evaluate(id => TIM.ui.go('library/' + id), mid);
+      await page.waitForSelector('#m-curve');
+      assert.equal(await page.locator('#m-curve .curve-chart').count(), 0, 'no curve → no chart');
+      await page.click('#m-curve button:has-text("新增厚度曲線")');
+      await page.waitForSelector('#m-curve .curve-card');
+      // paste two columns copied from Excel onto the card → replaces its points
+      await page.evaluate(() => {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', '10\t13\r\n20\t38\r\n30\t55\r\n');
+        document.querySelector('#m-curve .curve-card').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      });
+      await page.waitForSelector('.toast:has-text("已貼上 3 點")');
+      const cur = () => page.evaluate(id => JSON.parse(JSON.stringify(TIM.store.db.materials[id])), mid);
+      assert.deepEqual((await cur()).pressure_curves, [{ t: 1, points: [[10, 13], [20, 38], [30, 55]] }]);
+      await page.waitForFunction(() => document.querySelectorAll('#m-curve .curve-chart circle').length === 3);
+      assert.match(await page.locator('#m-curve .curve-chart svg').innerHTML(), /1 mm · 20 psi → 38%/);
+      // edit one point in the table
+      await page.locator('#m-curve .curve-pts tbody tr').nth(2).locator('input').nth(1).fill('60');
+      await page.waitForFunction(id => TIM.store.db.materials[id].pressure_curves[0].points[2][1] === 60, mid);
+
+      // 重新匯入 from the drawer: prompt names the material; the AI's other names are ignored
+      await page.click('.drawer button:has-text("重新匯入")');
+      await page.waitForSelector('.modal-head:has-text("重新匯入：Vendor-B GF-750")');
+      await page.click('.modal button:has-text("複製 AI 指令")');
+      await page.waitForSelector('.toast:has-text("已複製 AI 指令")');
+      assert.match(await page.evaluate(() => navigator.clipboard.readText()), /vendor 請填 "Vendor-B"、model 請填 "GF-750"（照抄）/);
+      await page.fill('.mi-paste', JSON.stringify({ format: 'tim-material', version: 1, materials: [{ vendor: 'Vendor B Inc.', model: 'GF-750 Series', tim_type: 'pad', k: 7.5,
+        pressure_curves: [{ thickness_mm: 1.0, points: [[10, 13], [20, 38], [50, 68]] }, { thickness_mm: 2.0, points: [[10, 45], [20, 70]] }],
+        evidence: { pressure_curves: 'p.2 Deflection vs Pressure（讀圖）' } }] }));
+      const row = page.locator('.mi-table > tbody > tr:not(.mi-detail)').first();
+      await row.waitFor();
+      assert.equal(await row.locator('select').inputValue(), 'overwrite');
+      assert.match(await row.innerText(), /Vendor-B[\s\S]*GF-750[\s\S]*重新匯入[\s\S]*AI 寫的是「Vendor B Inc\. GF-750 Series」/);
+      await page.waitForSelector('.mi-detail');                 // a single row opens its details by itself
+      const detail = await page.locator('.mi-detail').innerText();
+      assert.match(detail, /壓力–壓縮曲線\s+2 條（1 mm \/ 2 mm，共 5 點）\s+1 條（1 mm，共 3 點）\s+p\.2 Deflection vs Pressure（讀圖）/);
+      assert.doesNotMatch(detail, /\bVendor\b\s/, 'names are not changed');
+      await page.click('.modal-foot button:has-text("匯入 1 種材料")');
+      await page.waitForSelector('.toast:has-text("新增 0 種、更新 1 種")');
+      const after = await cur();
+      assert.deepEqual([after.vendor, after.model, after.k, after.note, after.pressure_curves.length], ['Vendor-B', 'GF-750', 7.5, 'kept', 2]);
+      await page.waitForFunction(() => document.querySelectorAll('#m-curve .curve-card').length === 2);
+      // one undo step brings the hand-entered curve back
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Control+z');
+      await page.waitForFunction(id => TIM.store.db.materials[id].k === 7, mid);
+      assert.equal((await cur()).pressure_curves.length, 1);
+    },
+  },
 ];

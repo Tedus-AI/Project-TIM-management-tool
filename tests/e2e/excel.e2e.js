@@ -38,7 +38,7 @@ module.exports = [
       await d.saveAs(file);
       assert.match(d.suggestedFilename(), /^DEMO-RRU_n78.*_TIM_DVT_\d{8}\.xlsx$/);
       const z = zipSummary(file);
-      assert.deepEqual(z.sheets, ['TIM List', 'Components', '2nd Source', 'Gap & Thermal', 'Changelog', 'Project']);
+      assert.deepEqual(z.sheets, ['TIM List', 'Components', '2nd Source', 'Gap & Thermal', 'Pressure', 'Changelog', 'Project']);
       assert.equal(z.media.length, 2, 'both placement drawings embedded');
       assert.ok(z.merges.includes('A2:A7') && z.merges.includes('A8:A10'), 'Location cells merged per group: ' + z.merges);
       // cell values through ExcelJS in the page

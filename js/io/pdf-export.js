@@ -112,7 +112,7 @@
       tile('每台 TIM 成本', costKeys.length ? util.fmt(s.cost[costKeys[0]], 2) : '—', costKeys[0] || '', s.cost_missing ? s.cost_missing + ' 項未填單價' : ''),
       tile('單一來源', s.single, '', '沒有任何第二來源', warn(s.single)),
       tile('第二來源未承認', s.unverified, '', '有列出但尚未承認', warn(s.unverified)),
-      tile('壓縮率異常', s.comp_issues, '', '超出建議範圍或未接觸', warn(s.comp_issues)),
+      tile('壓縮 / 壓力異常', s.comp_issues, '', '壓縮不足、未接觸或超過元件耐壓', warn(s.comp_issues)),
       tile('位置圖放置', p.views.length ? s.placed + '/' + s.qty_total : '—', p.views.length ? 'pcs' : '', p.views.length ? p.views.length + ' 張位置圖' : '尚未建立位置圖'),
     ].join('');
     const LINE_H = 17, maxLines = Math.floor((BODY_H - TITLE_H) / LINE_H);
@@ -213,22 +213,23 @@
       const mat = calc.materialOf(db, it);
       return { it, eff: calc.effective(it, mat), cc: calc.compressionCheck(it, mat, db.settings), loc: calc.locationOf(p, it) };
     }).filter(r => r.cc.status !== 'na');
-    const STATUS = { ok: ['OK', '#1E8E4E', '#E7F5EC'], warn: ['Warning', '#B7791F', '#FFF4DB'], error: ['Error', '#C0392B', '#FDECEA'] };
-    const cW = [8, 13, 24, 7, 16, 10, 8, 8, 10];
-    const cHead = '<tr>' + ['Item', 'Location', '材料', 'T (mm)', '間隙 min / nom / max', '建議 %', 'C min %', 'C max %', '判定'].map(t => th(t)).join('') + '</tr>';
-    const f = v => (v == null ? '—' : util.fmt(v));
+    const STATUS = { ok: ['OK', '#1E8E4E', '#E7F5EC'], warn: ['Warning', '#B7791F', '#FFF4DB'], error: ['Fail', '#C0392B', '#FDECEA'] };
+    const cW = [7, 11, 21, 6, 17, 7, 7, 7, 9, 8];
+    const cHead = '<tr>' + ['Item', 'Location', '材料', 'T (mm)', '間隙 min / nom / max', '最小 %', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
+    const f = v => (v == null ? '—' : util.fmt(v, 3));
     const cRows = comp.map(r => {
       const [label, color, bg] = STATUS[r.cc.status];
       return '<tr>' + td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : '')) +
         td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right') +
-        td([r.it.gap.min, r.it.gap.nom, r.it.gap.max].map(f).join(' / '), 'text-align:center') +
-        td(r.cc.rec ? r.cc.rec.min + '~' + r.cc.rec.max + (r.cc.rec.source === 'generic' ? '*' : '') : '—', 'text-align:center') +
+        td([r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
+        td(r.cc.rec ? r.cc.rec.min + (r.cc.rec.source === 'generic' ? '*' : '') : '—', 'text-align:center') +
         td(util.fmt(r.cc.min, 1), 'text-align:right') + td(util.fmt(r.cc.max, 1), 'text-align:right') +
+        td(r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—', 'text-align:right') +
         td(label, `text-align:center;font-weight:700;color:${color};background:${bg}`) + '</tr>';
     });
     const blocks = [
       { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' },
-      { title: '壓縮率檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；* = 未手動設定，使用一般建議值', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
+      { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 機構高度 ± 公差 − 元件高度；* = 一般值最小壓縮 10%；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
     ];
     const pages = [];
     let cur = '', room = BODY_H;
@@ -278,7 +279,7 @@
     const db = TIM.store.db;
     const p = db.projects[pid];
     const sample = [p.name, p.description, p.customer, ...p.items.map(i => [i.item_no, i.vendor, i.model, i.note, i.sourcing_note, parse(i)].join(' ')),
-      ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類'].join(' ');
+      ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小機構高度公差疊加曲線'].join(' ');
     await loadFonts(sample);
 
     const pages = [];

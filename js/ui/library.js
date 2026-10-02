@@ -42,6 +42,7 @@
         <h2>${m.vendor} <span style="font-weight:500">${m.model}</span></h2>
         <span class=${'tag ' + (AVL_CLS[m.avl_status] || 'tag-mute')}>${schema.labelOf(schema.AVL_STATUS, m.avl_status)}</span>
         <div class="right">
+          <button class="btn btn-ghost btn-sm rw-only" title="規格書更新了？把新版交給 AI，匯入它的輸出來更新這個材料" onClick=${() => TIM.ui.openMaterialImport({ targetId: m.id })}><${Icon} name="upload" /> 重新匯入</button>
           <button class="icon-btn rw-only" title="複製材料" onClick=${() => { const id = A().duplicateMaterial(m.id); if (id) go('library/' + id); }}><${Icon} name="copy" /></button>
           <button class="icon-btn danger rw-only" title="刪除材料" onClick=${del}><${Icon} name="trash" /></button>
           <button class="icon-btn" title="關閉 (Esc)" onClick=${props.onClose}><${Icon} name="x" /></button>
@@ -65,6 +66,10 @@
           <${Field} label="熱阻抗條件"><${TextField} value=${m.impedance_cond} placeholder="@10 psi, 1 mm" disabled=${ro} onChange=${v => u('impedance_cond', v)} /></${Field}>
           <${Field} label="可用厚度" class="span-2"><${TextField} value=${m.thickness_options} placeholder="0.5–5.0 mm（0.5 mm 一級）" disabled=${ro} onChange=${v => u('thickness_options', v)} /></${Field}>
         </div>`)}
+        ${!schema.isDispense(m.tim_type) ? sec('m-curve', '壓力–壓縮曲線', html`
+          <${TIM.ui.CurvesField} mat=${m} disabled=${ro} onChange=${v => u('pressure_curves', v)} />
+          <div class="form-grid mt12"><${Field} label="曲線出處" class="span-all"><${TextField} value=${m.curve_note} placeholder="例如：規格書 p.2 Deflection vs Pressure 讀圖值" disabled=${ro} onChange=${v => u('curve_note', v)} /></${Field}></div>`,
+          (m.pressure_curves || []).length ? (m.pressure_curves || []).length + ' 個厚度 · 用於 Item 的壓力與過壓判定' : '規格書的 Deflection vs Pressure；用於 Item 的壓力與過壓判定') : null}
         ${sec('m-mech', '機械 / 溫度', html`<div class="form-grid">
           <${Field} label="硬度"><${NumField} value=${m.hardness} disabled=${ro} onChange=${v => u('hardness', v)} /></${Field}>
           <${Field} label="硬度標準"><${SelectField} value=${m.hardness_scale} allowEmpty=${false} disabled=${ro} options=${schema.HARDNESS_SCALES} onChange=${v => u('hardness_scale', v)} /></${Field}>

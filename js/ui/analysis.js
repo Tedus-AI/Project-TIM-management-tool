@@ -9,17 +9,17 @@
   const STATUS = {
     ok: { label: 'OK', icon: '✓', cls: 'tag-ok' },
     warn: { label: 'Warning', icon: '!', cls: 'tag-warn' },
-    error: { label: 'Error', icon: '✕', cls: 'tag-err' },
+    error: { label: 'Fail', icon: '✕', cls: 'tag-err' },
   };
 
   function RangeCell(props) {
     const { cc, hi } = props;
     const pct = v => util.clamp(v / hi * 100, 0, 100);
     const tip = 'min ' + util.fmt(cc.min, 1) + '% · nom ' + (cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%') + ' · max ' + util.fmt(cc.max, 1) + '%' +
-      (cc.rec ? '\n建議 ' + cc.rec.min + '~' + cc.rec.max + '%' : '');
+      (cc.rec ? '\n最小壓縮 ' + cc.rec.min + '%' : '');
     return html`<div class="rangebar" title=${tip}>
-      ${cc.rec && cc.rec.min != null && cc.rec.max != null ? html`<div class="rec" style=${{ left: pct(cc.rec.min) + '%', width: (pct(cc.rec.max) - pct(cc.rec.min)) + '%' }}></div>` : null}
-      <div class=${cx('span', cc.status !== 'ok' && cc.status)} style=${{ left: pct(Math.max(0, cc.min)) + '%', width: Math.max(0.8, pct(cc.max) - pct(Math.max(0, cc.min))) + '%', borderRadius: '4px' }}></div>
+      ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }}></div>` : null}
+      <div class=${cx('span', cc.status !== 'ok' && cc.status)} style=${{ left: pct(Math.max(0, cc.min || 0)) + '%', width: Math.max(0.8, pct(cc.max || 0) - pct(Math.max(0, cc.min || 0))) + '%', borderRadius: '4px' }}></div>
       ${cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }}></div>` : null}
     </div>`;
   }
@@ -59,35 +59,36 @@
     return html`<div class="page-inner">
       <div class="section">
         <div class="section-head">
-          <div class="section-title">壓縮率檢核</div>
+          <div class="section-title">壓縮率與壓力檢核</div>
           <div class="section-sub">${withComp.length} 個 Item 有間隙資料 · ✓ ${counts.ok} · ! ${counts.warn} · ✕ ${counts.error}</div>
           <div class="right">
             <div class="legend">
-              <span><i class="swatch" style="background:rgba(30,142,78,.18);box-shadow:inset 0 0 0 1px var(--ok)"></i>建議範圍</span>
+              <span><i class="swatch" style="background:rgba(30,142,78,.18);box-shadow:inset 0 0 0 1px var(--ok)"></i>≥ 最小壓縮率</span>
               <span><i class="swatch" style="background:var(--d-500)"></i>min~max 壓縮率</span>
               <span><i class="swatch" style="background:var(--ink);width:3px"></i>nom</span>
             </div>
-            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>建議範圍來源：Item 手動 → 一般建議值（依 TIM 類型）<br/>✕ Error：最大間隙 ≥ T（可能未接觸）</div></${InfoDot}>
+            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>間隙：機構高度 ± 公差 − 元件高度（最壞情況），或手動輸入<br/>! Warning：C<sub>min</sub> 低於最小壓縮率（Item 手動 → 一般值 10%）、壓力 ≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}%<br/>✕ Fail：最大間隙 ≥ T（未接觸）、壓力超過元件耐壓<br/>壓力：材料的壓力–壓縮曲線在 C<sub>max</sub> 的值</div></${InfoDot}>
           </div>
         </div>
         ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
           <thead><tr>
             ${th('item', 'Item')}<th>Location</th><th>材料</th><th class="r">T</th><th class="r">間隙 min / nom / max</th>
-            <th class="r">建議 %</th>${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}
+            <th class="r">最小 %</th>${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}<th class="r">壓力 max psi</th>
             <th class="rangecell">0 ~ ${hi}%</th>${th('status', '判定')}
           </tr></thead>
           <tbody>${sorted.map(r => html`<tr key=${r.it.id} class="clickable" onClick=${() => go('p/' + p.id + '/bom/' + r.it.id)}>
             <td class="mono"><b>${r.it.item_no}</b></td><td>${r.loc ? r.loc.name : ''}</td>
             <td class="ellipsis" style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td>
             <td class="r mono">${util.fmt(r.it.size.t)}</td>
-            <td class="r mono">${[r.it.gap.min, r.it.gap.nom, r.it.gap.max].map(v => (v == null ? '—' : util.fmt(v))).join(' / ')}</td>
-            <td class="r mono" title=${r.cc.rec ? { item: 'Item 手動', generic: '一般建議值' }[r.cc.rec.source] : ''}>${r.cc.rec ? r.cc.rec.min + '~' + r.cc.rec.max + (r.cc.rec.source === 'generic' ? '*' : '') : '—'}</td>
+            <td class="r mono" title=${r.cc.gap.source === 'stack' ? '機構高度 ± 公差 − 元件高度' : '手動輸入'}>${[r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}${r.cc.gap.source === 'stack' ? html` <span class="tag tag-mute" style="font-size:10px">疊加</span>` : null}</td>
+            <td class="r mono" title=${r.cc.rec ? { item: 'Item 手動', generic: '一般值' }[r.cc.rec.source] : ''}>${r.cc.rec ? r.cc.rec.min + (r.cc.rec.source === 'generic' ? '*' : '') : '—'}</td>
             <td class="r mono">${util.fmt(r.cc.min, 1)}</td><td class="r mono">${util.fmt(r.cc.max, 1)}</td>
+            <td class="r mono">${r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—'}</td>
             <td class="rangecell"><${RangeCell} cc=${r.cc} hi=${hi} /></td>
             <td><span class=${'tag ' + STATUS[r.cc.status].cls} title=${r.cc.msgs.join('\n')}>${STATUS[r.cc.status].icon} ${STATUS[r.cc.status].label}</span></td>
           </tr>`)}</tbody>
         </table></div>
-        <div class="muted" style="font-size:11px;margin-top:6px">* = 未手動設定建議範圍，使用一般建議值。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙與壓縮」填入 T 與設計間隙（min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
+        <div class="muted" style="font-size:11px;margin-top:6px">* = 未手動設定最小壓縮率，使用一般值（經驗值 10%）。壓力需要材料庫的壓力–壓縮曲線。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙、壓縮與壓力」填入機構高度與元件高度（或直接填設計間隙 min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
         ${missing.length ? html`<div class="panel panel-pad mt12" style="font-size:12px">
           <b>缺間隙資料：</b> ${missing.map((r, i) => html`${i ? '、' : ''}<a href=${'#/p/' + p.id + '/bom/' + r.it.id}>${r.it.item_no || '(未編號)'}</a>`)}
         </div>` : null}
@@ -97,7 +98,7 @@
         <div class="section-head">
           <div class="section-title">TIM 溫升估算排行</div>
           <div class="section-sub">每顆元件經過 TIM 的溫升 ΔT = P_TIM × R（P_TIM = 功耗 × 頂面 %）· 門檻 ${dtWarn} °C（可在設定修改）${noPower ? ' · ' + noPower + ' 個 Item 未填功耗' : ''}</div>
-          <div class="right"><${InfoDot}><div class="formula">R = t<sub>c</sub>[mm] × 1000 / (k × A<sub>eff</sub>[mm²])，ΔT = P<sub>TIM</sub> × R<br/>P<sub>TIM</sub> = 單顆功耗 × 頂面散熱比例（空白 = 100%）<br/>t<sub>c</sub> = min(間隙 nom, T)；A<sub>eff</sub> = min(pad, 元件頂面)<br/>bulk k 估算，不含接觸 / 擴散熱阻，用於找出「TIM 本身是瓶頸」的位置。</div></${InfoDot}></div>
+          <div class="right"><${InfoDot}><div class="formula">R = t<sub>c</sub>[mm] × 1000 / (k × A<sub>eff</sub>[mm²])，ΔT = P<sub>TIM</sub> × R<br/>P<sub>TIM</sub> = 單顆功耗 × 頂面散熱比例（空白 = 100%）<br/>t<sub>c</sub> = min(間隙 nom, T)（公差疊加時用各元件自己的間隙）；A<sub>eff</sub> = min(pad, 元件頂面)<br/>bulk k 估算，不含接觸 / 擴散熱阻，用於找出「TIM 本身是瓶頸」的位置。</div></${InfoDot}></div>
         </div>
         ${thermal.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
           <thead><tr><th>Item</th><th>元件</th><th class="r">功耗 W</th><th class="r">頂面 %</th><th class="r">P_TIM W</th><th class="r">k</th><th class="r">t_c mm</th><th class="r">A_eff mm²</th><th class="r">R °C/W</th><th style="min-width:260px">ΔT °C</th></tr></thead>

@@ -8,7 +8,7 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useRef, useEffect, useMemo, useCallback, Icon, cx, go, usePref, TextField, NumField, SelectField, Field, confirm, prompt, toast, openMenu, pickFile } = TIM.ui;
+  const { html, useState, useRef, useEffect, useMemo, useCallback, Icon, cx, go, usePref, TextField, NumField, SelectField, Field, confirm, prompt, toast, openMenu, pickFile, Modal, openModal } = TIM.ui;
   const { util, schema, calc, geom } = TIM;
   const A = () => TIM.actions;
 
@@ -20,6 +20,84 @@
   ];
   const LEADER_COLORS = ['#FACC15', '#FFFFFF', '#22D3EE', '#F472B6', '#111827'];
   const HANDLE = 7;   // screen px
+
+  /**
+   * 裁切圖片: drag a rectangle on the drawing (new box on the image, move inside, resize at the corners).
+   * Shows which pads / labels would fall outside. close(r) with r = snapped crop (fractions) or null.
+   */
+  function CropModal(props) {
+    const { img, view } = props;
+    const W = view.img_w, H = view.img_h;
+    const [r, setR] = useState({ x: 0, y: 0, w: 1, h: 1 });
+    const boxRef = useRef(null);
+    const drag = useRef(null);
+    const MIN = 0.02;
+    const k = Math.min((Math.min(980, window.innerWidth - 80) - 40) / W, Math.min(560, window.innerHeight - 300) / H);
+    const dw = Math.round(W * k), dh = Math.round(H * k);
+    const rel = e => {
+      const b = boxRef.current.getBoundingClientRect();
+      return { x: util.clamp((e.clientX - b.left) / b.width, 0, 1), y: util.clamp((e.clientY - b.top) / b.height, 0, 1) };
+    };
+    const start = mode => e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      if (boxRef.current.setPointerCapture) { try { boxRef.current.setPointerCapture(e.pointerId); } catch (x) { /* synthetic events */ } }
+      // the whole image is selected at first: dragging anywhere draws a new box
+      drag.current = { mode: mode === 'move' && r.w > 0.999 && r.h > 0.999 ? 'new' : mode, p0: rel(e), r0: r };
+    };
+    const move = e => {
+      const d = drag.current;
+      if (!d) return;
+      const p = rel(e), r0 = d.r0;
+      let x0 = r0.x, y0 = r0.y, x1 = r0.x + r0.w, y1 = r0.y + r0.h;
+      if (d.mode === 'new') { x0 = Math.min(d.p0.x, p.x); x1 = Math.max(d.p0.x, p.x); y0 = Math.min(d.p0.y, p.y); y1 = Math.max(d.p0.y, p.y); }
+      else if (d.mode === 'move') {
+        const dx = util.clamp(p.x - d.p0.x, -r0.x, 1 - r0.x - r0.w), dy = util.clamp(p.y - d.p0.y, -r0.y, 1 - r0.y - r0.h);
+        x0 += dx; x1 += dx; y0 += dy; y1 += dy;
+      } else {
+        if (d.mode.includes('w')) x0 = Math.min(p.x, x1 - MIN);
+        if (d.mode.includes('e')) x1 = Math.max(p.x, x0 + MIN);
+        if (d.mode.includes('n')) y0 = Math.min(p.y, y1 - MIN);
+        if (d.mode.includes('s')) y1 = Math.max(p.y, y0 + MIN);
+      }
+      setR({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    };
+    const end = () => {
+      const d = drag.current;
+      drag.current = null;
+      if (d && d.mode === 'new' && (r.w < MIN || r.h < MIN)) setR(d.r0);   // a click, not a box
+    };
+    const snap = geom.snapCrop(r, W, H);
+    const plan = geom.cropRemap(view, snap);
+    const full = snap.px.w === W && snap.px.h === H;
+    const pct = v => (v * 100) + '%';
+    const apply = () => { if (!full) props.close(snap); };
+    return html`<${Modal} title="裁切圖片" size="wide" onClose=${() => props.close(null)} onEnter=${apply}
+        footer=${html`<span class="left">${full ? '在圖上拖曳框出要保留的範圍（拖框內移動、拖四角調整）' : html`保留 <b class="mono">${snap.px.w} × ${snap.px.h}</b> px（原圖 ${W} × ${H}）`}</span>
+          <button class="btn btn-ghost" disabled=${full} onClick=${() => setR({ x: 0, y: 0, w: 1, h: 1 })}>重設</button>
+          <button class="btn btn-ghost" onClick=${() => props.close(null)}>取消</button>
+          <button class="btn btn-primary" disabled=${full} data-enter-ok="1" onClick=${apply}>套用裁切</button>`}>
+      <div class="crop-wrap">
+        <div class="crop-box" ref=${boxRef} style=${{ width: dw + 'px', height: dh + 'px' }}
+            onPointerDown=${start('new')} onPointerMove=${move} onPointerUp=${end} onPointerCancel=${end}>
+          <img src=${img.data} alt="" draggable="false" />
+          ${(view.shapes || []).map(sh => {
+            const out = sh.cx < snap.x || sh.cx > snap.x + snap.w || sh.cy < snap.y || sh.cy > snap.y + snap.h;
+            return html`<i key=${sh.id} class=${cx('crop-dot', out && 'out')} style=${{ left: pct(sh.cx), top: pct(sh.cy) }}></i>`;
+          })}
+          <div class="crop-rect" style=${{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }} onPointerDown=${start('move')}>
+            ${['nw', 'ne', 'sw', 'se'].map(h => html`<span key=${h} class=${'crop-h ' + h} onPointerDown=${start(h)}></span>`)}
+          </div>
+        </div>
+      </div>
+      <div class="crop-info">
+        ${plan.removedShapes || plan.removedCallouts
+          ? html`<span class="text-warn">範圍外有 ${plan.removedShapes} 片 pad${plan.removedCallouts ? '、' + plan.removedCallouts + ' 個標籤' : ''}，裁切後會移除（可用 Ctrl+Z 復原）。</span>`
+          : html`<span class="muted">所有 pad 都在範圍內。</span>`}
+        <span class="muted">pad、標籤與比例尺會留在圖上的原位置；裁切後的圖片取代原圖。</span>
+      </div>
+    </${Modal}>`;
+  }
 
   async function imageToView(pid, file, name, locationId) {
     const rec = await TIM.image.fromBlob(file, file.name || name);
@@ -437,6 +515,27 @@
       });
       setCam(c => Object.assign({}, c, { fitted: false }));
     };
+    const cropImage = async () => {
+      const imgRec = db.images[view.image_id];
+      if (!imgRec) return;
+      const r = await openModal(close => html`<${CropModal} img=${imgRec} view=${view} close=${close} />`).promise;
+      if (!r) return;
+      const out = await TIM.image.crop(imgRec.data, r);
+      const W = view.img_w, H = view.img_h;
+      let removed = null;
+      TIM.store.mutateProject(p.id, pp => {
+        const v = pp.views.find(x => x.id === view.id);
+        if (!v) return false;
+        const plan = geom.cropRemap(v, r);
+        removed = plan;
+        v.image_id = TIM.store.addImage(Object.assign({ name: imgRec.name }, out));
+        v.img_w = out.w; v.img_h = out.h;
+        v.shapes = plan.shapes; v.callouts = plan.callouts; v.calib = plan.calib;
+      }, { changes: [{ kind: 'edit', target: 'view', target_id: view.id, field: '位置圖裁切', from: W + ' × ' + H + ' px', to: out.w + ' × ' + out.h + ' px', text: '' }] });
+      setSel({ kind: null, ids: [] });
+      setCam(c => Object.assign({}, c, { fitted: false }));
+      if (removed) toast('已裁切圖片' + (removed.removedShapes || removed.removedCallouts ? '，移除範圍外 ' + removed.removedShapes + ' 片 pad' + (removed.removedCallouts ? '、' + removed.removedCallouts + ' 個標籤' : '') : '') + '（Ctrl+Z 可復原）', 'ok');
+    };
     const deleteView = async () => {
       const ok = await confirm({ title: '刪除位置視圖', danger: true, okText: '刪除', message: '刪除「' + view.name + '」？圖上 ' + view.shapes.length + ' 片 pad 與 ' + view.callouts.length + ' 個標籤會一併刪除（Item 本身不受影響）。可用 Ctrl+Z 復原。' });
       if (!ok) return;
@@ -617,7 +716,7 @@
 
       <aside class="map-side right">
         <${MapProps} p=${p} view=${view} L=${L} sel=${sel} setSel=${setSel} ppm=${ppm} ro=${ro} placedAll=${placedAll}
-          replaceImage=${replaceImage} rotateImage=${rotateImage} deleteView=${deleteView} deleteSelection=${deleteSelection}
+          replaceImage=${replaceImage} rotateImage=${rotateImage} cropImage=${cropImage} deleteView=${deleteView} deleteSelection=${deleteSelection}
           showCalib=${showCalib} setShowCalib=${setShowCalib} startCalib=${() => { setTool('calib'); setCalibPts(null); }} />
       </aside>
     </div>`;
@@ -729,6 +828,7 @@
           <button class="btn btn-ghost btn-xs" onClick=${props.replaceImage}><${Icon} name="image" /> 更換圖片</button>
           <button class="btn btn-ghost btn-xs" title="向左旋轉 90°（pad 與標籤一起轉）" onClick=${() => props.rotateImage(-1)}>⟲ 90°</button>
           <button class="btn btn-ghost btn-xs" title="向右旋轉 90°（pad 與標籤一起轉）" onClick=${() => props.rotateImage(1)}>⟳ 90°</button>
+          <button class="btn btn-ghost btn-xs" title="裁切圖片（pad、標籤與比例尺留在原位置）" onClick=${props.cropImage}><${Icon} name="scissors" /> 裁切</button>
           <button class="btn btn-ghost btn-xs" onClick=${props.deleteView}><${Icon} name="trash" /> 刪除視圖</button>
         </div>
       </div>

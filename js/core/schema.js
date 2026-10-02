@@ -101,6 +101,20 @@
     { v: 'two_part', label: '雙劑型（2-part）', short: '雙劑' },
   ];
 
+  /**
+   * Units of a component's allowable load (耐壓). Pressure units convert straight to psi; force units are
+   * spread over the contact area (min(pad, component top)) first.
+   */
+  const P_UNITS = [
+    { v: 'psi', kind: 'pressure', toPsi: 1 },
+    { v: 'kPa', kind: 'pressure', toPsi: 1 / 6.894757 },
+    { v: 'MPa', kind: 'pressure', toPsi: 145.0377 },
+    { v: 'kgf/cm²', kind: 'pressure', toPsi: 14.22334 },
+    { v: 'N', kind: 'force', toN: 1 },
+    { v: 'kgf', kind: 'force', toN: 9.80665 },
+    { v: 'lbf', kind: 'force', toN: 4.448222 },
+  ];
+
   const K_METHODS = ['ASTM D5470', 'ISO 22007-2 (Hot Disk)', 'ASTM E1461 (Laser Flash)', 'Other / 未註明'];
   const HARDNESS_SCALES = ['Shore 00', 'Shore A', 'Shore C', 'Asker C'];
   const SILICONE = [
@@ -134,8 +148,10 @@
 
   const DEFAULT_SETTINGS = {
     default_locations: ['Bottom Case', 'Top Case'],
-    // Fallback recommended compression when the material has no datasheet value.
-    generic_comp: { pad: { min: 10, max: 30 }, absorber: { min: 10, max: 30 }, pcm: null, graphite: null, tape: null, other: null },
+    // Minimum compression (contact) by TIM type when the item has no manual value. Over-compression is judged
+    // by pressure (material pressure–deflection curve vs the component's allowable load), not by a % limit.
+    generic_comp: { pad: { min: 10 }, absorber: { min: 10 }, pcm: null, graphite: null, tape: null, other: null },
+    pressure_warn_pct: 80, // % of a component's allowable pressure → Warning (above 100 % → Fail)
     dt_warn: 10,           // °C — TIM temperature rise worth flagging
     currency: 'USD',
   };
@@ -147,7 +163,8 @@
     size: 'Size', 'size.l': 'L', 'size.w': 'W', 'size.t': 'T', shape_note: '外形備註',
     dispense: '點膠量', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N',
     fabricator: '裁切加工廠', drawing_no: '裁切圖號', covered: '覆蓋元件',
-    gap: '設計間隙', comp_override: '建議壓縮率', sources: '2nd source',
+    gap: '設計間隙', comp_override: '最小壓縮率', sources: '2nd source',
+    mech: '機構高度', 'mech.nom': '機構高度 nom', 'mech.plus': '機構公差 +', 'mech.minus': '機構公差 −', gap_manual: '間隙手動輸入',
     sourcing_note: '供應策略', price: '單價', moq: 'MOQ', lead_time_wk: '交期 (週)',
     validation: '驗證', note: '備註', links: '連結', color: '標註顏色',
     'gap.nom': '間隙 nom', 'gap.min': '間隙 min', 'gap.max': '間隙 max',
@@ -227,6 +244,9 @@
       dispense: { amount: null, unit: 'g', blt: null },
       qty: null, delta_pn: '', vendor_pn: '', fabricator: '', drawing_no: '',
       covered: [], gap: { nom: null, min: null, max: null }, comp_override: null,
+      // 機構高度: PCB top surface → heat-sink / chassis contact surface, nominal ± tolerance. With component
+      // heights (covered[].h_*) the gap is derived (worst case) unless gap_manual.
+      mech: { nom: null, plus: null, minus: null }, gap_manual: false,
       sources: [], sourcing_note: '',
       price: { unit: null, currency: '' }, moq: null, lead_time_wk: null,
       validation: { coverage_pct: null, result: '', date: '', note: '', image_id: null },
@@ -236,7 +256,10 @@
   }
 
   function newCovered(fields) {
-    return Object.assign({ id: util.uid('cov'), part: '', refdes: '', qty: 1, cat: '', power_w: null, top_pct: null, pkg_l: null, pkg_w: null, note: '' }, fields || {});
+    return Object.assign({ id: util.uid('cov'), part: '', refdes: '', qty: 1, cat: '', power_w: null, top_pct: null, pkg_l: null, pkg_w: null,
+      h_min: null, h_nom: null, h_max: null,   // component height (package drawing min / nom / max), mm
+      p_allow: null, p_unit: 'psi',            // allowable load on the component top (pressure or force, see P_UNITS)
+      note: '' }, fields || {});
   }
 
   function newSource(fields) {
@@ -259,6 +282,8 @@
       datasheet_url: '', datasheet_rev: '',   // legacy (link field removed; shown read-only when set)
       datasheets: [],        // uploaded files: [{ path (below the Datasheets folder), name, size, at, by }], newest first
       price_ref: '', moq: null, lead_time_wk: null,
+      // Deflection vs pressure (規格書曲線): one curve per thickness, points [pressure psi, deflection %]
+      pressure_curves: [], curve_note: '',
       avl_status: 'approved', note: '',
     };
     return Object.assign(m, fields || {});
@@ -302,11 +327,17 @@
       const n = newCovered(isObj(c) ? c : {});
       n.qty = numOrNull(n.qty); n.power_w = numOrNull(n.power_w); n.top_pct = numOrNull(n.top_pct);
       n.pkg_l = numOrNull(n.pkg_l); n.pkg_w = numOrNull(n.pkg_w);
+      n.h_min = numOrNull(n.h_min); n.h_nom = numOrNull(n.h_nom); n.h_max = numOrNull(n.h_max);
+      n.p_allow = numOrNull(n.p_allow);
+      if (!P_UNITS.some(u => u.v === n.p_unit)) n.p_unit = 'psi';
       n.part = str(n.part); n.refdes = str(n.refdes);
       return n;
     });
     o.gap = Object.assign({ nom: null, min: null, max: null }, isObj(o.gap) ? o.gap : {});
     ['nom', 'min', 'max'].forEach(k => { o.gap[k] = numOrNull(o.gap[k]); });
+    o.mech = Object.assign({ nom: null, plus: null, minus: null }, isObj(o.mech) ? o.mech : {});
+    ['nom', 'plus', 'minus'].forEach(k => { o.mech[k] = numOrNull(o.mech[k]); });
+    o.gap_manual = o.gap_manual === true;
     if (o.comp_override && isObj(o.comp_override)) {
       o.comp_override = { min: numOrNull(o.comp_override.min), max: numOrNull(o.comp_override.max) };
     } else o.comp_override = null;
@@ -356,10 +387,22 @@
       'comp_rec_min', 'comp_rec_max', 'shelf_life_months', 'moq', 'lead_time_wk'].forEach(k => { o[k] = numOrNull(o[k]); });
     if (!TIM_TYPES.some(t => t.v === o.tim_type)) o.tim_type = 'pad';
     if (!hasParts(o.tim_type) || !PARTS.some(x => x.v === o.parts)) o.parts = '';
+    o.pressure_curves = normalizeCurves(o.pressure_curves);
+    o.curve_note = str(o.curve_note);
     o.datasheets = Array.isArray(o.datasheets) ? o.datasheets.filter(d => isObj(d) && typeof d.path === 'string' && d.path)
       .map(d => ({ path: d.path, name: String(d.name || d.path.split('/').pop()), size: numOrNull(d.size), at: d.at || '', by: d.by || '' })) : [];
     o.rev = Number.isFinite(o.rev) ? o.rev : 0;
     return o;
+  }
+
+  /** Pressure curves → [{ t (mm), points: [[psi, %], …] sorted by pressure }], invalid entries dropped. */
+  function normalizeCurves(list) {
+    return (Array.isArray(list) ? list : []).filter(isObj).map(c => ({
+      t: numOrNull(c.t),
+      points: (Array.isArray(c.points) ? c.points : []).filter(Array.isArray)
+        .map(p => [numOrNull(p[0]), numOrNull(p[1])]).filter(p => p[0] !== null && p[1] !== null && p[0] >= 0)
+        .sort((a, b) => a[0] - b[0]),
+    })).filter(c => c.t !== null && c.t > 0 && c.points.length);
   }
 
   /** Validate an object loaded from disk. Never "repairs" a foreign file into an empty skeleton. */
@@ -398,10 +441,10 @@
 
   return {
     SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
-    SOURCE_STATUS, AVL_STATUS, PARTS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
+    SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,
-    normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeDb, validateDb, projectImageIds,
+    normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeCurves, normalizeDb, validateDb, projectImageIds,
   };
 });

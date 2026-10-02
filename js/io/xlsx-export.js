@@ -11,8 +11,9 @@
     { key: 'tim_type', header: 'Type', width: 14, get: (c) => schema.timType(c.eff.tim_type).label },
     { key: 'k', header: 'k (W/m·K)', width: 10, get: (c) => c.eff.k, num: true },
     { key: 'status', header: 'Status', width: 9, get: (c) => schema.labelOf(schema.ITEM_STATUS, c.it.status) },
-    { key: 'gap', header: 'Gap min/nom/max (mm)', width: 18, get: (c) => fmtTriple(c.it.gap.min, c.it.gap.nom, c.it.gap.max) },
+    { key: 'gap', header: 'Gap min/nom/max (mm)', width: 18, get: (c) => { const g = c.comp.gap || calc.gapInfo(c.it); return fmtTriple(g.min, g.nom, g.max); } },
     { key: 'comp', header: 'Compression (%)', width: 15, get: (c) => c.comp.status === 'na' ? '' : util.fmt(c.comp.min, 1) + ' ~ ' + util.fmt(c.comp.max, 1) },
+    { key: 'pressure', header: 'Pressure max (psi)', width: 13, get: (c) => c.comp.pressure ? (c.comp.pressure.beyond ? '> ' : '') + util.fmt(c.comp.pressure.psi, 1) : '' },
     { key: 'power', header: 'P_TIM (W/pc max)', width: 13, get: (c) => { const ps = c.it.covered.map(calc.timPower).filter(Number.isFinite); return ps.length ? util.round(Math.max.apply(null, ps), 3) : null; }, num: true },
     { key: 'dt', header: 'ΔT_TIM (°C)', width: 11, get: (c) => c.th.dt_max === null ? null : util.round(c.th.dt_max, 2), num: true },
     { key: 'price', header: 'Unit price', width: 10, get: (c) => c.it.price.unit, num: true },
@@ -201,19 +202,29 @@
     addSheet(wb, '2nd Source', ['Item', 'Primary', 'Delta P/N', '2nd Vendor', '2nd Model', 'MPN', '2nd Delta P/N', 'Status', 'Note', 'Risk', 'Strategy'], src, [8, 24, 14, 14, 16, 14, 14, 9, 14, 10, 26]);
 
     // Gap & thermal
-    const gt = [];
+    const JUDGE = { na: '', ok: 'OK', warn: 'Warning', error: 'Fail' };
+    const r1 = v => (v == null ? null : util.round(v, 1));
+    const psi = r => (r ? (r.beyond ? '> ' : '') + util.fmt(r.psi, 1) : '');
+    const gt = [], prs = [];
     items.forEach(it => {
       const mat = calc.materialOf(db, it);
       const cc = calc.compressionCheck(it, mat, db.settings);
       const th = calc.thermalEstimate(it, mat);
-      gt.push([it.item_no, it.size.t, it.gap.min, it.gap.nom, it.gap.max,
-        cc.min == null ? null : util.round(cc.min, 1), cc.nom == null ? null : util.round(cc.nom, 1), cc.max == null ? null : util.round(cc.max, 1),
-        cc.rec ? (cc.rec.min + '~' + cc.rec.max + ' (' + { item: '手動', generic: '一般值' }[cc.rec.source] + ')') : '',
-        { na: '', ok: 'OK', warn: 'Warning', error: 'Error' }[cc.status], th.k, th.area == null ? null : util.round(th.area, 1),
-        th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.join('；')]);
+      const g = cc.gap || calc.gapInfo(it);
+      gt.push([it.item_no, it.size.t, it.mech.nom, it.mech.plus, it.mech.minus, { stack: '公差疊加', manual: '手動' }[g.source] || '',
+        g.min, g.nom, g.max, r1(cc.min), r1(cc.nom), r1(cc.max),
+        cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '一般值' }[cc.rec.source] + ')' : '', psi(cc.pressure),
+        JUDGE[cc.status], th.k, r1(th.area), th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.concat(cc.notes).join('；')]);
+      cc.comps.forEach(r => prs.push([it.item_no, r.part, r.refdes, r.h ? r.h.min : null, r.h ? r.h.nom : null, r.h ? r.h.max : null,
+        r.gap.min, r.gap.nom, r.gap.max, r1(r.cMin), r1(r.cMax), psi(r.pMin), psi(r.pMax), r1(r.force),
+        r.allow ? r.allow.value + ' ' + r.allow.unit : '', r.allow && r.allow.psi != null ? r1(r.allow.psi) : null, r.ratio == null ? null : util.round(r.ratio, 0), JUDGE[r.status], r.msg]));
     });
-    addSheet(wb, 'Gap & Thermal', ['Item', 'T (mm)', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp nom %', 'Comp max %', 'Recommended %', 'Judge', 'k', 'Area (mm²)', 'R_TIM (°C/W)', 'ΔT max (°C)', 'Remarks'],
-      gt, [8, 7, 8, 8, 8, 10, 10, 10, 20, 9, 7, 10, 11, 11, 50]);
+    addSheet(wb, 'Gap & Thermal', ['Item', 'T (mm)', 'Mech nom', 'Mech +', 'Mech −', 'Gap source', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp nom %', 'Comp max %', 'Min comp %', 'Pressure max (psi)', 'Judge', 'k', 'Area (mm²)', 'R_TIM (°C/W)', 'ΔT max (°C)', 'Remarks'],
+      gt, [8, 7, 9, 7, 7, 10, 8, 8, 8, 10, 10, 10, 13, 14, 9, 7, 10, 11, 11, 50]);
+    if (prs.length) {
+      addSheet(wb, 'Pressure', ['Item', 'Component', 'RefDes', 'H min', 'H nom', 'H max', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp max %', 'Pressure min (psi)', 'Pressure max (psi)', 'Force max (N)', 'Allowable', 'Allowable (psi)', 'Ratio %', 'Judge', 'Remarks'],
+        prs, [8, 16, 12, 7, 7, 7, 8, 8, 8, 10, 10, 13, 13, 11, 12, 12, 8, 9, 50]);
+    }
 
     // Changelog
     const log = (p.changelog || []).slice().reverse().map(c => [util.fmtDateTime(c.ts), c.user, schema.labelOf(schema.CHANGE_KINDS, c.kind), c.item_no, c.field, c.from, c.to, c.text, c.ecn]);

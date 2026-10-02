@@ -8,7 +8,7 @@
   const TIM = window.TIM;
   if (!TIM.ui) return;
   const { html, useState, Icon, cx, Modal, openModal, toast, downloadBlob, pickFiles, go } = TIM.ui;
-  const { schema } = TIM;
+  const { schema, util } = TIM;
   const MI = TIM.matImport;
   const isData = f => /\.(json|txt|md)$/i.test(f.name) || /^(application\/json|text\/)/.test(f.type || '');
   const ACTIONS_NEW = [{ v: 'new', label: '新增' }, { v: 'skip', label: '略過' }];
@@ -31,6 +31,7 @@
     if (f.key === 'tim_type') return schema.timType(v).label;
     if (f.key === 'silicone') return schema.labelOf(schema.SILICONE, v);
     if (f.key === 'parts') return schema.labelOf(schema.PARTS, v);
+    if (f.kind === 'curves') return Array.isArray(v) && v.length ? v.length + ' 條（' + v.map(c => util.fmt(c.t) + ' mm').join(' / ') + '，共 ' + v.reduce((n, c) => n + c.points.length, 0) + ' 點）' : '—';
     return String(v) + (f.unit ? ' ' + f.unit : '');
   }
   const fieldOf = key => MI.FIELDS.find(f => f.key === key);
@@ -56,6 +57,9 @@
 
   function ImportModal(props) {
     const st = TIM.ui.useStore();
+    // 重新匯入: opened from a material — the AI is told its names, and the reply updates that material
+    const target = props.targetId ? st.db.materials[props.targetId] : null;
+    const promptText = () => MI.prompt(target ? { target: { vendor: target.vendor, model: target.model } } : undefined);
     const [text, setText] = useState('');
     const [parsed, setParsed] = useState(null);
     const [rows, setRows] = useState([]);
@@ -69,7 +73,7 @@
     const use = sources => {
       try {
         const p = parseAll(sources);
-        const r = MI.plan(p, st.db.materials);
+        const r = MI.plan(p, st.db.materials, target ? target.id : null);
         setParsed(p); setRows(r); setErr('');
         setOpen(r.length === 1 ? { 0: true } : {});
       } catch (e) { setParsed(null); setRows([]); setErr(e.message); }
@@ -87,8 +91,8 @@
       if (busy || !active.length) return;
       setBusy(true);
       try {
-        const res = TIM.actions.importMaterials(rows.map(r => ({ fields: r.entry.fields, matchId: r.matchId, action: r.action })));
-        const firstId = res.ids.find(Boolean);
+        const res = TIM.actions.importMaterials(rows.map(r => ({ fields: r.entry.fields, matchId: r.matchId, action: r.action, keepName: r.keepName })));
+        const firstId = target && res.ids.includes(target.id) ? target.id : res.ids.find(Boolean);
         if (files) {
           for (const d of docs) {
             const t = targetOf(d);
@@ -103,12 +107,13 @@
     };
 
     const intro = html`<div class="mi-steps">
-      <div class="mi-step"><b>1</b><div>按「複製 AI 指令」，把指令和廠商規格書（PDF）一起交給 AI（Claude、ChatGPT、Copilot…）。
+      <div class="mi-step"><b>1</b><div>${target ? html`按「複製 AI 指令」，把指令和<b>更新後的規格書</b>一起交給 AI；指令裡已寫好要沿用「${target.vendor} ${target.model}」這個名稱。`
+        : '按「複製 AI 指令」，把指令和廠商規格書（PDF）一起交給 AI（Claude、ChatGPT、Copilot…）。'}
         <div class="row" style="gap:8px;margin-top:8px">
-          <button class="btn btn-primary btn-sm" onClick=${async () => toast((await copyText(MI.prompt())) ? '已複製 AI 指令' : '無法自動複製，請展開「看指令內容」手動複製', 'ok')}><${Icon} name="copy" /> 複製 AI 指令</button>
+          <button class="btn btn-primary btn-sm" onClick=${async () => toast((await copyText(promptText())) ? '已複製 AI 指令' : '無法自動複製，請展開「看指令內容」手動複製', 'ok')}><${Icon} name="copy" /> 複製 AI 指令</button>
           <button class="btn btn-secondary btn-sm" onClick=${() => downloadBlob(new Blob([JSON.stringify(MI.example(), null, 2)], { type: 'application/json' }), 'tim-material-example.json')}><${Icon} name="download" /> 下載範例檔</button>
         </div>
-        <details class="mi-prompt"><summary>看指令內容</summary><pre>${MI.prompt()}</pre></details></div></div>
+        <details class="mi-prompt"><summary>看指令內容</summary><pre>${promptText()}</pre></details></div></div>
       <div class="mi-step"><b>2</b><div>把 AI 輸出的檔案（.json）拖進來，或直接貼上 AI 的回覆；規格書檔案也可以一起拖進來，匯入時附到材料上。</div></div>
     </div>`;
 
@@ -127,13 +132,14 @@
       <thead><tr><th style="width:120px">動作</th><th>Vendor</th><th>Model</th><th>型態</th><th class="r">k</th><th>變更</th><th></th></tr></thead>
       <tbody>${rows.map(r => {
         const cur = r.matchId ? st.db.materials[r.matchId] : null;
-        const ch = MI.changesFor(r.entry, cur, r.action);
+        const ch = MI.changesFor(r.entry, cur, r.action, { keepName: r.keepName });
         const f = r.entry.fields;
         const warn = r.entry.warnings.length;
         return html`<tr key=${r.i} class=${cx(r.action === 'skip' && 'mi-skip')}>
             <td><select class="sel" value=${r.action} onChange=${e => setAction(r.i, e.target.value)}>${(cur ? ACTIONS_OLD : ACTIONS_NEW).map(a => html`<option value=${a.v}>${a.label}</option>`)}</select></td>
-            <td>${f.vendor || html`<span class="muted">—</span>`}</td>
-            <td><b>${f.model || '—'}</b> ${cur ? html`<span class="tag tag-mute">已在材料庫</span>` : html`<span class="tag tag-ok">新材料</span>`}</td>
+            <td>${(r.target ? cur.vendor : f.vendor) || html`<span class="muted">—</span>`}</td>
+            <td><b>${(r.target ? cur.model : f.model) || '—'}</b> ${r.target ? html`<span class="tag tag-info">重新匯入</span>` : cur ? html`<span class="tag tag-mute">已在材料庫</span>` : html`<span class="tag tag-ok">新材料</span>`}
+              ${r.nameDiff ? html`<div class="muted" style="font-size:10.5px" title="重新匯入沿用材料庫的名稱">AI 寫的是「${r.nameDiff}」，沿用材料庫名稱</div>` : null}</td>
             <td>${f.tim_type ? schema.materialTypeText(f) : html`<span class="muted">—</span>`}</td>
             <td class="r mono">${(() => {
               const keep = cur && r.action === 'fill' && cur.k != null;
@@ -160,14 +166,14 @@
         <span class="muted">附到</span>
         <select class="sel" value=${String(targetOf(d))} disabled=${!files} onChange=${e => { const v = e.target.value; setDocs(prev => prev.map((x, j) => (j === k ? Object.assign({}, x, { target: v === 'all' || v === 'none' ? v : Number(v) }) : x))); }}>
           ${active.length > 1 ? html`<option value="all">全部 ${active.length} 種材料</option>` : null}
-          ${active.map(r => html`<option value=${String(r.i)}>${[r.entry.fields.vendor, r.entry.fields.model].filter(Boolean).join(' ')}</option>`)}
+          ${active.map(r => html`<option value=${String(r.i)}>${r.target ? target.vendor + ' ' + target.model : [r.entry.fields.vendor, r.entry.fields.model].filter(Boolean).join(' ')}</option>`)}
           <option value="none">不附加</option>
         </select>
         <button class="icon-btn" title="移除" onClick=${() => setDocs(prev => prev.filter((x, j) => j !== k))}><${Icon} name="x" /></button>
       </div>`)}
     </div>` : null;
 
-    return html`<${Modal} title="匯入材料" size="wide" onClose=${() => props.close(null)}
+    return html`<${Modal} title=${target ? '重新匯入：' + target.vendor + ' ' + target.model : '匯入材料'} size="wide" onClose=${() => props.close(null)}
         footer=${html`<span class="left">AI 擷取的數值請在明細裡對照規格書依據確認；匯入後材料庫可按 Ctrl+Z 復原。</span>
           <button class="btn btn-ghost" onClick=${() => props.close(null)}>取消</button>
           <button class="btn btn-primary" disabled=${busy || !active.length} onClick=${run}>${busy ? '匯入中…' : active.length ? '匯入 ' + active.length + ' 種材料' : '匯入'}</button>`}>
@@ -180,5 +186,6 @@
     </${Modal}>`;
   }
 
-  TIM.ui.openMaterialImport = () => openModal(close => html`<${ImportModal} close=${close} />`).promise;
+  /** opts.targetId: 重新匯入 — update that material from an updated datasheet. */
+  TIM.ui.openMaterialImport = opts => openModal(close => html`<${ImportModal} close=${close} targetId=${opts && opts.targetId} />`).promise;
 })();

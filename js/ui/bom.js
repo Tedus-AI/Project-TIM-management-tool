@@ -65,12 +65,17 @@
     add({ key: 'tim_type', label: '型態', width: 120, kind: 'select', path: 'tim_type', options: schema.TIM_TYPES.map(t => ({ v: t.v, label: t.label, zh: t.zh })), lockedByMaterial: true });
     add({ key: 'status', label: '狀態', width: 82, kind: 'select', path: 'status', options: schema.ITEM_STATUS });
     if (groups.mech) {
-      add({ key: 'gap_min', group: 'mech', label: 'Gap min', sub: 'mm', width: 72, kind: 'num', path: 'gap.min', align: 'r' });
-      add({ key: 'gap_nom', group: 'mech', label: 'Gap nom', sub: 'mm', width: 72, kind: 'num', path: 'gap.nom', align: 'r' });
-      add({ key: 'gap_max', group: 'mech', label: 'Gap max', sub: 'mm', width: 72, kind: 'num', path: 'gap.max', align: 'r' });
+      // stack-up (機構高度 − 元件高度) → the gap is derived: shown read-only, edited in the Item drawer
+      const stacked = ctx => ctx.comp.gap && ctx.comp.gap.source === 'stack';
+      ['min', 'nom', 'max'].forEach(k => add({ key: 'gap_' + k, group: 'mech', label: 'Gap ' + k, sub: 'mm', width: 72, kind: 'num', path: 'gap.' + k, align: 'r',
+        derived: (it, ctx) => (stacked(ctx) ? ctx.comp.gap[k] : undefined) }));
       add({ key: 'comp', group: 'mech', label: '壓縮率', sub: 'min~max %', width: 104, kind: 'calc', align: 'r',
         text: (it, ctx) => ctx.comp.status === 'na' ? '' : fmtNum(ctx.comp.min, 1) + '~' + fmtNum(ctx.comp.max, 1),
-        cls: (it, ctx) => ({ ok: 'c-ok', warn: 'c-warn', error: 'c-err', na: '' }[ctx.comp.status]), title: (it, ctx) => ctx.comp.msgs.join('\n') || (ctx.comp.rec ? '建議 ' + ctx.comp.rec.min + '~' + ctx.comp.rec.max + '%' : '') });
+        cls: (it, ctx) => ({ ok: 'c-ok', warn: 'c-warn', error: 'c-err', na: '' }[ctx.comp.status]), title: (it, ctx) => ctx.comp.msgs.join('\n') || (ctx.comp.rec ? '最小壓縮 ' + ctx.comp.rec.min + '%' : '') });
+      add({ key: 'pressure', group: 'mech', label: '壓力 max', sub: 'psi', width: 80, kind: 'calc', align: 'r',
+        text: (it, ctx) => (ctx.comp.pressure ? (ctx.comp.pressure.beyond ? '> ' : '') + fmtNum(ctx.comp.pressure.psi, 1) : ''),
+        cls: (it, ctx) => (ctx.comp.comps.some(r => r.status === 'error') ? 'c-err' : ctx.comp.comps.some(r => r.status === 'warn') ? 'c-warn' : ''),
+        title: () => '材料壓力–壓縮曲線在最大壓縮率的壓力；與元件耐壓的比較在 Item 詳細' });
     }
     if (groups.thermal) {
       add({ key: 'k', group: 'thermal', label: 'k', sub: 'W/m·K', width: 64, kind: 'calc', align: 'r', text: (it, ctx) => fmtNum(ctx.eff.k, 2), title: () => '材料庫數值（連結材料時自動帶入）' });
@@ -99,7 +104,7 @@
   /** Text of a cell (copy / fill / revert). */
   function cellText(col, it, ctx) {
     if (col.kind === 'text') return String(A().getPath(it, col.path) || '');
-    if (col.kind === 'num') { const v = A().getPath(it, col.path); return v == null ? '' : util.fmt(v, 4); }
+    if (col.kind === 'num') { const d = col.derived && ctx ? col.derived(it, ctx) : undefined; const v = d !== undefined ? d : A().getPath(it, col.path); return v == null ? '' : util.fmt(v, 4); }
     if (col.kind === 'select') { const v = A().getPath(it, col.path); const o = col.options.find(x => x.v === v); return o ? o.label : (v || ''); }
     if (col.kind === 'material') return String(ctx.eff[col.field] || '');
     return col.text ? String(col.text(it, ctx) || '') : '';
@@ -109,7 +114,7 @@
   function cellPatch(col, text, it, ctx) {
     const t = String(text == null ? '' : text).replace(/\r/g, '');
     if (col.kind === 'text') return { [col.path]: t.trim() };
-    if (col.kind === 'num') { if (!t.trim()) return { [col.path]: null }; const n = util.num(t); return n === null ? null : { [col.path]: n }; }
+    if (col.kind === 'num') { if (col.derived && ctx && col.derived(it, ctx) !== undefined) return null; if (!t.trim()) return { [col.path]: null }; const n = util.num(t); return n === null ? null : { [col.path]: n }; }
     if (col.kind === 'select') { if (col.lockedByMaterial && ctx && ctx.mat) return null; if (!t.trim()) return col.allowEmpty ? { [col.path]: '' } : null; const v = optMatch(col.options, t); return v ? { [col.path]: v } : null; }
     if (col.kind === 'material') {
       if (ctx && ctx.mat) return String(ctx.eff[col.field] || '').trim().toUpperCase() === t.trim().toUpperCase() ? {} : null;   // linked: identical = no-op
@@ -554,6 +559,11 @@
         return html`<td class=${cls} title=${title}><${TextField} class=${cx('cell-inp', col.mono && 'mono')} value=${A().getPath(it, col.path)} disabled=${ro}
           dataCell=${dc} onChange=${v => A().updateItem(p.id, it.id, col.path, v)} /></td>`;
       }
+      if (col.kind === 'num' && col.derived && col.derived(it, ctx) !== undefined) {
+        const d = col.derived(it, ctx);
+        return html`<td class=${cls} title="機構高度 ± 公差 − 元件高度（在 Item 詳細修改，或 ✂ 改手動）"><div class="cell-ro r mono" tabindex="0" data-cell=${dc}
+          onDblClick=${() => go('p/' + p.id + '/bom/' + it.id)}>${d == null ? '' : fmtNum(d, 3)}</div></td>`;
+      }
       if (col.kind === 'num') {
         const extra = col.key === 'qty' && hasViews ? (() => {
           const n = placed[it.id] || 0;
@@ -603,7 +613,7 @@
 
     const groupsOn = Object.keys(groups).filter(k => groups[k]);
     const colsKey = cols.map(c => c.key).join(',');
-    const setSig = JSON.stringify(db.settings.generic_comp || null);
+    const setSig = JSON.stringify([db.settings.generic_comp || null, db.settings.pressure_warn_pct]);
     const libSig = Object.keys(db.materials).length + ':' + Object.values(db.materials).reduce((m, x) => (String(x.updated_at) > m ? String(x.updated_at) : m), '');
     const totalPcs = visible.reduce((s, it) => s + (it.status !== 'obsolete' && Number.isFinite(it.qty) ? it.qty : 0), 0);
 

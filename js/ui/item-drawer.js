@@ -46,7 +46,7 @@
     const pct = v => util.clamp((v - lo) / (hi - lo) * 100, 0, 100);
     return html`<div style="margin-top:10px">
       <div class="rangebar">
-        ${cc.rec && cc.rec.min != null && cc.rec.max != null ? html`<div class="rec" style=${{ left: pct(cc.rec.min) + '%', width: (pct(cc.rec.max) - pct(cc.rec.min)) + '%' }} title=${'建議 ' + cc.rec.min + '~' + cc.rec.max + '%'}></div>` : null}
+        ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }} title=${'最小壓縮 ' + cc.rec.min + '%（接觸）'}></div>` : null}
         ${cc.min != null && cc.max != null ? html`<div class=${cx('span', cc.status)} style=${{ left: pct(Math.max(lo, cc.min)) + '%', width: Math.max(0.6, pct(cc.max) - pct(Math.max(lo, cc.min))) + '%' }}></div>` : null}
         ${cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }} title=${'nom ' + util.fmt(cc.nom, 1) + '%'}></div>` : null}
       </div>
@@ -93,7 +93,14 @@
     const history = (p.changelog || []).filter(c => c.target_id && String(c.target_id).startsWith(it.id)).slice(-30).reverse();
     const covQty = calc.coveredQty(it);
     const totalPower = util.sum(it.covered, c => { const pt = calc.timPower(c); return pt === null ? NaN : pt * (Number.isFinite(c.qty) ? c.qty : 1); });
-    const recSrcLabel = cc.rec ? { item: '手動', generic: '一般建議值' }[cc.rec.source] : '';
+    const recSrcLabel = cc.rec ? { item: '手動', generic: '一般值' }[cc.rec.source] : '';
+    const gi = cc.gap || calc.gapInfo(it);
+    const stack = gi.stackReady && !it.gap_manual;
+    const uc = (c, f, v) => A().updateCovered(p.id, it.id, c.id, f, v);
+    const STATUS_TAG = { ok: ['tag-ok', 'OK'], warn: ['tag-warn', 'Warning'], error: ['tag-err', 'Fail'] };
+    const tag = s => (STATUS_TAG[s] ? html`<span class=${cx('tag', STATUS_TAG[s][0])}>${STATUS_TAG[s][1]}</span>` : html`<span class="muted">—</span>`);
+    const psiTxt = r => (r ? (r.beyond ? '> ' : '') + util.fmt(r.psi, 1) : '—');
+    const basisTxt = r => (!r ? '' : r.basis === 'interp' ? '由 ' + r.t_used.join(' / ') + ' mm 曲線內插' : r.basis === 'nearest' ? '以最接近的 ' + r.t_used[0] + ' mm 曲線估算' : r.t_used[0] + ' mm 曲線');
 
     const addToLibrary = () => {
       if (!it.vendor && !it.model) { toast('請先輸入 Vendor / Model', 'warn'); return; }
@@ -176,7 +183,7 @@
               ${sug ? html`<button class="btn btn-secondary btn-sm" onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /> 連結材料庫的「${sug.vendor} ${sug.model}」</button>` : null}
               <button class="btn btn-ghost btn-sm" onClick=${() => pickMaterial(p.id, it.id)}><${Icon} name="book" /> 從材料庫選擇…</button>
               ${!sug ? html`<button class="btn btn-ghost btn-sm" onClick=${addToLibrary}><${Icon} name="plus" /> 加入材料庫並連結</button>` : null}
-              <span class="muted" style="font-size:11.5px">未連結材料庫時無法自動帶入 k 值與建議壓縮率</span>
+              <span class="muted" style="font-size:11.5px">未連結材料庫時無法自動帶入 k 值與壓力–壓縮曲線</span>
             </div>`}
           <div class="divider"></div>
           <div class="form-grid">
@@ -233,35 +240,80 @@
           </table>` : html`<div class="muted" style="font-size:12px">尚未記錄。可在 TIM 清單的 Note 欄直接輸入 <span class="mono">LDO-A*2, BUCK-B*4</span>，或在此新增並補上 RefDes 與功耗。</div>`}
         </${Sec}>
 
-        <${Sec} id="d-gap" title="機構間隙與壓縮" sub="間隙請用公差疊加後的範圍（元件高度、PCB 翹曲、機殼加工）"
-          right=${html`<${InfoDot}><div class="formula">壓縮率 C = (T − g) / T × 100%<br/>C<sub>min</sub> 用 g<sub>max</sub>；C<sub>max</sub> 用 g<sub>min</sub><br/>g ≥ T → 可能未接觸（錯誤）<br/>建議範圍：Item 手動 → 一般建議值（依 TIM 類型）</div></${InfoDot}>`}>
-          ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
+        <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="機構高度 ± 公差 − 元件高度 → 間隙（最壞情況）→ 壓縮率 → 壓力"
+          right=${html`<${InfoDot}><div class="formula">間隙 min = 機構 (nom − 下公差) − 元件 max<br/>間隙 nom = 機構 nom − 元件 nom<br/>間隙 max = 機構 (nom + 上公差) − 元件 min<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率 → 接觸可能不足；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
+          ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率與壓力；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
           <div class="form-grid">
-            <${Field} label="T"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
-            <${Field} label="間隙 min"><${NumField} value=${it.gap.min} unit="mm" disabled=${ro} onChange=${v => u('gap.min', v)} /></${Field}>
-            <${Field} label="間隙 nom"><${NumField} value=${it.gap.nom} unit="mm" disabled=${ro} onChange=${v => u('gap.nom', v)} /></${Field}>
-            <${Field} label="間隙 max"><${NumField} value=${it.gap.max} unit="mm" disabled=${ro} onChange=${v => u('gap.max', v)} /></${Field}>
-            <${Field} label="建議壓縮率" class="span-2">
-              <${Locked} unlocked=${!!it.comp_override} source=${recSrcLabel}
-                display=${cc.rec ? html`<span class="mono">${cc.rec.min ?? '—'} ~ ${cc.rec.max ?? '—'} %</span>` : html`<span class="muted">無建議範圍（可解鎖手動輸入）</span>`}
-                onUnlock=${ro ? null : () => u('comp_override', { min: cc.rec ? cc.rec.min : 10, max: cc.rec ? cc.rec.max : 30 })}
+            <${Field} label="T（未壓縮厚度）"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
+            <${Field} label="機構高度 nom" info="PCB 上表面到散熱面（散熱片凸台 / 機殼）的距離，由機構公差疊加"><${NumField} value=${it.mech.nom} unit="mm" disabled=${ro} onChange=${v => u('mech.nom', v)} /></${Field}>
+            <${Field} label="上公差 +"><${NumField} value=${it.mech.plus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('mech.plus', v)} /></${Field}>
+            <${Field} label="下公差 −"><${NumField} value=${it.mech.minus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('mech.minus', v)} /></${Field}>
+          </div>
+          ${it.covered.length ? html`<table class="subtbl mt12 h-table">
+            <thead><tr><th style="width:26%">元件（覆蓋元件）</th><th class="r">高度 min mm</th><th class="r">高度 nom mm</th><th class="r">高度 max mm</th>
+              <th>耐壓 <${InfoDot}><div style="max-width:300px;line-height:1.6">元件頂面可承受的壓力或力（元件規格書的 max static load / compressive force）。<br/>填力（N / kgf / lbf）時以 min(pad 面積, 封裝 L × W) 換算成壓力。</div></${InfoDot}></th><th style="width:13%">單位</th></tr></thead>
+            <tbody>${it.covered.map(c => html`<tr key=${c.id}>
+              <td class="mono">${c.part || html`<span class="muted">（未命名）</span>`}${c.refdes ? html` <span class="muted">${c.refdes}</span>` : null}</td>
+              <td><${NumField} class="inp" right=${true} value=${c.h_min} disabled=${ro} onChange=${v => uc(c, 'h_min', v)} /></td>
+              <td><${NumField} class="inp" right=${true} value=${c.h_nom} disabled=${ro} onChange=${v => uc(c, 'h_nom', v)} /></td>
+              <td><${NumField} class="inp" right=${true} value=${c.h_max} disabled=${ro} onChange=${v => uc(c, 'h_max', v)} /></td>
+              <td><${NumField} class="inp" right=${true} value=${c.p_allow} disabled=${ro} onChange=${v => uc(c, 'p_allow', v)} /></td>
+              <td><${SelectField} class="sel" value=${c.p_unit} allowEmpty=${false} disabled=${ro} options=${schema.P_UNITS.map(x => x.v)} onChange=${v => uc(c, 'p_unit', v)} /></td>
+            </tr>`)}</tbody>
+            <tfoot><tr><td colspan="6">元件高度照封裝圖的上 / 中 / 下限填（例如 1.10 / 1.20 / 1.30）；只填 nom 也可以。耐壓沒填就只顯示壓力、不判定。</td></tr></tfoot>
+          </table>` : !dispense ? html`<div class="muted mt8" style="font-size:12px">在「覆蓋元件」新增元件後，可填元件高度（自動算間隙）與耐壓（判定過壓）。</div>` : null}
+          <div class="form-grid mt12">
+            <${Field} label="間隙 min / nom / max" class="span-2">
+              ${gi.stackReady ? html`<${Locked} unlocked=${!!it.gap_manual} source="公差疊加"
+                  display=${html`<span class="mono">${[gi.min, gi.nom, gi.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')} mm</span>`}
+                  onUnlock=${ro ? null : () => A().patchItems(p.id, [{ itemId: it.id, patch: { gap_manual: true, gap: { min: gi.min, nom: gi.nom, max: gi.max } } }], '間隙手動輸入')}
+                  onRelock=${ro ? null : () => u('gap_manual', false)}>
+                  <div class="triple">
+                    <${NumField} value=${it.gap.min} unit="min" disabled=${ro} onChange=${v => u('gap.min', v)} />
+                    <${NumField} value=${it.gap.nom} unit="nom" disabled=${ro} onChange=${v => u('gap.nom', v)} />
+                    <${NumField} value=${it.gap.max} unit="max" disabled=${ro} onChange=${v => u('gap.max', v)} />
+                  </div>
+                </${Locked}>`
+                : html`<div class="triple">
+                  <${NumField} value=${it.gap.min} unit="min" disabled=${ro} onChange=${v => u('gap.min', v)} />
+                  <${NumField} value=${it.gap.nom} unit="nom" disabled=${ro} onChange=${v => u('gap.nom', v)} />
+                  <${NumField} value=${it.gap.max} unit="max" disabled=${ro} onChange=${v => u('gap.max', v)} />
+                </div>`}
+            </${Field}>
+            <${Field} label="最小壓縮率" info="低於此值 → 接觸可能不足。過壓改由壓力判定（材料曲線 vs 元件耐壓）。一般值 10% 為經驗值，可解鎖依材料 / 專案調整。">
+              <${Locked} unlocked=${!!(it.comp_override && it.comp_override.min != null)} source=${recSrcLabel}
+                display=${cc.rec ? html`<span class="mono">${cc.rec.min} %</span>` : html`<span class="muted">—</span>`}
+                onUnlock=${ro ? null : () => u('comp_override', { min: cc.rec ? cc.rec.min : 10 })}
                 onRelock=${ro ? null : () => u('comp_override', null)}>
-                <div class="triple" style="grid-template-columns:1fr 1fr">
-                  <${NumField} value=${it.comp_override ? it.comp_override.min : null} unit="% min" disabled=${ro} onChange=${v => u('comp_override', Object.assign({}, it.comp_override, { min: v }))} />
-                  <${NumField} value=${it.comp_override ? it.comp_override.max : null} unit="% max" disabled=${ro} onChange=${v => u('comp_override', Object.assign({}, it.comp_override, { max: v }))} />
-                </div>
+                <${NumField} value=${it.comp_override ? it.comp_override.min : null} unit="%" disabled=${ro} onChange=${v => u('comp_override', { min: v })} />
               </${Locked}>
             </${Field}>
           </div>
+          ${gi.mech && !gi.stackReady && !dispense ? html`<div class="muted mt8" style="font-size:12px">已填機構高度：再填至少一顆元件的高度，就會自動算出間隙。</div>` : null}
           ${cc.status !== 'na' ? html`<div class="calc-box mt12">
-              <div><div class="k">壓縮率 min</div><div class="v">${util.fmt(cc.min, 1)}%</div></div>
+              <div><div class="k">壓縮率 min</div><div class="v">${cc.min == null ? '—' : util.fmt(cc.min, 1) + '%'}</div></div>
               <div><div class="k">壓縮率 nom</div><div class="v">${cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%'}</div></div>
-              <div><div class="k">壓縮率 max</div><div class="v">${util.fmt(cc.max, 1)}%</div></div>
-              <div><div class="k">判定</div><div class="v"><span class=${cx('tag', cc.status === 'ok' ? 'tag-ok' : cc.status === 'warn' ? 'tag-warn' : 'tag-err')}>${{ ok: 'OK', warn: 'Warning', error: 'Error' }[cc.status]}</span></div></div>
+              <div><div class="k">壓縮率 max</div><div class="v">${cc.max == null ? '—' : util.fmt(cc.max, 1) + '%'}</div></div>
+              <div title=${basisTxt(cc.pressure)}><div class="k">壓力 max</div><div class="v">${cc.pressure ? psiTxt(cc.pressure) + ' psi' : html`<span class="muted" style="font-size:12px">${mat ? '材料無曲線' : '未連結材料'}</span>`}</div></div>
+              <div><div class="k">判定</div><div class="v">${tag(cc.status)}</div></div>
             </div>
             <${RangeBar} cc=${cc} />
-            ${cc.msgs.length ? html`<ul style="margin:8px 0 0 18px;font-size:12px" class=${cc.status === 'error' ? 'text-err' : 'text-warn'}>${cc.msgs.map(m => html`<li>${m}</li>`)}</ul>` : null}`
-            : !dispense ? html`<div class="muted mt8" style="font-size:12px">填入 T 與間隙後自動計算。</div>` : null}
+            ${cc.comps.length ? html`<table class="subtbl mt12 p-table">
+              <thead><tr><th>元件</th><th class="r">間隙 min / nom / max mm</th><th class="r">壓縮率 %</th><th class="r">壓力 psi</th><th class="r">受力 N</th><th class="r">耐壓</th><th>判定</th></tr></thead>
+              <tbody>${cc.comps.map(r => html`<tr key=${r.id}>
+                <td class="mono">${r.part || '—'}${r.refdes ? html` <span class="muted">${r.refdes}</span>` : null}</td>
+                <td class="r mono">${[r.gap.min, r.gap.nom, r.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}</td>
+                <td class="r mono">${r.cMin == null ? '—' : util.fmt(r.cMin, 1)} ~ ${r.cMax == null ? '—' : util.fmt(r.cMax, 1)}</td>
+                <td class="r mono" title=${basisTxt(r.pMax)}>${r.pMax ? (r.pMin ? psiTxt(r.pMin) + ' ~ ' : '') + psiTxt(r.pMax) : '—'}</td>
+                <td class="r mono">${r.force == null ? '—' : util.fmt(r.force, 1)}</td>
+                <td class="r mono" title=${r.allow && r.allow.unit !== 'psi' && r.allow.psi != null ? '= ' + util.fmt(r.allow.psi, 1) + ' psi' : ''}>${r.allow ? util.fmt(r.allow.value) + ' ' + r.allow.unit : html`<span class="muted">未填</span>`}${r.ratio != null ? html`<div class="muted" style="font-size:10.5px">${util.fmt(r.ratio, 0)}%</div>` : null}</td>
+                <td>${tag(r.status)}</td>
+              </tr>`)}</tbody>
+            </table>` : null}
+            ${cc.msgs.length ? html`<ul style="margin:8px 0 0 18px;font-size:12px">${cc.msgs.map((m, i) => html`<li class=${cc.levels[i] === 'error' ? 'text-err' : 'text-warn'}>${m}</li>`)}</ul>` : null}
+            ${cc.notes.length ? html`<ul style="margin:6px 0 0 18px;font-size:12px" class="muted">${cc.notes.map(m => html`<li>${m}</li>`)}</ul>` : null}
+            ${cc.pressure && cc.pressure.basis !== 'exact' ? html`<div class="muted mt8" style="font-size:11.5px">壓力${basisTxt(cc.pressure)}（材料庫沒有 ${util.fmt(it.size.t)} mm 的曲線）。</div>` : null}`
+            : !dispense ? html`<div class="muted mt8" style="font-size:12px">填入 T 與間隙（或機構高度 + 元件高度）後自動計算。</div>` : null}
         </${Sec}>
 
         <${Sec} id="d-th" title="TIM 熱阻估算"
