@@ -48,6 +48,11 @@
     { key: 'rohs', label: 'RoHS', kind: 'bool' },
     { key: 'reach', label: 'REACH', kind: 'bool' },
     { key: 'halogen_free', label: '無鹵', kind: 'bool' },
+    { key: 'pressure_curves', label: '壓力–壓縮曲線', kind: 'curves',
+      hint: '規格書的 Deflection vs Pressure（壓縮率–壓力）曲線或表格，每個厚度一筆 { "thickness_mm": 1.0, "points": [[壓力 psi, 壓縮率 %], …] }。' +
+        '壓力換算成 psi（kPa ÷ 6.895、MPa × 145.04、kgf/cm² × 14.22、N/cm² × 1.450），厚度換算成 mm（mil ÷ 39.37、inch × 25.4；圖例是料號時依規格書的料號規則換算，例如料號尾碼 1000 µm = 1.0 mm）。' +
+        '只有曲線圖時每條讀 4–8 個點（讀圖取點不算推測，但 evidence 要註明「讀圖」）；只有單點（例如「Deflection @10 psi on 1 mm: 8 %」）也寫成一點；沒有就填 null' },
+    { key: 'curve_note', label: '曲線出處', kind: 'text', hint: '例如 "p.2 Deflection vs Pressure 讀圖值"' },
     { key: 'shelf_life_months', label: '保存期限', kind: 'num', unit: '月' },
     { key: 'storage', label: '保存條件', kind: 'text' },
     { key: 'price_ref', label: '參考價格', kind: 'text' },
@@ -61,7 +66,8 @@
 
   // ───────── values ─────────
   const low = s => util.toHalfWidth(String(s == null ? '' : s)).trim().toLowerCase();
-  const empty = v => v === null || v === undefined || (typeof v === 'string' && !v.trim());
+  const empty = v => v === null || v === undefined || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
+  const same = (a, b) => a === b || (typeof a === 'object' && a !== null && JSON.stringify(a) === JSON.stringify(b));
 
   /** "7.5 W/m·K" / "−40" / "≥ 6" / "1,200" → number; NaN when there is none. */
   function toNum(v) {
@@ -144,7 +150,36 @@
       const e = enumValue(f, v);
       return e === undefined ? { warn: '「' + f.label + '」不在選項內：' + String(v) } : { value: e };
     }
+    if (f.kind === 'curves') return curvesValue(f, v);
     return { value: String(v).trim() };
+  }
+
+  /**
+   * pressure_curves → [{ t, points: [[psi, %], …] }]. Accepts thickness_mm / thickness / t, and points as
+   * [psi, %] pairs or { psi | pressure_psi | pressure, pct | deflection_pct | deflection } objects.
+   */
+  function curvesValue(f, v) {
+    const list = Array.isArray(v) ? v : (v && typeof v === 'object' ? [v] : null);
+    if (!list) return { warn: '「' + f.label + '」不是陣列：' + String(v) };
+    let dropped = 0;
+    const raw = list.filter(c => c && typeof c === 'object').map(c => {
+      const t = toNum(c.thickness_mm != null ? c.thickness_mm : c.thickness != null ? c.thickness : c.t);
+      const pts = (Array.isArray(c.points) ? c.points : []).map(p => {
+        const pair = Array.isArray(p) ? [p[0], p[1]]
+          : p && typeof p === 'object' ? [p.psi != null ? p.psi : p.pressure_psi != null ? p.pressure_psi : p.pressure, p.pct != null ? p.pct : p.deflection_pct != null ? p.deflection_pct : p.deflection] : [];
+        const n = pair.map(x => (x == null ? NaN : toNum(x)));
+        if (Number.isNaN(n[0]) || Number.isNaN(n[1])) { dropped++; return null; }
+        return n;
+      }).filter(Boolean);
+      return { t: Number.isNaN(t) ? null : t, points: pts };
+    });
+    const value = schema.normalizeCurves(raw);
+    const lost = raw.length - value.length;
+    const warns = [];
+    if (dropped) warns.push(dropped + ' 個點不是數字');
+    if (lost) warns.push(lost + ' 條沒有厚度或沒有點');
+    if (!value.length) return { warn: '「' + f.label + '」沒有可用的曲線' + (warns.length ? '（' + warns.join('、') + '）' : '') };
+    return warns.length ? { value, warn: '「' + f.label + '」略過：' + warns.join('、') } : { value };
   }
 
   // ───────── input ─────────
@@ -213,17 +248,20 @@
 
   /**
    * What an import row would change. action: 'new' | 'fill' (only empty fields) | 'overwrite' | 'skip'.
+   * opts.keepName: re-import of a chosen material — its Vendor / Model stay as they are in the library.
    * Returns [{ key, label, unit, from, to }].
    */
-  function changesFor(entry, existing, action) {
+  function changesFor(entry, existing, action, opts) {
     if (action === 'skip') return [];
     const out = [];
+    const keepName = !!(opts && opts.keepName && existing);
     FIELDS.forEach(f => {
       if (!(f.key in entry.fields)) return;
+      if (keepName && (f.key === 'vendor' || f.key === 'model')) return;
       const to = entry.fields[f.key];
       const from = existing ? existing[f.key] : undefined;
       if (action === 'fill' && existing && !empty(from)) return;
-      if (existing && from === to) return;
+      if (existing && same(from, to)) return;
       out.push({ key: f.key, label: f.label, unit: f.unit || '', from: empty(from) ? null : from, to });
     });
     // 劑型 follows the resulting type: dropped when it ends up without one, cleared when the type changes away
@@ -237,11 +275,26 @@
     return out;
   }
 
-  /** Rows for the preview: one per entry, matched against the library, default action. */
-  function plan(parsed, materials) {
+  /**
+   * Rows for the preview: one per entry, matched against the library, default action.
+   * targetId (重新匯入 from a material): the entry with that material's Vendor + Model — or the first one —
+   * updates it (default 覆蓋, names kept, nameDiff set when the AI wrote other names); the rest as usual.
+   */
+  function plan(parsed, materials, targetId) {
+    const target = targetId && materials && materials[targetId];
+    let ti = -1;
+    if (target) {
+      ti = parsed.entries.findIndex(e => keyOf(e.fields.vendor, e.fields.model) === keyOf(target.vendor, target.model));
+      if (ti < 0) ti = 0;
+    }
     return parsed.entries.map((entry, i) => {
+      if (i === ti) {
+        const diff = keyOf(entry.fields.vendor, entry.fields.model) !== keyOf(target.vendor, target.model);
+        return { i, entry, matchId: target.id, action: 'overwrite', target: true, keepName: true,
+          nameDiff: diff ? [entry.fields.vendor, entry.fields.model].filter(Boolean).join(' ') : '' };
+      }
       const match = findMatch(materials, entry.fields);
-      const action = match ? 'fill' : 'new';
+      const action = match ? (target && match.id === target.id ? 'skip' : 'fill') : 'new';
       return { i, entry, matchId: match ? match.id : null, action };
     });
   }
@@ -256,23 +309,33 @@
         thickness_options: '0.5–5.0 mm（0.5 mm 一級）', hardness: 45, hardness_scale: 'Shore 00', density: 3.2,
         temp_min: -40, temp_max: 200, dielectric_kv_mm: 6, volume_resistivity: '1E13 Ω·cm', dk: 7.1, dk_freq: '1 MHz', absorber_freq: null,
         silicone: 'silicone', outgassing: 'TML 0.12 %', ul94: 'V-0', rohs: true, reach: true, halogen_free: null,
+        pressure_curves: [
+          { thickness_mm: 1.0, points: [[10, 13], [20, 38], [30, 55], [50, 68]] },
+          { thickness_mm: 2.0, points: [[10, 45], [20, 70], [50, 85]] },
+        ],
+        curve_note: 'p.2 Deflection vs Pressure 讀圖值',
         shelf_life_months: 12, storage: '5–35 °C', price_ref: null, moq: null, lead_time_wk: null,
         note: 'k 為 1.0 mm 厚度的值；2.0 mm 以上為 7.0 W/m·K',
-        evidence: { k: 'p.1 Thermal Conductivity 7.5 W/m-K (ASTM D5470)', temp_max: 'p.1 Operating Temp. -40 to 200 °C' },
+        evidence: { k: 'p.1 Thermal Conductivity 7.5 W/m-K (ASTM D5470)', temp_max: 'p.1 Operating Temp. -40 to 200 °C', pressure_curves: 'p.2 Deflection vs Pressure（讀圖）' },
       }],
     };
   }
 
-  /** Instructions to give the AI together with the datasheet. */
-  function prompt() {
+  /**
+   * Instructions to give the AI together with the datasheet.
+   * opts.target { vendor, model }: re-import — the AI must keep those names and output only that material.
+   */
+  function prompt(opts) {
+    const target = opts && opts.target;
     const lines = FIELDS.map(f => '- ' + f.key + '：' + f.label + (f.unit ? '（單位 ' + f.unit + '）' : '') +
-      (f.kind === 'num' ? '，數字' : f.kind === 'bool' ? '，true / false' : f.kind === 'enum' ? '，只能是 ' + f.values.map(v => JSON.stringify(v)).join(' / ') : '，文字') +
+      (f.kind === 'num' ? '，數字' : f.kind === 'bool' ? '，true / false' : f.kind === 'enum' ? '，只能是 ' + f.values.map(v => JSON.stringify(v)).join(' / ') : f.kind === 'curves' ? '，陣列' : '，文字') +
       (f.hint ? '。' + f.hint : ''));
     return [
       '請閱讀我附上的 TIM（導熱介面材料）廠商規格書，把數據整理成下面格式的 JSON，用來匯入「專案 TIM 管理器」的材料庫。',
+      target ? '這次是更新材料庫裡已有的材料：vendor 請填 ' + JSON.stringify(target.vendor || '') + '、model 請填 ' + JSON.stringify(target.model || '') + '（照抄），只輸出這一種材料。' : null,
       '',
       '規則：',
-      '1. 只填規格書上明確寫出的資料；沒寫的填 null。不要推測，也不要用其他型號或一般常識補數字。',
+      '1. 只填規格書上明確寫出的資料；沒寫的填 null。不要推測，也不要用其他型號或一般常識補數字（RoHS / REACH / 無鹵等合規欄位也一樣）。曲線圖可以讀圖取點。',
       '2. 數字欄只放數字（不要帶單位），並換算成下面指定的單位。',
       '3. 一份規格書有多個型號 / 等級時，每個型號一筆；同一型號的不同厚度只算一筆：厚度範圍寫在 thickness_options，數值用規格書的 typical 值（或最常用厚度的值），差異寫在 note。',
       '4. evidence：每個非 null 的數值欄，寫出規格書上的原文與頁碼，方便人工核對。',
@@ -283,7 +346,7 @@
       '',
       '格式（format 與 version 照抄；materials 是陣列）：',
       JSON.stringify(example(), null, 2),
-    ].join('\n');
+    ].filter(l => l !== null).join('\n');
   }
 
   return { FORMAT, VERSION, FIELDS, toNum, toBool, enumValue, extractJson, parse, findMatch, changesFor, plan, example, prompt };

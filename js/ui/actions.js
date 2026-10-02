@@ -31,7 +31,8 @@
     if (path === 'status') return schema.labelOf(schema.ITEM_STATUS, v);
     if (path === 'tim_type') return schema.timType(v).label;
     if (path === 'gap') return [v && v.min, v && v.nom, v && v.max].map(x => (x == null ? '-' : x)).join(' / ');
-    if (path === 'comp_override') return v ? (v.min + '~' + v.max + '%') : '自動';
+    if (path === 'comp_override') return v && v.min != null ? v.min + '%' : '自動';
+    if (path === 'gap_manual') return v ? '手動' : '公差疊加';
     if (v && typeof v === 'object') return JSON.stringify(v);
     return v;
   }
@@ -339,7 +340,7 @@
       coalesce: 'cov:' + covId + ':' + field,
       changes: ['part', 'qty'].includes(field)
         ? [{ kind: 'edit', target: 'item', target_id: itemId, item_no: it.item_no, field: '覆蓋元件', from: before, to: parse.formatCovered(it.covered.map(x => (x.id === covId ? Object.assign({}, x, { [field]: value }) : x))) }]
-        : [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + (c.part || '') + ' ' + ({ refdes: 'RefDes', power_w: '功耗', top_pct: '頂面 %', pkg_l: '封裝 L', pkg_w: '封裝 W', cat: '類別', note: '備註' }[field] || field), from: c[field], to: value }],
+        : [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + (c.part || '') + ' ' + ({ refdes: 'RefDes', power_w: '功耗', top_pct: '頂面 %', pkg_l: '封裝 L', pkg_w: '封裝 W', cat: '類別', note: '備註', h_min: '高度 min', h_nom: '高度 nom', h_max: '高度 max', p_allow: '耐壓', p_unit: '耐壓單位' }[field] || field), from: c[field], to: value }],
     });
   }
   function addCovered(pid, itemId, fields) {
@@ -431,7 +432,8 @@
     return st().mutateMaterials(mats => { mats[id].datasheets = list; }, { touched: [id] });
   }
   /**
-   * Import materials (材料匯入) in one undo step. rows: [{ fields, matchId, action: 'new'|'fill'|'overwrite'|'skip' }].
+   * Import materials (材料匯入) in one undo step. rows: [{ fields, matchId, action: 'new'|'fill'|'overwrite'|'skip', keepName }]
+   * (keepName: 重新匯入 — the matched material keeps its Vendor / Model).
    * Returns { ids (per row, null when skipped), created, updated }.
    */
   function importMaterials(rows) {
@@ -446,7 +448,7 @@
           mats[m.id] = m; ids.push(m.id); touched.push(m.id); created++;
           return;
         }
-        const ch = TIM.matImport.changesFor({ fields: r.fields }, cur, r.action);
+        const ch = TIM.matImport.changesFor({ fields: r.fields }, cur, r.action, { keepName: r.keepName });
         ch.forEach(c => { cur[c.key] = c.to; });
         ids.push(cur.id);
         if (ch.length) { touched.push(cur.id); updated++; }

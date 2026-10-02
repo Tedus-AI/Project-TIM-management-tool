@@ -108,4 +108,58 @@ module.exports = [
       assert.equal(head, '89504e470d0a1a0a', 'PNG signature');
     },
   },
+  {
+    name: 'crop the drawing: drag a box, pads outside are listed and removed, the rest stay on the same spot, calibration kept, undo',
+    async run(env) {
+      const { page } = env;
+      await openWithDemo(env);
+      await openMap(page);
+      const before = await page.evaluate(() => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        const v = p.views[0];
+        // pixel position of every pad, and the scale, before cropping
+        return { id: v.id, w: v.img_w, h: v.img_h, n: v.shapes.length, ppm: TIM.geom.pxPerMm(v),
+          pads: v.shapes.map(s => ({ id: s.id, x: s.cx * v.img_w, y: s.cy * v.img_h })) };
+      });
+      await page.click('.map-side button:has-text("裁切")');
+      await page.waitForSelector('.modal .crop-box img');
+      assert.ok(await page.locator('.modal-foot button:has-text("套用裁切")').isDisabled(), 'nothing to apply before a box is drawn');
+      // drag a box covering the middle 70 % × 80 % (synthetic pointer events: Playwright mouse would also work)
+      // the dialog animates in: measure once the box has stopped moving
+      let box = null;
+      for (let i = 0; i < 50; i++) {
+        const nb = await page.locator('.crop-box').boundingBox();
+        if (box && nb && ['x', 'y', 'width', 'height'].every(k => Math.abs(nb[k] - box[k]) < 0.5)) break;
+        box = nb;
+        await page.waitForTimeout(60);
+      }
+      const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+      const a = at(0.15, 0.1), b = at(0.85, 0.9);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 6 }); await page.mouse.up();
+      await page.waitForFunction(() => !document.querySelector('.modal-foot .btn-primary').disabled);
+      const outside = before.pads.filter(q => q.x < before.w * 0.15 - 2 || q.x > before.w * 0.85 + 2 || q.y < before.h * 0.1 - 2 || q.y > before.h * 0.9 + 2).length;
+      const info = await page.locator('.crop-info').innerText();
+      if (outside) assert.match(info, new RegExp('範圍外有 ' + outside + ' 片 pad'));
+      assert.equal(await page.locator('.crop-dot.out').count(), outside);
+      // move the box a little by dragging inside it, then back (stays the same size)
+      const mid = at(0.5, 0.5);
+      await page.mouse.move(mid.x, mid.y); await page.mouse.down(); await page.mouse.move(mid.x + 10, mid.y, { steps: 3 }); await page.mouse.move(mid.x, mid.y, { steps: 3 }); await page.mouse.up();
+      await page.click('.modal-foot button:has-text("套用裁切")');
+      await page.waitForSelector('.toast:has-text("已裁切圖片")');
+      const after = await page.evaluate(id => { const v = Object.values(TIM.store.db.projects)[0].views.find(x => x.id === id); return JSON.parse(JSON.stringify({ v, ppm: TIM.geom.pxPerMm(v) })); }, before.id);
+      assert.ok(Math.abs(after.v.img_w - before.w * 0.7) <= 3 && Math.abs(after.v.img_h - before.h * 0.8) <= 3, after.v.img_w + ' × ' + after.v.img_h + ' of ' + before.w + ' × ' + before.h);
+      assert.equal(after.v.shapes.length, before.n - outside);
+      if (before.ppm) assert.ok(Math.abs(after.ppm - before.ppm) < 1e-6, 'calibration unchanged');
+      // every kept pad is on the same spot of the drawing (pixel offset = crop origin)
+      const kept = after.v.shapes.map(s => ({ id: s.id, x: s.cx * after.v.img_w, y: s.cy * after.v.img_h }));
+      const ox = before.pads.find(q => q.id === kept[0].id).x - kept[0].x, oy = before.pads.find(q => q.id === kept[0].id).y - kept[0].y;
+      kept.forEach(k => { const q = before.pads.find(x => x.id === k.id); assert.ok(Math.abs(q.x - k.x - ox) < 1e-6 && Math.abs(q.y - k.y - oy) < 1e-6); });
+      assert.ok(Math.abs(ox - before.w * 0.15) <= 3 && Math.abs(oy - before.h * 0.1) <= 3, 'offset = crop origin: ' + ox + ', ' + oy);
+      // the editor shows the cropped drawing; undo restores the original image and pads
+      await page.waitForFunction(w => { const i = document.querySelector('.map-stage svg image'); return i && Number(i.getAttribute('width')) === w; }, after.v.img_w);
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Control+z');
+      await page.waitForFunction(([id, w, n]) => { const v = Object.values(TIM.store.db.projects)[0].views.find(x => x.id === id); return v.img_w === w && v.shapes.length === n; }, [before.id, before.w, before.n]);
+    },
+  },
 ];

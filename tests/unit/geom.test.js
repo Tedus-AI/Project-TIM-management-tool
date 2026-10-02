@@ -83,3 +83,22 @@ test('two auto callouts of one item split its pads by proximity', () => {
   assert.deepEqual(L2.callouts[2].targetIds, [top[0].id]);
   assert.equal(L2.callouts[0].targetIds.length, 2);
 });
+
+test('crop: pads / labels / calibration stay on the same spot of the drawing; outside pads dropped', () => {
+  const view = schema.newView({ img_w: 1000, img_h: 500, calib: { x1: 0.1, y1: 0.2, x2: 0.5, y2: 0.2, mm: 40 },
+    shapes: [schema.newShape({ id: 's1', item_id: 'i1', cx: 0.5, cy: 0.5, w: 0.1, h: 0.2 }), schema.newShape({ id: 's2', item_id: 'i2', cx: 0.05, cy: 0.5 })],
+    callouts: [schema.newCallout({ item_id: 'i1', x: 0.9, y: 0.95 }), schema.newCallout({ item_id: 'i2', x: 0.3, y: 0.5 }), schema.newCallout({ item_id: 'i1', targets: ['s1', 's2'], x: 0.4, y: 0.4 })] });
+  const r = geom.snapCrop({ x: 0.2004, y: 0.1, w: 0.6, h: 0.8 }, 1000, 500);
+  assert.deepEqual(r.px, { x: 200, y: 50, w: 600, h: 400 });
+  const out = geom.cropRemap(view, r);
+  assert.equal(out.removedShapes, 1);
+  assert.equal(out.removedCallouts, 1, 'label of the dropped pad only');
+  const s1 = out.shapes[0];
+  assert.ok(Math.abs(s1.cx - 0.5) < 1e-9 && Math.abs(s1.cy - 0.5) < 1e-9);
+  assert.ok(Math.abs(s1.w * 600 - 0.1 * 1000) < 1e-9 && Math.abs(s1.h * 400 - 0.2 * 500) < 1e-9, 'same size in pixels');
+  assert.deepEqual(out.callouts[1].targets, ['s1']);
+  assert.ok(out.callouts[0].x <= 0.99, 'label pulled inside the new edge');
+  const before = geom.pxPerMm(view), after = geom.pxPerMm(Object.assign({}, view, { img_w: 600, img_h: 400, calib: out.calib }));
+  assert.ok(Math.abs(before - after) < 1e-9, 'calibration unchanged');
+  assert.equal(view.shapes.length, 2, 'input not modified');
+});

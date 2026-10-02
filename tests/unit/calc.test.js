@@ -20,14 +20,14 @@ test('compression check: ok / warn / error', () => {
   assert.equal(c.status, 'ok');
   assert.equal(Math.round(c.min * 10) / 10, 15);   // (2-1.7)/2
   assert.equal(Math.round(c.max * 10) / 10, 25);   // (2-1.5)/2
-  // material datasheet ranges (legacy comp_rec_min/max, 10~40 here) are no longer used
+  // material datasheet ranges (legacy comp_rec_min/max, 10~40 here) are no longer used; only a minimum
   assert.equal(c.rec.source, 'generic');
-  assert.deepEqual([c.rec.min, c.rec.max], [10, 30]);
+  assert.deepEqual(c.rec, { min: 10, source: 'generic' });
 
-  it.gap = { nom: 1.0, min: 0.9, max: 1.1 };        // 45~55 % → too much
+  it.gap = { nom: 1.0, min: 0.9, max: 1.1 };        // 45~55 %: no upper % limit any more (pressure decides)
   c = calc.compressionCheck(it, mat, db.settings);
-  assert.equal(c.status, 'warn');
-  assert.ok(c.msgs.some(m => m.includes('高於建議')));
+  assert.equal(c.status, 'ok');
+  assert.equal(c.pressure, null, 'no deflection curve → no pressure');
 
   it.gap = { nom: 2.0, min: 1.9, max: 2.1 };        // max gap > T → no contact
   c = calc.compressionCheck(it, mat, db.settings);
@@ -41,6 +41,7 @@ test('compression check: ok / warn / error', () => {
   it.comp_override = { min: 20, max: 30 };
   c = calc.compressionCheck(it, mat, db.settings);
   assert.equal(c.rec.source, 'item'); assert.equal(c.status, 'warn');   // min 15 % < 20 %
+  assert.ok(c.msgs.some(m => m.includes('低於下限 20%')));
   const bare = schema.newItem({ size: { l: 5, w: 5, t: 2 }, gap: { nom: 1.6 } });
   assert.equal(calc.recCompression(bare, null, db.settings).source, 'generic');
   void p;
@@ -146,7 +147,7 @@ test('top-side fraction scales the heat through the TIM; compression rounding', 
   assert.ok(Math.abs(th.rows[1].dT - 10 * R) < 1e-9, 'blank fraction = 100 %');
   assert.equal(calc.compressionAt(3, 2.7), 10);
   const cc = calc.compressionCheck(schema.newItem({ size: { l: 1, w: 1, t: 3 }, gap: { min: 2.3, nom: 2.5, max: 2.7 } }), mat, schema.newDb().settings);
-  assert.equal(cc.status, 'ok', '10 % at the edge of a 10–40 % band is not a warning');
+  assert.equal(cc.status, 'ok', '10 % at the minimum is not a warning');
 });
 
 test('material usage: pads in pcs, dispensed TIM in g / cc (Q\'ty × amount), obsolete skipped', () => {

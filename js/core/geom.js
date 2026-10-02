@@ -291,9 +291,47 @@
     ctx.restore();
   }
 
+  /**
+   * Crop a view's drawing to r = { x, y, w, h } (fractions of the current image; snap to whole pixels
+   * first). Coordinates are remapped so everything stays on the same spot of the drawing and the
+   * calibration (px / mm) is unchanged. Pads whose centre falls outside are dropped; labels are kept
+   * (moved inside the edge) while they still point at a pad, otherwise dropped.
+   * → { shapes, callouts, calib, removedShapes, removedCallouts }  (new arrays; the view is not modified)
+   */
+  function cropRemap(view, r) {
+    const f = (x, y) => [(x - r.x) / r.w, (y - r.y) / r.h];
+    const inside = (x, y) => x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    const kept = new Set(), keptItems = new Set();
+    let removedShapes = 0, removedCallouts = 0;
+    const shapes = (view.shapes || []).map(s => Object.assign({}, s)).filter(s => {
+      const [x, y] = f(s.cx, s.cy);
+      if (!inside(x, y)) { removedShapes++; return false; }
+      Object.assign(s, { cx: x, cy: y, w: s.w / r.w, h: s.h / r.h });
+      kept.add(s.id); if (s.item_id) keptItems.add(s.item_id);
+      return true;
+    });
+    const callouts = (view.callouts || []).map(c => Object.assign({}, c, Array.isArray(c.targets) ? { targets: c.targets.filter(t => kept.has(t)) } : {})).filter(c => {
+      const alive = Array.isArray(c.targets) ? c.targets.length > 0 : keptItems.has(c.item_id);
+      if (!alive) { removedCallouts++; return false; }
+      const [x, y] = f(c.x, c.y);
+      c.x = util.clamp(x, 0.01, 0.99); c.y = util.clamp(y, 0.01, 0.99);
+      return true;
+    });
+    let calib = view.calib || null;
+    if (calib) { const a = f(calib.x1, calib.y1), b = f(calib.x2, calib.y2); calib = Object.assign({}, calib, { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }); }
+    return { shapes, callouts, calib, removedShapes, removedCallouts };
+  }
+
+  /** Crop rectangle snapped to whole pixels of a W × H image (fractions in, fractions out). */
+  function snapCrop(r, W, H) {
+    const x0 = util.clamp(Math.round(r.x * W), 0, W - 1), y0 = util.clamp(Math.round(r.y * H), 0, H - 1);
+    const x1 = util.clamp(Math.round((r.x + r.w) * W), x0 + 1, W), y1 = util.clamp(Math.round((r.y + r.h) * H), y0 + 1, H);
+    return { x: x0 / W, y: y0 / H, w: (x1 - x0) / W, h: (y1 - y0) / H, px: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+  }
+
   return {
     FONT_FAMILY, FONT_WEIGHT, fontCss, HALO, MISSING,
     pxPerMm, baseFont, padSize, padCorners, rectExit, boxExit, pointInPad, pointInBox, uprightAngle,
-    layout, drawLayout, niceScale,
+    layout, drawLayout, niceScale, cropRemap, snapCrop,
   };
 });

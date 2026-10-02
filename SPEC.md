@@ -120,14 +120,18 @@
 | ☆ 類別 | RF / DIGI / PWR / DDR / OPT |
 | ☆ 單顆功耗 (W) | 估算 TIM 溫升必需 |
 | ☆ 元件頂面尺寸 L×W (mm) | 有效接觸面積 = min(TIM 面積, 元件頂面) |
+| ☆ 元件高度 min / nom / max (mm) | 照封裝圖的上 / 中 / 下限（例如 1.10 / 1.20 / 1.30）；配合機構高度算出每顆元件的間隙 |
+| ☆ 耐壓（值 + 單位） | 元件頂面可承受的壓力（psi / kPa / MPa / kgf/cm²）或力（N / kgf / lbf）；力以 min(pad, 封裝) 面積換算成壓力 |
 
 **機構間隙與壓縮**
 
 | 欄位 | 說明 / 為什麼要記 |
 |------|------------------|
-| ☆ 設計間隙 nom / min / max (mm) | 公差疊加後的間隙範圍（元件高度、PCB 翹曲、機殼凸台加工公差） |
-| ☆ 建議壓縮率範圍 (%) | 預設帶入材料庫，可「✂ 解鎖」個別覆寫 |
-| ☆ 壓縮率 min / nom / max（自動） | 過小 → 接觸不良；過大 → 元件 / 焊點受力、PCB 彎曲 |
+| ☆ 機構高度 nom ± 上 / 下公差 (mm) | PCB 上表面到散熱面（散熱片凸台 / 機殼）的距離，由機構公差疊加 |
+| ☆ 設計間隙 min / nom / max（自動，可 ✂ 手動） | 機構高度 − 元件高度，最壞情況：g_min = 機構 min − 元件 max、g_max = 機構 max − 元件 min；每顆元件各自計算，Item 取最緊 / 最鬆。沒有元件高度時直接手填間隙 |
+| ☆ 最小壓縮率 (%) | 一般值 10%（pad / absorber，經驗值），可「✂ 解鎖」個別覆寫；低於 → 接觸可能不足（Warning） |
+| ☆ 壓縮率 min / nom / max（自動） | 過小 → 接觸不良；過大不再用 % 判定，改看壓力 |
+| ☆ 壓力 / 受力（自動） | 材料壓力–壓縮曲線在 C_max 的壓力（依厚度內插）；> 元件耐壓 → Fail、≥ 80% → Warning |
 
 **熱估算（自動）**
 
@@ -169,11 +173,12 @@
 | 矽系 / 非矽系、出油 / 揮發 | 矽油揮發會污染光學元件、連接器接點 |
 | UL94 等級、RoHS / REACH / 無鹵 | 合規 |
 | 保存期限 / 保存條件 | 點膠類材料有 shelf life |
+| 壓力–壓縮曲線（每個厚度一條：壓力 psi ↔ 壓縮率 %）＋出處 | 規格書的 Deflection vs Pressure；Item 用來把壓縮率換算成壓力、判定是否超過元件耐壓（同樣壓 50%，軟材只要幾十 psi、硬材可能上百 psi，不能只看 %） |
 | 規格書檔案（可多份） | 數值出處；上傳到資料庫旁的 `Datasheets/<Vendor>/<Model>/`，記錄檔名、大小、上傳時間與上傳者（舊版的 Datasheet 連結唯讀顯示） |
 | 參考單價 / MOQ / 交期 | 成本與交期 |
 | AVL 狀態 | 已承認 / 承認中 / 未承認 / EOL — EOL 材料會自動在所有專案發出警示（只在材料詳細，列表不顯示） |
 
-> 建議壓縮率不再記在材料上：檢核用 Item 手動範圍，否則用依 TIM 類型的一般建議值（pad / absorber 10–30 %）。
+> 建議壓縮率不再記在材料上：壓縮率只檢核下限（Item 手動，否則一般值 10%），過壓由壓力–壓縮曲線與元件耐壓判定。
 
 ---
 
@@ -345,7 +350,10 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 項目 | 公式 | 備註 |
 |------|------|------|
 | 面積 | A = L × W (mm²) | 有填元件頂面尺寸時 A_eff = min(A, 元件面積) |
+| 間隙（公差疊加） | g_min = (H_nom − tol⁻) − h_max；g_nom = H_nom − h_nom；g_max = (H_nom + tol⁺) − h_min | H = 機構高度、h = 元件高度；每顆元件各自計算 |
 | 壓縮率 | C = (T − g) / T × 100 % | C_min 用 g_max、C_max 用 g_min |
+| 壓力 | p = 曲線(T, C_max) | 同厚度直接查、兩厚度間線性內插、超出用最接近曲線；超出曲線最大壓縮 → 只知「> 最後一點」 |
+| 過壓 | p / p_allow > 100 % → Fail；≥ 80 % → Warning | 力的耐壓：p_allow = F / min(pad, 封裝面積)；受力 F = p × 面積 |
 | 壓縮後厚度 | t_c = min(g, T) | g ≥ T 判定為未接觸 |
 | TIM 熱阻 | R = t_c / (k · A_eff) | 單位換算：R[°C/W] = t_c[mm] × 1000 / (k[W/m·K] × A[mm²]) |
 | TIM 溫升 | ΔT = P × R | P 為單顆元件功耗 |
@@ -440,6 +448,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [x] 總覽（KPI ＋ 待處理事項）
 - [x] TIM 清單（類 Excel、分組、從 Excel 貼上）＋ Item 詳細抽屜
 - [x] 位置標註（比例尺、實際尺寸 pad、旋轉、多引線標籤、圖例、放置數比對、PNG）
+- [x] 位置圖圖片裁切（pad / 標籤 / 比例尺留在原位置，範圍外 pad 先列出再移除）
+- [x] 材料重新匯入（規格書改版 → AI → 覆蓋既有材料，名稱不變）
 - [x] 間隙與熱檢核
 - [x] 變更紀錄、ECN、Build 基準與差異比較
 - [x] 材料庫＋ Where-used
@@ -457,7 +467,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤
 - [ ] 跨專案比較（衍生機種差異）、料號合併建議
-- [ ] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核
+- [x] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核（機構高度 ± 公差 − 元件高度 → 間隙）
 - [ ] 可靠度測試紀錄（溫度循環、濕熱、振動後 pad 位移）
 
 ### Phase 3 — 與 Thermal Test Report Builder 整合

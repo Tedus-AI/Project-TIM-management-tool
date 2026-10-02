@@ -42,53 +42,201 @@
   }
 
   /**
-   * Recommended compression range for an item:
-   * item override (manual) → generic default for the TIM type (settings.generic_comp).
-   * Returns { min, max, source: 'item'|'generic' } or null.
+   * Minimum compression (contact) for an item: item override (manual) → generic default for the TIM type
+   * (settings.generic_comp). Over-compression is judged by pressure, so there is no upper limit.
+   * Returns { min, source: 'item'|'generic' } or null.
    */
   function recCompression(item, mat, settings) {
     const o = item && item.comp_override;
-    if (o && (fin(o.min) || fin(o.max))) return { min: fin(o.min) ? o.min : null, max: fin(o.max) ? o.max : null, source: 'item' };
+    if (o && fin(o.min)) return { min: o.min, source: 'item' };
     const type = (mat && mat.tim_type) || (item && item.tim_type) || 'pad';
     const gc = (settings && settings.generic_comp) || schema.DEFAULT_SETTINGS.generic_comp;
     const g = gc[type];
-    if (g && (fin(g.min) || fin(g.max))) return { min: g.min, max: g.max, source: 'generic' };
+    if (g && fin(g.min)) return { min: g.min, source: 'generic' };
     return null;
   }
 
+  // ───────────────────────── gap stack-up & pressure ─────────────────────────
+
+  const PSI_PA = 6894.757;
+  const r4 = v => Math.round(v * 1e4) / 1e4;
+
+  /** 機構高度 (PCB → heat-sink surface) as { min, nom, max } from nominal ± tolerances; null without a nominal. */
+  function mechRange(item) {
+    const m = item && item.mech;
+    if (!m || !fin(m.nom)) return null;
+    const plus = fin(m.plus) ? Math.abs(m.plus) : 0, minus = fin(m.minus) ? Math.abs(m.minus) : 0;
+    return { min: r4(m.nom - minus), nom: m.nom, max: r4(m.nom + plus) };
+  }
+
+  /** Component height { min, nom, max } (missing values fall back to the others); null when none given. */
+  function heightRange(c) {
+    if (!c || ![c.h_min, c.h_nom, c.h_max].some(fin)) return null;
+    const min = fin(c.h_min) ? c.h_min : fin(c.h_nom) ? c.h_nom : c.h_max;
+    const max = fin(c.h_max) ? c.h_max : fin(c.h_nom) ? c.h_nom : c.h_min;
+    return { min, nom: fin(c.h_nom) ? c.h_nom : r4((min + max) / 2), max };
+  }
+
   /**
-   * Gap / compression check for one item.
-   * Uses gap.min → max compression, gap.max → min compression.
-   * status: 'na' (no data), 'ok', 'warn' (outside recommended range), 'error' (no contact).
+   * Design gap of an item. With 機構高度 and at least one component height it is derived per component,
+   * worst case: g_min = 機構 min − 元件 max, g_nom = 機構 nom − 元件 nom, g_max = 機構 max − 元件 min
+   * (unless item.gap_manual); otherwise the manual item.gap.
+   * → { source: 'stack'|'manual'|null, min, nom, max, mech, stackReady,
+   *     comps: [{ id, c, h, min, nom, max }] }  (item min / nom = the tightest component, max = the loosest)
+   */
+  function gapInfo(item) {
+    const mech = mechRange(item);
+    const withH = ((item && item.covered) || []).map(c => ({ c, h: heightRange(c) })).filter(x => x.h);
+    const out = { source: null, min: null, nom: null, max: null, mech, stackReady: !!mech && withH.length > 0, comps: [] };
+    if (out.stackReady && !item.gap_manual) {
+      out.source = 'stack';
+      out.comps = withH.map(x => ({ id: x.c.id, c: x.c, h: x.h, min: r4(mech.min - x.h.max), nom: r4(mech.nom - x.h.nom), max: r4(mech.max - x.h.min) }));
+      out.min = Math.min.apply(null, out.comps.map(x => x.min));
+      out.nom = Math.min.apply(null, out.comps.map(x => x.nom));
+      out.max = Math.max.apply(null, out.comps.map(x => x.max));
+      return out;
+    }
+    const g = (item && item.gap) || {};
+    if (!fin(g.min) && !fin(g.nom) && !fin(g.max)) return out;
+    out.source = 'manual';
+    out.min = fin(g.min) ? g.min : fin(g.nom) ? g.nom : null;
+    out.nom = fin(g.nom) ? g.nom : null;
+    out.max = fin(g.max) ? g.max : fin(g.nom) ? g.nom : null;
+    out.comps = ((item && item.covered) || []).map(c => ({ id: c.id, c, h: heightRange(c), min: out.min, nom: out.nom, max: out.max }));
+    return out;
+  }
+
+  /**
+   * A material's pressure–deflection curves, cleaned for interpolation: sorted by thickness, each curve
+   * starts at (0 psi, 0 %) and never decreases. → [{ t, pts: [[psi, %], …] }]
+   */
+  function curveSet(mat) {
+    return ((mat && mat.pressure_curves) || []).map(cv => {
+      const raw = (cv.points || []).filter(p => Array.isArray(p) && fin(p[0]) && fin(p[1]) && p[0] >= 0).slice().sort((a, b) => a[0] - b[0]);
+      const pts = raw.length && raw[0][0] > 0 ? [[0, 0]] : [];
+      let top = 0;
+      raw.forEach(p => { top = Math.max(top, p[1]); pts.push([p[0], top]); });
+      return { t: cv.t, pts };
+    }).filter(cv => fin(cv.t) && cv.t > 0 && cv.pts.length >= 2).sort((a, b) => a.t - b.t);
+  }
+
+  /** Pressure on one curve for a deflection (linear between points); beyond = deflection past the last point. */
+  function psiOnCurve(pts, c) {
+    if (c <= pts[0][1]) return { psi: pts[0][0], beyond: false };
+    for (let i = 1; i < pts.length; i++) {
+      const [p0, d0] = pts[i - 1], [p1, d1] = pts[i];
+      if (c <= d1) return { psi: d1 === d0 ? p0 : p0 + (c - d0) / (d1 - d0) * (p1 - p0), beyond: false };
+    }
+    return { psi: pts[pts.length - 1][0], beyond: true };
+  }
+
+  /**
+   * Pressure (psi) to compress a material of thickness t (mm) by c %, from its deflection curves:
+   * same thickness → that curve; between two thicknesses → linear in thickness; outside → nearest curve.
+   * → { psi, beyond (c past the curve: psi is only a lower bound), basis: 'exact'|'interp'|'nearest', t_used } or null
+   */
+  function pressureAt(mat, t, c) {
+    const cs = curveSet(mat);
+    if (!cs.length || !fin(t) || !fin(c)) return null;
+    const same = cs.find(cv => Math.abs(cv.t - t) < 1e-6);
+    if (same || cs.length === 1 || t < cs[0].t || t > cs[cs.length - 1].t) {
+      const cv = same || cs.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a));
+      const r = psiOnCurve(cv.pts, c);
+      return { psi: r4(r.psi), beyond: r.beyond, basis: same ? 'exact' : 'nearest', t_used: [cv.t] };
+    }
+    const i = cs.findIndex(cv => cv.t > t);
+    const a = cs[i - 1], b = cs[i];
+    const ra = psiOnCurve(a.pts, c), rb = psiOnCurve(b.pts, c);
+    const f = (t - a.t) / (b.t - a.t);
+    return { psi: r4(ra.psi + f * (rb.psi - ra.psi)), beyond: ra.beyond || rb.beyond, basis: 'interp', t_used: [a.t, b.t] };
+  }
+
+  /** Contact area (mm²) of a component under the pad: min(pad, component top); either one when the other is unknown. */
+  function contactArea(item, c) {
+    const aPad = padArea(item);
+    const aPkg = c && fin(c.pkg_l) && fin(c.pkg_w) ? c.pkg_l * c.pkg_w : null;
+    if (fin(aPad) && fin(aPkg)) return Math.min(aPad, aPkg);
+    return fin(aPkg) ? aPkg : fin(aPad) ? aPad : null;
+  }
+
+  /**
+   * A component's allowable load in psi. Force units are spread over the contact area.
+   * → { psi, unit, value } | { psi: null, needsArea: true, unit, value } | null (not given)
+   */
+  function allowPsi(c, area) {
+    if (!c || !fin(c.p_allow) || c.p_allow <= 0) return null;
+    const u = schema.P_UNITS.find(x => x.v === c.p_unit) || schema.P_UNITS[0];
+    if (u.kind === 'pressure') return { psi: r4(c.p_allow * u.toPsi), unit: u.v, value: c.p_allow };
+    if (!fin(area) || area <= 0) return { psi: null, needsArea: true, unit: u.v, value: c.p_allow };
+    return { psi: r4(c.p_allow * u.toN / (area * 1e-6) / PSI_PA), unit: u.v, value: c.p_allow };
+  }
+
+  /** Force (N) of a pressure (psi) over an area (mm²). */
+  function forceN(psi, area) {
+    return fin(psi) && fin(area) ? r4(psi * PSI_PA * area * 1e-6) : null;
+  }
+
+  const LEVEL = { na: 0, ok: 1, warn: 2, error: 3 };
+  const worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
+
+  /**
+   * Gap / compression / pressure check for one item.
+   *  - compression C = (T − g) / T: C_min uses the largest gap (contact: ≥ minimum, > 0), C_max the smallest
+   *  - pressure: per covered component, from the material's deflection curves at C_max, against the
+   *    component's allowable load: > 100 % → error (Fail), ≥ settings.pressure_warn_pct → warn
+   * status: 'na' (no data), 'ok', 'warn', 'error'. comps: per-component rows (gap, compression, pressure, status).
    */
   function compressionCheck(item, mat, settings) {
-    const out = { min: null, nom: null, max: null, rec: null, status: 'na', msgs: [] };
+    // msgs: warning / error texts; levels[i] is the level of msgs[i] ('warn' | 'error'); notes: informational
+    const out = { min: null, nom: null, max: null, rec: null, status: 'na', msgs: [], levels: [], notes: [], gap: null, comps: [], pressure: null };
+    const flag = (level, text) => { out.status = worse(out.status, level); out.msgs.push(text); out.levels.push(level); };
     if (!item || schema.isDispense((mat && mat.tim_type) || item.tim_type)) return out;
     const t = item.size && item.size.t;
-    const g = item.gap || {};
-    const gMin = fin(g.min) ? g.min : (fin(g.nom) ? g.nom : null);
-    const gMax = fin(g.max) ? g.max : (fin(g.nom) ? g.nom : null);
-    if (!fin(t) || (!fin(g.nom) && !fin(g.min) && !fin(g.max))) return out;
-    out.max = compressionAt(t, gMin);
-    out.min = compressionAt(t, gMax);
-    out.nom = fin(g.nom) ? compressionAt(t, g.nom) : null;
+    const gi = out.gap = gapInfo(item);
+    if (!fin(t) || !gi.source) return out;
+    out.max = fin(gi.min) ? compressionAt(t, gi.min) : null;
+    out.min = fin(gi.max) ? compressionAt(t, gi.max) : null;
+    out.nom = fin(gi.nom) ? compressionAt(t, gi.nom) : null;
     out.rec = recCompression(item, mat, settings);
     out.status = 'ok';
-    if (out.min !== null && out.min <= 0) {
-      out.status = 'error';
-      out.msgs.push('最大間隙 ' + util.fmt(gMax) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm，可能完全未接觸');
-    }
-    if (out.rec) {
-      if (fin(out.rec.min) && out.min !== null && out.min > 0 && out.min < out.rec.min) {
-        if (out.status === 'ok') out.status = 'warn';
-        out.msgs.push('最小壓縮 ' + util.fmt(out.min, 1) + '% 低於建議 ' + out.rec.min + '%（接觸可能不足）');
+    const warnPct = fin(settings && settings.pressure_warn_pct) ? settings.pressure_warn_pct : schema.DEFAULT_SETTINGS.pressure_warn_pct;
+    if (out.min !== null && out.min <= 0) flag('error', '最大間隙 ' + util.fmt(gi.max) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm，可能完全未接觸');
+    else if (out.rec && out.min !== null && out.min < out.rec.min) flag('warn', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%（接觸可能不足）');
+    if (out.max !== null && out.max >= 100) flag('error', '最小間隙 ≤ 0，請檢查間隙數值');
+
+    const hasCurve = curveSet(mat).length > 0;
+    out.pressure = fin(out.max) ? pressureAt(mat, t, out.max) : null;
+    out.comps = gi.comps.map(x => {
+      const row = { id: x.id, part: x.c.part, refdes: x.c.refdes, h: x.h, gap: { min: x.min, nom: x.nom, max: x.max },
+        cMin: fin(x.max) ? compressionAt(t, x.max) : null, cNom: fin(x.nom) ? compressionAt(t, x.nom) : null, cMax: fin(x.min) ? compressionAt(t, x.min) : null,
+        pMin: null, pMax: null, area: contactArea(item, x.c), force: null, allow: null, ratio: null, status: 'na', msg: '' };
+      row.allow = allowPsi(x.c, row.area);
+      if (fin(row.cMax) && row.cMax > 0) row.pMax = pressureAt(mat, t, row.cMax);
+      if (fin(row.cMin) && row.cMin > 0) row.pMin = pressureAt(mat, t, row.cMin);
+      if (row.pMax) row.force = forceN(row.pMax.psi, row.area);
+      const name = [x.c.part, x.c.refdes].filter(Boolean).join(' ') || '元件';
+      if (row.allow && row.allow.needsArea) row.msg = '耐壓以力表示，需要封裝尺寸（L × W）才能換算壓力';
+      else if (row.allow && !row.pMax && fin(row.cMax) && row.cMax > 0) row.msg = hasCurve ? '' : '材料沒有壓力–壓縮曲線，無法判定是否過壓';
+      else if (row.allow && row.pMax && fin(row.allow.psi)) {
+        row.ratio = r4(row.pMax.psi / row.allow.psi * 100);
+        if (row.ratio > 100) {
+          row.status = 'error';
+          row.msg = name + '：壓力' + (row.pMax.beyond ? ' > ' : ' ') + util.fmt(row.pMax.psi, 1) + ' psi 超過耐壓 ' + util.fmt(row.allow.psi, 1) + ' psi';
+        } else if (row.pMax.beyond) {
+          row.status = 'warn';
+          row.msg = name + '：壓縮 ' + util.fmt(row.cMax, 1) + '% 超出材料曲線範圍（> ' + util.fmt(row.pMax.psi, 1) + ' psi），無法確認是否過壓';
+        } else if (row.ratio >= warnPct) {
+          row.status = 'warn';
+          row.msg = name + '：壓力 ' + util.fmt(row.pMax.psi, 1) + ' psi 達耐壓的 ' + util.fmt(row.ratio, 0) + '%（≥ ' + warnPct + '%）';
+        } else row.status = 'ok';
       }
-      if (fin(out.rec.max) && out.max !== null && out.max > out.rec.max) {
-        if (out.status === 'ok') out.status = 'warn';
-        out.msgs.push('最大壓縮 ' + util.fmt(out.max, 1) + '% 高於建議 ' + out.rec.max + '%（元件受力 / 焊點風險）');
-      }
+      if (row.status === 'error' || row.status === 'warn') flag(row.status, row.msg);
+      else if (row.msg) out.notes.push(name + '：' + row.msg);
+      return row;
+    });
+    if (gi.source === 'stack') {
+      (item.covered || []).filter(c => !heightRange(c)).forEach(c => out.notes.push(([c.part, c.refdes].filter(Boolean).join(' ') || '元件') + '：未填元件高度，沒有計算它的間隙與壓力'));
     }
-    if (out.max !== null && out.max >= 100) { out.status = 'error'; out.msgs.push('最小間隙 ≤ 0，請檢查間隙數值'); }
     return out;
   }
 
@@ -103,28 +251,32 @@
     const k = eff.k;
     const dispense = schema.isDispense(eff.tim_type);
     let t_c = null, t_src = '';
+    const gi = gapInfo(item);
+    const T = item.size && item.size.t;
     if (dispense) {
       if (fin(item.dispense && item.dispense.blt)) { t_c = item.dispense.blt; t_src = 'blt'; }
-      else if (fin(item.gap && item.gap.nom)) { t_c = item.gap.nom; t_src = 'gap'; }
+      else if (fin(gi.nom)) { t_c = gi.nom; t_src = 'gap'; }
     } else {
-      const T = item.size && item.size.t;
-      const g = item.gap && item.gap.nom;
-      if (fin(T) && fin(g)) { t_c = Math.min(T, g); t_src = 'gap'; }
+      if (fin(T) && fin(gi.nom)) { t_c = Math.min(T, gi.nom); t_src = 'gap'; }
       else if (fin(T)) { t_c = T; t_src = 'thickness'; }   // no gap data → uncompressed thickness (conservative)
     }
     const aPad = padArea(item);
     const res = { k, t_c, t_src, area: aPad, R_pad: null, rows: [], dt_max: null, contact: true };
-    if (!dispense && fin(item.size && item.size.t) && fin(item.gap && item.gap.nom) && item.gap.nom >= item.size.t) res.contact = false;
-    const R = (area) => (fin(k) && k > 0 && fin(t_c) && fin(area) && area > 0) ? t_c * 1000 / (k * area) : null;
-    res.R_pad = R(aPad);
+    if (!dispense && fin(T) && fin(gi.nom) && gi.nom >= T) res.contact = false;
+    const R = (area, tc) => (fin(k) && k > 0 && fin(tc) && fin(area) && area > 0) ? tc * 1000 / (k * area) : null;
+    res.R_pad = R(aPad, t_c);
+    const compGap = {};
+    if (gi.source === 'stack') gi.comps.forEach(x => { compGap[x.id] = x.nom; });
     (item.covered || []).forEach(c => {
       const aPkg = fin(c.pkg_l) && fin(c.pkg_w) ? c.pkg_l * c.pkg_w : null;
       let area = aPad;
       if (fin(aPkg)) area = fin(aPad) ? Math.min(aPad, aPkg) : (dispense ? aPkg : null);
-      const r = R(area);
+      // stack-up: each component has its own nominal gap (taller component → thinner TIM)
+      const tc = !dispense && fin(T) && fin(compGap[c.id]) ? Math.min(T, compGap[c.id]) : t_c;
+      const r = R(area, tc);
       const p = timPower(c);
       const dT = fin(r) && fin(p) ? r * p : null;
-      res.rows.push({ id: c.id, part: c.part, refdes: c.refdes, qty: c.qty, power_total: fin(c.power_w) ? c.power_w : null, top_pct: fin(c.top_pct) ? c.top_pct : null, power: p, area, R: r, dT });
+      res.rows.push({ id: c.id, part: c.part, refdes: c.refdes, qty: c.qty, power_total: fin(c.power_w) ? c.power_w : null, top_pct: fin(c.top_pct) ? c.top_pct : null, power: p, area, t_c: tc, R: r, dT });
       if (fin(dT) && (res.dt_max === null || dT > res.dt_max)) res.dt_max = dT;
     });
     return res;
@@ -241,7 +393,8 @@
       const cc = compressionCheck(it, mat, settings);
       if (cc.status === 'error') cc.msgs.forEach(m => add('error', 'comp_error', it, label + '：' + m));
       else if (cc.status === 'warn') cc.msgs.forEach(m => add('warn', 'comp_warn', it, label + '：' + m));
-      else if (cc.status === 'na' && !dispense && fin(it.size.t)) add('info', 'no_gap', it, label + '：未填設計間隙，無法檢核壓縮率');
+      else if (cc.status === 'na' && !dispense && fin(it.size.t)) add('info', 'no_gap', it, label + '：未填設計間隙（或機構高度 + 元件高度），無法檢核壓縮率');
+      cc.notes.forEach(m => add('info', 'pressure_na', it, label + '：' + m));
 
       const risk = sourceRisk(it);
       if (risk === 'single') add('warn', 'single_source', it, label + '：單一來源' + (it.sourcing_note ? '（' + it.sourcing_note + '）' : ''));
@@ -330,7 +483,7 @@
   // ───────────────────────── baselines & diff ─────────────────────────
 
   const DIFF_FIELDS = ['location', 'used_on', 'vendor', 'model', 'tim_type', 'size', 'qty', 'delta_pn', 'vendor_pn',
-    'fabricator', 'covered', 'gap', 'sources', 'status', 'price', 'note'];
+    'fabricator', 'covered', 'mech', 'gap', 'sources', 'status', 'price', 'note'];
 
   /** Flatten an item into comparable display strings (uses the snapshot's own locations). */
   function itemDigest(item, locations, db) {
@@ -346,6 +499,7 @@
       qty: fin(item.qty) ? String(item.qty) : '',
       delta_pn: item.delta_pn || '', vendor_pn: item.vendor_pn || '', fabricator: item.fabricator || '',
       covered: parse.formatCovered(item.covered),
+      mech: item.mech && fin(item.mech.nom) ? util.fmt(item.mech.nom) + ' +' + util.fmt(fin(item.mech.plus) ? item.mech.plus : 0) + ' / −' + util.fmt(fin(item.mech.minus) ? item.mech.minus : 0) : '',
       gap: [item.gap && item.gap.min, item.gap && item.gap.nom, item.gap && item.gap.max].map(v => fin(v) ? util.fmt(v) : '-').join(' / ').replace(/^- \/ - \/ -$/, ''),
       sources: parse.formatSources(item),
       status: schema.labelOf(schema.ITEM_STATUS, item.status),
@@ -367,7 +521,7 @@
     const A = (a && a.items) || [], B = (b && b.items) || [];
     const used = new Set();
     const res = { added: [], removed: [], changed: [] };
-    const label = f => ({ location: 'Location', used_on: 'Used On', vendor: 'Vendor', model: 'Model', tim_type: '型態', size: 'Size', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N', fabricator: '加工廠', covered: '覆蓋元件', gap: '間隙 min/nom/max', sources: '2nd source', status: '狀態', price: '單價', note: '備註' }[f] || f);
+    const label = f => ({ location: 'Location', used_on: 'Used On', vendor: 'Vendor', model: 'Model', tim_type: '型態', size: 'Size', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N', fabricator: '加工廠', covered: '覆蓋元件', mech: '機構高度 ± 公差', gap: '間隙 min/nom/max', sources: '2nd source', status: '狀態', price: '單價', note: '備註' }[f] || f);
     A.forEach(ia => {
       let j = B.findIndex((ib, k) => !used.has(k) && ib.id === ia.id);
       if (j < 0) j = B.findIndex((ib, k) => !used.has(k) && ib.item_no && String(ib.item_no).toUpperCase() === String(ia.item_no).toUpperCase());
@@ -447,6 +601,7 @@
 
   return {
     materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
+    mechRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
     sourceRisk, placedCount, placedCounts, coveredQty, itemCost, itemColor, locationOf, orderedItems,
     projectChecks, projectStats, materialUsage, itemDigest, makeSnapshot, diffSnapshots,
     whereUsed, materialUseCount, searchItems,

@@ -92,3 +92,39 @@ test('劑型 (parts): only for Gap Filler / Thermal Putty; synonyms; follows the
   assert.equal(schema.normalizeMaterial({ tim_type: 'putty', parts: 'three' }).parts, '');
   assert.equal(schema.normalizeMaterial({ tim_type: 'putty', parts: 'one_part' }).parts, 'one_part');
 });
+
+test('壓力–壓縮曲線: thickness / point formats, cleaned; compared as values when merging', () => {
+  const r = mi.parse(JSON.stringify({ materials: [{ vendor: 'Vendor-B', model: 'GF-750', pressure_curves: [
+    { thickness_mm: '1.0 mm', points: [[20, '38 %'], [10, 13], ['?', 5]] },
+    { thickness: 2, points: [{ psi: 10, pct: 45 }, { pressure_psi: 20, deflection_pct: 70 }] },
+    { points: [[1, 1]] },
+  ], curve_note: 'p.2 讀圖' }] }));
+  const e = r.entries[0];
+  assert.deepEqual(e.fields.pressure_curves, [{ t: 1, points: [[10, 13], [20, 38]] }, { t: 2, points: [[10, 45], [20, 70]] }]);
+  assert.ok(e.warnings.some(w => /1 個點不是數字、1 條沒有厚度或沒有點/.test(w)));
+  const m = schema.newMaterial({ vendor: 'Vendor-B', model: 'GF-750', pressure_curves: e.fields.pressure_curves });
+  assert.ok(!mi.changesFor(e, m, 'overwrite').some(c => c.key === 'pressure_curves'), 'same curves → no change');
+  const empty = schema.newMaterial({ vendor: 'Vendor-B', model: 'GF-750' });
+  assert.ok(mi.changesFor(e, empty, 'fill').some(c => c.key === 'pressure_curves'), '[] counts as empty');
+  assert.match(mi.prompt(), /- pressure_curves：壓力–壓縮曲線，陣列。/);
+});
+
+test('重新匯入: the chosen material is updated (覆蓋, names kept) even if the AI wrote other names', () => {
+  const db = schema.newDb();
+  const m = schema.newMaterial({ vendor: 'Vendor-B', model: 'GF-750', k: 7.0, note: 'old' });
+  const other = schema.newMaterial({ vendor: 'Vendor-C', model: 'TP-800' });
+  db.materials[m.id] = m; db.materials[other.id] = other;
+  const p = mi.parse(JSON.stringify({ materials: [
+    { vendor: 'Vendor B Inc.', model: 'GF-750 Series', k: 7.5, pressure_curves: [{ thickness_mm: 1, points: [[10, 13]] }] },
+    { vendor: 'Vendor-C', model: 'TP-800', k: 3 },
+  ] }));
+  const rows = mi.plan(p, db.materials, m.id);
+  assert.deepEqual(rows.map(r => [r.matchId, r.action, !!r.target]), [[m.id, 'overwrite', true], [other.id, 'fill', false]]);
+  assert.equal(rows[0].nameDiff, 'Vendor B Inc. GF-750 Series');
+  const ch = mi.changesFor(rows[0].entry, m, 'overwrite', { keepName: true }).map(c => c.key);
+  assert.deepEqual(ch.sort(), ['k', 'pressure_curves']);
+  // the AI kept the names → that entry is the target even when it is not first
+  const p2 = mi.parse(JSON.stringify([{ vendor: 'Vendor-C', model: 'TP-800' }, { vendor: 'vendor-b', model: 'gf-750', k: 8 }]));
+  assert.deepEqual(mi.plan(p2, db.materials, m.id).map(r => !!r.target), [false, true]);
+  assert.match(mi.prompt({ target: { vendor: 'Vendor-B', model: 'GF-750' } }), /vendor 請填 "Vendor-B"、model 請填 "GF-750"（照抄）/);
+});
