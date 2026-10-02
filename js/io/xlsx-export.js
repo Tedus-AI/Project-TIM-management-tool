@@ -211,7 +211,7 @@
       const cc = calc.compressionCheck(it, mat, db.settings);
       const th = calc.thermalEstimate(it, mat);
       const g = cc.gap || calc.gapInfo(it);
-      gt.push([it.item_no, it.size.t, it.mech.nom, it.mech.plus, it.mech.minus, { stack: '公差疊加', manual: '手動' }[g.source] || '',
+      gt.push([it.item_no, it.size.t, it.gap_design.nom, it.gap_design.plus, it.gap_design.minus, { stack: '設計間距', manual: '手動' }[g.source] || '',
         g.min, g.nom, g.max, r1(cc.min), r1(cc.nom), r1(cc.max),
         cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '一般值' }[cc.rec.source] + ')' : '', psi(cc.pressure),
         JUDGE[cc.status], th.k, r1(th.area), th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.concat(cc.notes).join('；')]);
@@ -219,7 +219,7 @@
         r.gap.min, r.gap.nom, r.gap.max, r1(r.cMin), r1(r.cMax), psi(r.pMin), psi(r.pMax), r1(r.force),
         r.allow ? r.allow.value + ' ' + r.allow.unit : '', r.allow && r.allow.psi != null ? r1(r.allow.psi) : null, r.ratio == null ? null : util.round(r.ratio, 0), JUDGE[r.status], r.msg]));
     });
-    addSheet(wb, 'Gap & Thermal', ['Item', 'T (mm)', 'Mech nom', 'Mech +', 'Mech −', 'Gap source', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp nom %', 'Comp max %', 'Min comp %', 'Pressure max (psi)', 'Judge', 'k', 'Area (mm²)', 'R_TIM (°C/W)', 'ΔT max (°C)', 'Remarks'],
+    addSheet(wb, 'Gap & Thermal', ['Item', 'T (mm)', 'Design gap', 'Gap tol +', 'Gap tol −', 'Gap source', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp nom %', 'Comp max %', 'Min comp %', 'Pressure max (psi)', 'Judge', 'k', 'Area (mm²)', 'R_TIM (°C/W)', 'ΔT max (°C)', 'Remarks'],
       gt, [8, 7, 9, 7, 7, 10, 8, 8, 8, 10, 10, 10, 13, 14, 9, 7, 10, 11, 11, 50]);
     if (prs.length) {
       addSheet(wb, 'Pressure', ['Item', 'Component', 'RefDes', 'H min', 'H nom', 'H max', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp max %', 'Pressure min (psi)', 'Pressure max (psi)', 'Force max (N)', 'Allowable', 'Allowable (psi)', 'Ratio %', 'Judge', 'Remarks'],
