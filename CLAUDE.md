@@ -25,9 +25,10 @@
 - 間隙 / 壓縮 / 壓力：`calc.gapInfo`（`item.gap_design` = 凸台到元件頂面的設計間距 ± 公差，加上元件高度公差，最壞情況；`gap_manual` 時用手填 `item.gap`）是唯一來源，
   `compressionCheck`（壓縮率只檢核下限；過壓 = `pressureAt` 由材料 `pressure_curves` 內插 vs 元件耐壓，`settings.pressure_warn_pct`）
   同時給 Item 抽屜、TIM 清單、分析頁、Excel、PDF 用。不要在 UI 直接讀 `item.gap` 判斷。曲線編輯 / 圖在 `js/ui/curves.js`。
-- 元件快選：`calc.knownComponents(db)` 從所有專案的覆蓋元件整理（以 `calc.partKey` 為鍵、最近更新的專案優先、`COMP_GROUPS` 分組帶入，
-  RefDes / 數量 / 備註不帶），沒有獨立的元件庫資料。抽屜的 `PartField`（`item-drawer.js`）選取 → `actions.applyKnownComponent`；
-  手打相同料號離開 → `fillCoveredFromKnown`（只補空白）；`patchItems` / `pasteIntoItems` / `insertItems` 對**新**覆蓋元件呼叫 `calc.fillFromKnown`。
+- 元件快選（RefDes 欄下拉）：`calc.knownComponents(db)` 從所有專案的覆蓋元件整理，**以 RefDes ＋ 元件料號為一個元件**
+  （`calc.nameKey`；不以料號為鍵，使用者常只在 RefDes 填元件名稱），最近更新的專案優先，`COMP_GROUPS` 分組帶入（數量 / 備註不帶）；
+  `calc.groupKnown` 依類別分組。沒有獨立的元件庫資料。抽屜的 `CompField`（`item-drawer.js`，RefDes 欄）選取 → `actions.applyKnownComponent`。
+  只有清單選取會帶入：不要加依料號自動帶入（元件料號欄、Note 欄、貼上 / 匯入）—— 使用者明確不要綁料號。
   加覆蓋元件欄位時，若屬於元件本身（非設計），一併加進 `COMP_GROUPS`。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。

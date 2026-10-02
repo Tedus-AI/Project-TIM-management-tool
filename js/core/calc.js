@@ -611,11 +611,11 @@
     return out.slice(0, 200);
   }
 
-  // ───────── known components: 覆蓋元件 entered before, in any project (元件快選) ─────────
+  // ───────── known components: 覆蓋元件 entered before, in any project (元件快選 in the RefDes field) ─────────
 
   /**
-   * What is copied from a known component, in groups that always travel together (the three heights of one
-   * package drawing, a load and its unit…). RefDes / 數量 / 備註 belong to the design and are never copied.
+   * What is copied from a known component besides its name (RefDes + 元件料號), in groups that always travel
+   * together (the three heights of one package drawing, a load and its unit…). 數量 / 備註 belong to the design.
    */
   const COMP_GROUPS = [
     { key: 'cat', label: '類別', fields: ['cat'] },
@@ -627,13 +627,14 @@
   ];
   const filledVal = v => v !== null && v !== undefined && v !== '';
   const groupHas = (c, g) => (g.has || g.fields).some(f => filledVal(c[f]));
-  /** Part number as a lookup key: half-width, trimmed, single spaces, upper case. */
-  const partKey = s => util.toHalfWidth(String(s == null ? '' : s)).trim().replace(/\s+/g, ' ').toUpperCase();
+  /** Name as a lookup key: half-width, trimmed, single spaces, upper case. */
+  const nameKey = s => util.toHalfWidth(String(s == null ? '' : s)).trim().replace(/\s+/g, ' ').toUpperCase();
 
   /**
-   * Components already entered in 覆蓋元件 of any project, one entry per part number:
-   * { key, part, values:{field:value}, from:{group:{pid, project, item_no}}, uses:[{pid, project, item_id, item_no}],
-   *   differs:[group labels whose values are not the same everywhere] }.
+   * Components already entered in 覆蓋元件 of any project, one entry per name — RefDes and 元件料號 as entered
+   * (many rows carry only the component name in RefDes, so the part number alone is not the key):
+   * { key, rkey, pkey, refdes, part, name, values:{field:value}, from:{group:{pid, project, item_no}},
+   *   uses:[{pid, project, item_id, item_no}], differs:[group labels whose values are not the same everywhere] }.
    * Each group comes from the most recently updated project that has it (the project being edited wins; an
    * older one fills what it leaves empty). Order: most recently used first. opts.exclude: covered id to skip.
    */
@@ -644,10 +645,15 @@
       .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
       .forEach(p => (p.items || []).forEach(it => (it.covered || []).forEach(c => {
         if (!c || c.id === opts.exclude) return;
-        const key = partKey(c.part);
-        if (!key) return;
+        const rkey = nameKey(c.refdes), pkey = nameKey(c.part);
+        if (!rkey && !pkey) return;
+        const key = rkey + '|' + pkey;
         let e = map.get(key);
-        if (!e) { e = { key, part: String(c.part).trim(), values: {}, from: {}, uses: [], sigs: {} }; map.set(key, e); }
+        if (!e) {
+          const refdes = String(c.refdes || '').trim(), part = String(c.part || '').trim();
+          e = { key, rkey, pkey, refdes, part, name: refdes || part, values: {}, from: {}, uses: [], sigs: {} };
+          map.set(key, e);
+        }
         e.uses.push({ pid: p.id, project: p.name || '', item_id: it.id, item_no: it.item_no || '' });
         COMP_GROUPS.forEach(g => {
           if (!groupHas(c, g)) return;
@@ -665,45 +671,46 @@
     });
   }
 
-  /** Known components for typed text: exact, starts with, contains, then ignoring - / spaces; empty text = most recent. */
+  /**
+   * Known components for typed text, matched on RefDes or 元件料號: exact, starts with, contains, then ignoring
+   * - / spaces; most recently used first within each. Empty text = all, most recent first. → entries (at most `limit`).
+   */
   function matchKnown(known, text, limit) {
-    const q = partKey(text);
-    const n = limit || 8;
+    const q = nameKey(text);
+    const n = limit || 50;
     if (!q) return known.slice(0, n);
-    const compact = s => s.replace(/[^0-9A-Z\u0080-￿]/g, '');
+    const compact = s => s.replace(/[^0-9A-Z\u0080-\uFFFF]/g, '');
     const qc = compact(q);
-    const rank = e => (e.key === q ? 0 : e.key.startsWith(q) ? 1 : e.key.includes(q) ? 2 : qc && compact(e.key).includes(qc) ? 3 : 9);
-    return known.map(e => ({ e, r: rank(e) })).filter(x => x.r < 9)
-      .sort((a, b) => a.r - b.r || b.e.uses.length - a.e.uses.length || util.naturalCompare(a.e.key, b.e.key))
+    const rank1 = k => (!k ? 9 : k === q ? 0 : k.startsWith(q) ? 1 : k.includes(q) ? 2 : qc && compact(k).includes(qc) ? 3 : 9);
+    return known.map((e, i) => ({ e, i, r: Math.min(rank1(e.rkey), rank1(e.pkey)) })).filter(x => x.r < 9)
+      .sort((a, b) => a.r - b.r || a.i - b.i)   // same match quality: most recently used first
       .slice(0, n).map(x => x.e);
   }
 
-  /** Fields written when a known component is picked: its part number + every group it has (overwrites those). */
-  function knownPatch(e) {
-    const patch = { part: e.part };
-    COMP_GROUPS.forEach(g => { if (e.from[g.key]) g.fields.forEach(f => { patch[f] = e.values[f]; }); });
-    return patch;
+  /**
+   * Known components grouped by 類別 (the order of schema.CATEGORIES, other text after, 未分類 last), order inside a
+   * group kept → [{ cat, label, color, items }].
+   */
+  function groupKnown(list) {
+    const order = schema.CATEGORIES.map(c => c.v);
+    const groups = new Map();
+    (list || []).forEach(e => {
+      const cat = e.values.cat || '';
+      if (!groups.has(cat)) {
+        const def = schema.CATEGORIES.find(c => c.v === cat);
+        groups.set(cat, { cat, label: cat ? (def ? def.label : cat) : '未分類', color: def ? def.color : '#94A3B8', items: [] });
+      }
+      groups.get(cat).items.push(e);
+    });
+    const rank = g => (!g.cat ? 1e4 : order.indexOf(g.cat) >= 0 ? order.indexOf(g.cat) : 1e3);
+    return Array.from(groups.values()).sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
   }
 
-  /**
-   * Fill the empty groups of new covered entries (isNew(c), default all) from the known component with the same
-   * part number → { list (untouched entries stay the same objects), parts:[part numbers that got data] }.
-   */
-  function fillFromKnown(list, known, isNew) {
-    const byKey = new Map((known || []).map(e => [e.key, e]));
-    const parts = [];
-    const out = (list || []).map(c => {
-      if (!c || (isNew && !isNew(c))) return c;
-      const e = byKey.get(partKey(c.part));
-      if (!e) return c;
-      const groups = COMP_GROUPS.filter(g => e.from[g.key] && !groupHas(c, g));
-      if (!groups.length) return c;
-      const n = Object.assign({}, c);
-      groups.forEach(g => g.fields.forEach(f => { n[f] = e.values[f]; }));
-      parts.push(String(c.part).trim());
-      return n;
-    });
-    return { list: out, parts };
+  /** Fields written when a known component is picked: its name (RefDes + 元件料號) + every group it has (overwrites those). */
+  function knownPatch(e) {
+    const patch = { refdes: e.refdes, part: e.part };
+    COMP_GROUPS.forEach(g => { if (e.from[g.key]) g.fields.forEach(f => { patch[f] = e.values[f]; }); });
+    return patch;
   }
 
   /** "RF · 功耗 5 W · 封裝 11 × 7 · 高度 1.1 / 1.2 / 1.3 · 耐壓 1 kgf" — the filled groups of a component. */
@@ -721,7 +728,7 @@
   }
 
   return {
-    knownComponents, matchKnown, knownPatch, fillFromKnown, componentSummary, partKey, COMP_GROUPS,
+    knownComponents, matchKnown, groupKnown, knownPatch, componentSummary, nameKey, COMP_GROUPS,
     materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
     designRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
     sourceRisk, placedCount, placedCounts, coveredQty, itemCost, itemColor, locationOf, orderedItems,
