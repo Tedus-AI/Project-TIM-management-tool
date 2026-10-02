@@ -26,6 +26,64 @@
       </div>
     </${Modal}>`;
   }
+  // ───────── 元件快選: part number field listing the components entered before (any item, any project) ─────────
+  /**
+   * props: value, covId, disabled, focus (focus on mount — a row just added), onChange(text) (live),
+   * onPick(entry) (calc.knownComponents entry), onLeave() (blur without a pick).
+   * Opens on typing, on ArrowDown, and on focus when empty. ↑↓ choose, Enter applies, Esc closes the list only.
+   * Only an exact part-number match is preselected, so Enter never replaces a new part number being typed.
+   */
+  const AUTO = -2;   // PartField: preselect only an exact part-number match
+  function PartField(props) {
+    const [open, setOpen] = useState(false);
+    const [act, setAct] = useState(AUTO);
+    const box = useRef(null);
+    const typed = useRef(false);   // the part number was edited during this focus → fill on leaving
+    useLayoutEffect(() => {
+      const inp = props.focus && box.current && box.current.querySelector('input');
+      if (inp) inp.focus();
+    }, []);
+    const list = open ? calc.matchKnown(calc.knownComponents(TIM.store.db, { exclude: props.covId }), props.value, 8) : [];
+    const key = calc.partKey(props.value);
+    const cur = act === AUTO ? (key && list.length && list[0].key === key ? 0 : -1) : Math.min(act, list.length - 1);
+    // a row near the bottom of the drawer: bring the list into view when it appears
+    const shown = list.length > 0;
+    const sref = useRef(null);
+    useLayoutEffect(() => { if (shown && sref.current && sref.current.scrollIntoView) sref.current.scrollIntoView({ block: 'nearest' }); }, [shown]);
+    const close = () => { setOpen(false); setAct(AUTO); };
+    const pick = e => { close(); typed.current = false; props.onPick(e); };
+    const onKey = e => {
+      if (e.isComposing) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); setAct(0); } else if (list.length) setAct((cur + 1) % list.length); }
+      else if (e.key === 'ArrowUp') { if (open && list.length) { e.preventDefault(); setAct(cur <= 0 ? list.length - 1 : cur - 1); } }
+      else if (e.key === 'Enter') { if (open && list[cur]) { e.preventDefault(); pick(list[cur]); } }
+      else if (e.key === 'Escape') { if (open) { e.stopPropagation(); close(); } }
+      else if (e.key === 'Tab') close();
+    };
+    return html`<div class="part-field" ref=${box}>
+      <${TextField} class="inp mono" value=${props.value} disabled=${props.disabled}
+        onFocus=${() => { typed.current = false; if (!props.value) { setOpen(true); setAct(AUTO); } }}
+        onChange=${v => { typed.current = true; setOpen(true); setAct(AUTO); props.onChange(v); }}
+        onBlur=${() => { close(); if (typed.current && props.onLeave) props.onLeave(); typed.current = false; }}
+        onKeyDown=${onKey} />
+      ${shown ? html`<div class="suggest" ref=${sref} role="listbox" aria-label="用過的元件">
+        <div class="suggest-head">用過的元件（本案與其他專案）· ↑↓ 選擇 · Enter 帶入 · Esc 關閉</div>
+        ${list.map((e, i) => {
+          const u = e.uses[0];
+          const sum = calc.componentSummary(e.values, { cat: false });
+          return html`<button type="button" role="option" aria-selected=${i === cur} key=${e.key} class=${cx('suggest-row', i === cur && 'on')}
+              title=${'用於：\n' + e.uses.map(x => x.project + ' / ' + (x.item_no || '(未編號)')).join('\n')}
+              onMouseDown=${ev => ev.preventDefault()} onMouseEnter=${() => setAct(i)} onClick=${() => pick(e)}>
+            <div class="sg-top"><b class="mono">${e.part}</b>${e.values.cat ? html`<span class="tag tag-mute">${e.values.cat}</span>` : null}
+              <span class="sg-uses">${e.uses.length} 處</span></div>
+            <div class="sg-sum">${sum || html`<span class="muted">只有料號，沒有其他資料</span>`}</div>
+            <div class="sg-src">來源：${u.project} / ${u.item_no || '(未編號)'}${e.differs.length ? html` · <span class="text-warn">${e.differs.join('、')}各處不同，帶入來源的值</span>` : null}</div>
+          </button>`;
+        })}
+      </div>` : null}
+    </div>`;
+  }
+
   async function pickMaterial(pid, itemId) {
     const id = await openModal(close => html`<${MaterialPicker} close=${close} />`).promise;
     if (id) A().linkMaterial(pid, itemId, id);
@@ -61,6 +119,7 @@
     const ro = st.readonly;
     const it = p.items.find(x => x.id === props.itemId);
     const bodyRef = useRef(null);
+    const [newCov, setNewCov] = useState(null);   // covered row just added → its part number field takes focus
     // registered once, latest onClose through a ref (see CLAUDE.md rule 3)
     const live = useRef(props);
     live.current = props;
@@ -217,13 +276,16 @@
         </${Sec}>
 
         <${Sec} id="d-cov" title="覆蓋元件" sub=${it.covered.length ? '共 ' + covQty + ' 顆 · 經 TIM 總熱量 ' + (Number.isFinite(totalPower) && totalPower ? util.fmt(totalPower, 2) + ' W' : '—') : '取代 Excel 的 Note 欄'}
-          right=${html`<button class="btn btn-ghost btn-sm rw-only" onClick=${() => A().addCovered(p.id, it.id, { cat: it.used_on[0] || '' })}><${Icon} name="plus" /> 新增元件</button>`}>
+          right=${html`<button class="btn btn-ghost btn-sm rw-only" onClick=${() => setNewCov(A().addCovered(p.id, it.id, { cat: it.used_on[0] || '' }))}><${Icon} name="plus" /> 新增元件</button>`}>
           ${it.covered.length ? html`<table class="subtbl">
             <thead><tr><th style="width:19%">元件料號</th><th style="width:16%">RefDes</th><th class="r" style="width:7%">數量</th><th style="width:10%">類別</th><th class="r" style="width:10%">功耗 W/顆</th>
               <th class="r" style="width:9%" title="經由頂面 TIM 散出的比例；空白 = 100%">頂面 % <${InfoDot}><div style="max-width:300px;line-height:1.6">元件功耗經由頂面 TIM 散出的比例。<br/>底部散熱為主的封裝（QFN / PA 走 PCB、copper coin）只有一小部分走頂面；有 lid 的 BGA 大部分走頂面。<br/>可由模擬（FloTHERM 熱流分配）或 θ<sub>JC-top</sub> / θ<sub>JB</sub> 估算。空白 = 100%。</div></${InfoDot}></th>
               <th class="r" style="width:8%">封裝 L</th><th class="r" style="width:8%">封裝 W</th><th>備註</th><th></th></tr></thead>
             <tbody>${it.covered.map(c => html`<tr key=${c.id}>
-              <td><${TextField} class="inp mono" value=${c.part} disabled=${ro} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'part', v)} /></td>
+              <td><${PartField} value=${c.part} covId=${c.id} disabled=${ro} focus=${c.id === newCov}
+                onChange=${v => A().updateCovered(p.id, it.id, c.id, 'part', v)}
+                onPick=${e => { if (A().applyKnownComponent(p.id, it.id, c.id, e)) toast('已帶入 ' + e.part + '：' + (calc.componentSummary(e.values) || '料號'), 'ok'); }}
+                onLeave=${() => A().fillCoveredFromKnown(p.id, it.id, c.id)} /></td>
               <td><${TextField} class="inp mono" value=${c.refdes} placeholder="U101,U102" disabled=${ro} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'refdes', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.qty} disabled=${ro} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'qty', v)} /></td>
               <td><${SelectField} class="sel" value=${c.cat} disabled=${ro} options=${schema.CATEGORIES} onChange=${v => A().updateCovered(p.id, it.id, c.id, 'cat', v)} /></td>
@@ -235,9 +297,10 @@
               <td><button class="icon-btn danger rw-only" title="移除" onClick=${() => A().removeCovered(p.id, it.id, c.id)}><${Icon} name="x" /></button></td>
             </tr>`)}</tbody>
             <tfoot><tr><td colspan="10">
-              ${it.qty != null && covQty !== it.qty ? html`<span class="text-warn">覆蓋元件 ${covQty} 顆 ≠ Q'ty ${it.qty} 片（一片 pad 對一顆元件時兩者應相等）</span>` : html`<span>封裝尺寸 → 有效接觸面積 = min(pad 面積, 元件頂面)；功耗 × 頂面 % → 經 TIM 的熱量，用於溫升估算</span>`}
+              ${it.qty != null && covQty !== it.qty ? html`<div class="text-warn">覆蓋元件 ${covQty} 顆 ≠ Q'ty ${it.qty} 片（一片 pad 對一顆元件時兩者應相等）</div>` : html`<div>封裝尺寸 → 有效接觸面積 = min(pad 面積, 元件頂面)；功耗 × 頂面 % → 經 TIM 的熱量，用於溫升估算</div>`}
+              <div>元件快選：輸入元件料號會列出用過的元件（本案與其他專案），選取即帶入類別、功耗、頂面 %、封裝、高度、耐壓；RefDes、數量、備註不帶</div>
             </td></tr></tfoot>
-          </table>` : html`<div class="muted" style="font-size:12px">尚未記錄。可在 TIM 清單的 Note 欄直接輸入 <span class="mono">LDO-A*2, BUCK-B*4</span>，或在此新增並補上 RefDes 與功耗。</div>`}
+          </table>` : html`<div class="muted" style="font-size:12px">尚未記錄。可在 TIM 清單的 Note 欄直接輸入 <span class="mono">LDO-A*2, BUCK-B*4</span>，或在此新增並補上 RefDes 與功耗。用過的元件（本案或其他專案）輸入料號即可快選帶入。</div>`}
         </${Sec}>
 
         <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="設計間距 ± 公差 + 元件高度公差 → 間隙（最壞情況）→ 壓縮率 → 壓力"

@@ -611,7 +611,117 @@
     return out.slice(0, 200);
   }
 
+  // ───────── known components: 覆蓋元件 entered before, in any project (元件快選) ─────────
+
+  /**
+   * What is copied from a known component, in groups that always travel together (the three heights of one
+   * package drawing, a load and its unit…). RefDes / 數量 / 備註 belong to the design and are never copied.
+   */
+  const COMP_GROUPS = [
+    { key: 'cat', label: '類別', fields: ['cat'] },
+    { key: 'power', label: '功耗', fields: ['power_w'] },
+    { key: 'top', label: '頂面 %', fields: ['top_pct'] },
+    { key: 'pkg', label: '封裝', fields: ['pkg_l', 'pkg_w'] },
+    { key: 'height', label: '高度', fields: ['h_min', 'h_nom', 'h_max'] },
+    { key: 'allow', label: '耐壓', fields: ['p_allow', 'p_unit'], has: ['p_allow'] },
+  ];
+  const filledVal = v => v !== null && v !== undefined && v !== '';
+  const groupHas = (c, g) => (g.has || g.fields).some(f => filledVal(c[f]));
+  /** Part number as a lookup key: half-width, trimmed, single spaces, upper case. */
+  const partKey = s => util.toHalfWidth(String(s == null ? '' : s)).trim().replace(/\s+/g, ' ').toUpperCase();
+
+  /**
+   * Components already entered in 覆蓋元件 of any project, one entry per part number:
+   * { key, part, values:{field:value}, from:{group:{pid, project, item_no}}, uses:[{pid, project, item_id, item_no}],
+   *   differs:[group labels whose values are not the same everywhere] }.
+   * Each group comes from the most recently updated project that has it (the project being edited wins; an
+   * older one fills what it leaves empty). Order: most recently used first. opts.exclude: covered id to skip.
+   */
+  function knownComponents(db, opts) {
+    opts = opts || {};
+    const map = new Map();
+    Object.values((db && db.projects) || {}).slice()
+      .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+      .forEach(p => (p.items || []).forEach(it => (it.covered || []).forEach(c => {
+        if (!c || c.id === opts.exclude) return;
+        const key = partKey(c.part);
+        if (!key) return;
+        let e = map.get(key);
+        if (!e) { e = { key, part: String(c.part).trim(), values: {}, from: {}, uses: [], sigs: {} }; map.set(key, e); }
+        e.uses.push({ pid: p.id, project: p.name || '', item_id: it.id, item_no: it.item_no || '' });
+        COMP_GROUPS.forEach(g => {
+          if (!groupHas(c, g)) return;
+          const vals = g.fields.map(f => (filledVal(c[f]) ? c[f] : null));
+          (e.sigs[g.key] = e.sigs[g.key] || new Set()).add(JSON.stringify(vals));
+          if (e.from[g.key]) return;
+          g.fields.forEach((f, i) => { e.values[f] = vals[i]; });
+          e.from[g.key] = { pid: p.id, project: p.name || '', item_no: it.item_no || '' };
+        });
+      })));
+    return Array.from(map.values()).map(e => {
+      e.differs = COMP_GROUPS.filter(g => e.sigs[g.key] && e.sigs[g.key].size > 1).map(g => g.label);
+      delete e.sigs;
+      return e;
+    });
+  }
+
+  /** Known components for typed text: exact, starts with, contains, then ignoring - / spaces; empty text = most recent. */
+  function matchKnown(known, text, limit) {
+    const q = partKey(text);
+    const n = limit || 8;
+    if (!q) return known.slice(0, n);
+    const compact = s => s.replace(/[^0-9A-Z\u0080-￿]/g, '');
+    const qc = compact(q);
+    const rank = e => (e.key === q ? 0 : e.key.startsWith(q) ? 1 : e.key.includes(q) ? 2 : qc && compact(e.key).includes(qc) ? 3 : 9);
+    return known.map(e => ({ e, r: rank(e) })).filter(x => x.r < 9)
+      .sort((a, b) => a.r - b.r || b.e.uses.length - a.e.uses.length || util.naturalCompare(a.e.key, b.e.key))
+      .slice(0, n).map(x => x.e);
+  }
+
+  /** Fields written when a known component is picked: its part number + every group it has (overwrites those). */
+  function knownPatch(e) {
+    const patch = { part: e.part };
+    COMP_GROUPS.forEach(g => { if (e.from[g.key]) g.fields.forEach(f => { patch[f] = e.values[f]; }); });
+    return patch;
+  }
+
+  /**
+   * Fill the empty groups of new covered entries (isNew(c), default all) from the known component with the same
+   * part number → { list (untouched entries stay the same objects), parts:[part numbers that got data] }.
+   */
+  function fillFromKnown(list, known, isNew) {
+    const byKey = new Map((known || []).map(e => [e.key, e]));
+    const parts = [];
+    const out = (list || []).map(c => {
+      if (!c || (isNew && !isNew(c))) return c;
+      const e = byKey.get(partKey(c.part));
+      if (!e) return c;
+      const groups = COMP_GROUPS.filter(g => e.from[g.key] && !groupHas(c, g));
+      if (!groups.length) return c;
+      const n = Object.assign({}, c);
+      groups.forEach(g => g.fields.forEach(f => { n[f] = e.values[f]; }));
+      parts.push(String(c.part).trim());
+      return n;
+    });
+    return { list: out, parts };
+  }
+
+  /** "RF · 功耗 5 W · 封裝 11 × 7 · 高度 1.1 / 1.2 / 1.3 · 耐壓 1 kgf" — the filled groups of a component. */
+  function componentSummary(v, opts) {
+    const o = opts || {};
+    const f = x => (fin(x) ? util.fmt(x, 4) : '—');
+    const out = [];
+    if (o.cat !== false && v.cat) out.push(v.cat);
+    if (fin(v.power_w)) out.push('功耗 ' + f(v.power_w) + ' W');
+    if (fin(v.top_pct)) out.push('頂面 ' + f(v.top_pct) + '%');
+    if (fin(v.pkg_l) || fin(v.pkg_w)) out.push('封裝 ' + f(v.pkg_l) + ' × ' + f(v.pkg_w));
+    if (['h_min', 'h_nom', 'h_max'].some(k => fin(v[k]))) out.push('高度 ' + ['h_min', 'h_nom', 'h_max'].map(k => f(v[k])).join(' / '));
+    if (fin(v.p_allow)) out.push('耐壓 ' + f(v.p_allow) + ' ' + (v.p_unit || 'psi'));
+    return out.join(' · ');
+  }
+
   return {
+    knownComponents, matchKnown, knownPatch, fillFromKnown, componentSummary, partKey, COMP_GROUPS,
     materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
     designRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
     sourceRisk, placedCount, placedCounts, coveredQty, itemCost, itemColor, locationOf, orderedItems,

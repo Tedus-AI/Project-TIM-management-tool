@@ -158,7 +158,8 @@
           to: c.to === undefined ? '' : util.displayValue(c.to), text: c.text || '', ecn: c.ecn || '',
         };
         const last = p.changelog[p.changelog.length - 1];
-        if (entry.kind === 'edit' && last && last.kind === 'edit' && last.user === who && last.target_id === entry.target_id &&
+        // text-only entries (batch summaries) are kept as they are: never merged, never "unchanged"
+        if (entry.kind === 'edit' && !entry.text && last && last.kind === 'edit' && !last.text && last.user === who && last.target_id === entry.target_id &&
             last.field === entry.field && (now - new Date(last.ts).getTime()) < LOG_COALESCE_MS) {
           last.to = entry.to;
           last.ts = entry.ts;
@@ -166,7 +167,7 @@
           if (last.from === last.to) p.changelog.pop();   // edited back to the original value
           return;
         }
-        if (entry.kind === 'edit' && entry.from === entry.to) return;
+        if (entry.kind === 'edit' && !entry.text && entry.from === entry.to) return;
         p.changelog.push(entry);
       });
       if (p.changelog.length > LOG_MAX) p.changelog.splice(0, p.changelog.length - LOG_MAX);

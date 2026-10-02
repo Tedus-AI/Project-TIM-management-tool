@@ -58,6 +58,9 @@ test('save, undo coalescing and change log', async () => {
   assert.equal(st.db.projects[pid].items[0].vendor, '');
   assert.equal(st.redo('p:' + pid), true);
   assert.equal(st.db.projects[pid].items[0].vendor, 'A99');
+  // text-only entries (batch summaries) are logged as they are, one after another, without merging
+  st.mutateProject(pid, p => { p.items[0].note = 'x'; }, { changes: [{ kind: 'edit', text: '批次修改（31 個欄位）' }, { kind: 'edit', text: '覆蓋元件帶入用過的資料（元件快選）：LDO-A' }] });
+  assert.deepEqual(st.db.projects[pid].changelog.slice(2).map(c => c.text), ['批次修改（31 個欄位）', '覆蓋元件帶入用過的資料（元件快選）：LDO-A']);
   await st.flush();
   const saved = JSON.parse(file.file.text);
   assert.equal(saved.schema, 'tim-db');

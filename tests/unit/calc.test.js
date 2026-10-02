@@ -126,11 +126,11 @@ test('baseline diff matches by id then item_no', () => {
 test('where-used and search', () => {
   const { db, mat, p } = mkDb();
   const loc = p.locations[0].id;
-  p.items.push(schema.newItem({ item_no: 'A1', location_id: loc, material_id: mat.id, delta_pn: '3249', covered: [schema.newCovered({ part: 'LX2160', refdes: 'U5' })] }));
+  p.items.push(schema.newItem({ item_no: 'A1', location_id: loc, material_id: mat.id, delta_pn: '3249', covered: [schema.newCovered({ part: 'SOC-2160', refdes: 'U5' })] }));
   p.items.push(schema.newItem({ item_no: 'A2', location_id: loc, vendor: 'Other', model: 'Pad', sources: [schema.newSource({ vendor: 'VendorB', model: 'GF-750' })] }));
   const wu = calc.whereUsed(db, mat.id);
   assert.deepEqual(wu.map(w => [w.item_no, w.role]), [['A1', 'primary'], ['A2', '2nd source']]);
-  assert.deepEqual(calc.searchItems(db, 'lx2160').map(r => r.item_no), ['A1']);
+  assert.deepEqual(calc.searchItems(db, 'soc-2160').map(r => r.item_no), ['A1']);
   assert.deepEqual(calc.searchItems(db, 'gf-750').map(r => r.item_no), ['A1', 'A2']);
   assert.deepEqual(calc.searchItems(db, 'A1 u5').map(r => r.item_no), ['A1']);
   assert.equal(calc.searchItems(db, '').length, 0);
