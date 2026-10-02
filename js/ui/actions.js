@@ -169,8 +169,6 @@
   function patchItems(pid, patches, label) {
     const p = project(pid);
     if (!p) return;
-    const filled = [];
-    patches = knownFillPatches(p, patches, filled);
     const changes = [];
     patches.forEach(({ itemId, patch }) => {
       const it = itemOf(p, itemId);
@@ -183,13 +181,12 @@
       });
     });
     if (!changes.length) return;
-    const note = knownFillNote(filled);
     st().mutateProject(pid, pp => {
       patches.forEach(({ itemId, patch }) => {
         const it = itemOf(pp, itemId);
         if (it) Object.keys(patch).forEach(path => setPath(it, path, util.clone(patch[path])));
       });
-    }, { changes: (changes.length > 30 ? [{ kind: 'edit', target: 'item', text: (label || '批次修改') + '（' + changes.length + ' 個欄位）' }] : changes).concat(note ? [note] : []) });
+    }, { changes: changes.length > 30 ? [{ kind: 'edit', target: 'item', text: (label || '批次修改') + '（' + changes.length + ' 個欄位）' }] : changes });
   }
 
   /**
@@ -200,9 +197,6 @@
   function pasteIntoItems(pid, patches, newRows, afterId) {
     const p = project(pid);
     if (!p) return [];
-    const filled = [];
-    patches = knownFillPatches(p, patches, filled);
-    newRows = knownFillRows(newRows, filled);
     const changes = [];
     patches.forEach(({ itemId, patch }) => {
       const it = itemOf(p, itemId);
@@ -223,7 +217,6 @@
     });
     if (!changes.length && !created.length) return [];
     if (created.length) changes.push({ kind: 'add', target: 'item', text: '貼上新增 ' + created.length + ' 個 Item：' + created.map(i => i.item_no).join(', ') });
-    const note = knownFillNote(filled);
     const autoLink = it => {
       if (it.material_id) return;
       const m = findMaterial(it.vendor, it.model);
@@ -242,7 +235,7 @@
         if (afterId) { const i = pp.items.findIndex(x => x.id === afterId); if (i >= 0) idx = i + 1; }
         pp.items.splice(idx, 0, ...created);
       }
-    }, { changes: (changes.length > 40 ? [{ kind: 'edit', target: 'item', text: '貼上（' + changes.length + ' 個欄位）' }] : changes).concat(note ? [note] : []) });
+    }, { changes: changes.length > 40 ? [{ kind: 'edit', target: 'item', text: '貼上（' + changes.length + ' 個欄位）' }] : changes });
     return created.map(i => i.id);
   }
 
@@ -251,8 +244,6 @@
     opts = opts || {};
     const p = project(pid);
     if (!p || !rows.length) return [];
-    const filled = [];
-    rows = knownFillRows(rows, filled);
     const ids = [];
     const existingNos = p.items.map(i => i.item_no);
     const newItems = rows.map(r => {
@@ -262,12 +253,11 @@
       ids.push(it.id);
       return it;
     });
-    const note = knownFillNote(filled);
     st().mutateProject(pid, pp => {
       let idx = pp.items.length;
       if (opts.after) { const i = pp.items.findIndex(x => x.id === opts.after); if (i >= 0) idx = i + 1; }
       pp.items.splice(idx, 0, ...newItems);
-    }, { changes: [{ kind: opts.kind || 'add', target: 'item', text: (opts.label || '新增') + ' ' + newItems.length + ' 個 Item：' + newItems.map(i => i.item_no).join(', ') }].concat(note ? [note] : []) });
+    }, { changes: [{ kind: opts.kind || 'add', target: 'item', text: (opts.label || '新增') + ' ' + newItems.length + ' 個 Item：' + newItems.map(i => i.item_no).join(', ') }] });
     return ids;
   }
 
@@ -354,74 +344,23 @@
     });
   }
   /**
-   * 元件快選: write a component entered before (a calc.knownComponents entry) into a covered entry — one undo
-   * step. Picked from the list it overwrites what the entry has; onlyEmpty (typed the same part number by hand)
-   * fills just the empty groups and keeps the typed spelling. → true when something changed.
+   * 元件快選 (RefDes field): write a component entered before (a calc.knownComponents entry) into a covered entry —
+   * its RefDes + 元件料號 and every group it has (overwrites those; 數量 / 備註 stay). One undo step.
+   * → true when something changed.
    */
-  function applyKnownComponent(pid, itemId, covId, entry, onlyEmpty) {
+  function applyKnownComponent(pid, itemId, covId, entry) {
     const p = project(pid);
     const it = itemOf(p, itemId);
     const c = it && it.covered.find(x => x.id === covId);
     if (!c || !entry) return false;
-    const full = onlyEmpty ? calc.fillFromKnown([c], [entry]).list[0] : Object.assign({}, c, calc.knownPatch(entry));
+    const full = Object.assign({}, c, calc.knownPatch(entry));
     const keys = Object.keys(full).filter(f => full[f] !== c[f]);
     if (!keys.length) return false;
     st().mutateProject(pid, pp => { const cc = itemOf(pp, itemId).covered.find(x => x.id === covId); keys.forEach(f => { cc[f] = full[f]; }); }, {
-      changes: [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + full.part + '（元件快選）',
+      changes: [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + entry.name + '（元件快選）',
         from: calc.componentSummary(c), to: calc.componentSummary(full) }],
     });
     return true;
-  }
-  /** Typed a part number used before and left the field: fill the empty groups (see applyKnownComponent). */
-  function fillCoveredFromKnown(pid, itemId, covId) {
-    const p = project(pid);
-    const it = itemOf(p, itemId);
-    const c = it && it.covered.find(x => x.id === covId);
-    const key = c && calc.partKey(c.part);
-    if (!key) return false;
-    const e = calc.knownComponents(st().db, { exclude: covId }).find(x => x.key === key);
-    if (!e || !applyKnownComponent(pid, itemId, covId, e, true)) return false;
-    if (TIM.ui && TIM.ui.toast) TIM.ui.toast('已帶入 ' + c.part + ' 用過的資料：' + calc.componentSummary(e.values), 'ok');
-    return true;
-  }
-  /**
-   * Covered lists arriving from text (Note column, pasted rows, Excel import): entries not in `before` (by id)
-   * get their empty groups filled from the components entered before. → { list, parts }
-   */
-  function knownFill(known, list, before) {
-    const ids = new Set((before || []).map(c => c.id));
-    return calc.fillFromKnown(list, known, c => !ids.has(c.id));
-  }
-  function knownFillNote(parts) {
-    const names = Array.from(new Set(parts));
-    if (!names.length) return null;
-    if (TIM.ui && TIM.ui.toast) TIM.ui.toast('已帶入 ' + names.length + ' 顆用過的元件資料（' + names.slice(0, 4).join('、') + (names.length > 4 ? '…' : '') + '）', 'ok');
-    return { kind: 'edit', target: 'item', text: '覆蓋元件帶入用過的資料（元件快選）：' + names.join('、') };
-  }
-  /** Patches [{itemId, patch}] with covered lists → same with new entries filled; parts collected in `out`. */
-  function knownFillPatches(p, patches, out) {
-    if (!patches.some(x => x.patch && Array.isArray(x.patch.covered))) return patches;
-    const known = calc.knownComponents(st().db);
-    return patches.map(x => {
-      if (!x.patch || !Array.isArray(x.patch.covered)) return x;
-      const it = itemOf(p, x.itemId);
-      const r = knownFill(known, x.patch.covered, it ? it.covered : []);
-      if (!r.parts.length) return x;
-      out.push.apply(out, r.parts);
-      return { itemId: x.itemId, patch: Object.assign({}, x.patch, { covered: r.list }) };
-    });
-  }
-  /** New rows [{location_id, fields}] (pasted / imported items): every covered entry is new. */
-  function knownFillRows(rows, out) {
-    if (!(rows || []).some(r => r.fields && Array.isArray(r.fields.covered) && r.fields.covered.length)) return rows || [];
-    const known = calc.knownComponents(st().db);
-    return rows.map(r => {
-      if (!r.fields || !Array.isArray(r.fields.covered)) return r;
-      const res = calc.fillFromKnown(r.fields.covered, known);
-      if (!res.parts.length) return r;
-      out.push.apply(out, res.parts);
-      return Object.assign({}, r, { fields: Object.assign({}, r.fields, { covered: res.list }) });
-    });
   }
 
   function addCovered(pid, itemId, fields) {
@@ -626,7 +565,7 @@
     createProject, updateProject, duplicateProject, deleteProject,
     addLocation, updateLocation, moveLocation, deleteLocation,
     addItem, updateItem, patchItems, pasteIntoItems, insertItems, duplicateItem, deleteItems, moveItem, sortItems,
-    setCovered, updateCovered, addCovered, removeCovered, applyKnownComponent, fillCoveredFromKnown,
+    setCovered, updateCovered, addCovered, removeCovered, applyKnownComponent,
     addSource, updateSource, removeSource,
     linkMaterial, unlinkMaterial, findMaterial,
     createMaterial, updateMaterial, setDatasheets, importMaterials, deleteMaterial, duplicateMaterial,

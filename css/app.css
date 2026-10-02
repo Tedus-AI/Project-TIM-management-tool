@@ -425,11 +425,20 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .subtbl td.r, .subtbl th.r { text-align: right; }
 .subtbl .inp.r { text-align: right; }
 .subtbl tfoot td { font-size: 11.5px; color: var(--ink-3); padding: 6px; border-bottom: none; }
-/* 元件快選: part number field + list of the components entered before */
-.part-field { position: relative; }
+/* 元件快選: RefDes field + dropdown of the components entered before, grouped by 類別 */
+.comp-field { position: relative; }
+.comp-field .inp { padding-right: 22px; }
+.comp-field .dd-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 20px; height: 22px; display: grid; place-items: center;
+  color: var(--ink-3); background: transparent; border: none; cursor: pointer; }
+.comp-field .dd-btn:hover { color: var(--d-600); background: var(--d-50); }
 .suggest { position: absolute; left: 0; top: calc(100% + 2px); z-index: 30; width: 440px; max-width: calc(100vw - 48px); max-height: 340px; overflow: auto;
   background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); animation: fadeIn .1s; }
 .suggest-head { position: sticky; top: 0; padding: 5px 10px; font-size: 10.5px; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.suggest-group { display: flex; align-items: center; gap: 6px; padding: 6px 10px 4px; font-size: 11px; font-weight: 600; color: var(--ink-2);
+  background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.suggest-group i { width: 9px; height: 9px; border-radius: 2px; }
+.suggest-group span { font-weight: 400; color: var(--ink-3); }
+.suggest-empty { padding: 10px; font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
 .suggest-row { display: block; width: 100%; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
 .suggest-row:last-child { border-bottom: none; }
 .suggest-row.on { background: var(--d-50); box-shadow: inset 3px 0 0 var(--d-500); }
