@@ -61,13 +61,17 @@
     OTHER: 'Other', OTHERS: 'Other',
   };
 
-  /** TIM forms: "sheet" items have L×W×T; "dispense" items have an amount + bond line. */
+  /**
+   * TIM forms: "sheet" items have L×W×T; "dispense" items have an amount + bond line.
+   * parts: dispensed materials that come as one-part or two-part (A/B) products — the material
+   * library asks which (劑型) only for these.
+   */
   const TIM_TYPES = [
     { v: 'pad', label: 'Thermal Pad', zh: '導熱墊片', form: 'sheet' },
     { v: 'absorber', label: 'Absorber Pad', zh: '吸波導熱墊', form: 'sheet' },
-    { v: 'gap_filler', label: 'Gap Filler', zh: '點膠導熱填隙', form: 'dispense' },
+    { v: 'gap_filler', label: 'Gap Filler', zh: '點膠導熱填隙', form: 'dispense', parts: true },
     { v: 'gel', label: 'Thermal Gel', zh: '導熱凝膠', form: 'dispense' },
-    { v: 'putty', label: 'Thermal Putty', zh: '導熱泥', form: 'dispense' },
+    { v: 'putty', label: 'Thermal Putty', zh: '導熱泥', form: 'dispense', parts: true },
     { v: 'grease', label: 'Thermal Grease', zh: '導熱膏', form: 'dispense' },
     { v: 'pcm', label: 'Phase Change', zh: '相變化材料', form: 'sheet' },
     { v: 'graphite', label: 'Graphite Sheet', zh: '石墨片', form: 'sheet' },
@@ -89,6 +93,12 @@
     { v: 'qualifying', label: '承認中' },
     { v: 'not_approved', label: '未承認' },
     { v: 'eol', label: 'EOL' },
+  ];
+
+  /** 劑型 of a Gap Filler / Thermal Putty material. */
+  const PARTS = [
+    { v: 'one_part', label: '單劑型（1-part）', short: '單劑' },
+    { v: 'two_part', label: '雙劑型（2-part）', short: '雙劑' },
   ];
 
   const K_METHODS = ['ASTM D5470', 'ISO 22007-2 (Hot Disk)', 'ASTM E1461 (Laser Flash)', 'Other / 未註明'];
@@ -163,6 +173,14 @@
 
   function timType(v) { return TIM_TYPES.find(t => t.v === v) || TIM_TYPES[0]; }
   function isDispense(v) { return timType(v).form === 'dispense'; }
+  /** Does this TIM type have a 劑型 (one-part / two-part)? */
+  function hasParts(v) { return !!timType(v).parts; }
+  /** "Gap Filler · 雙劑" — the type of a material with its 劑型 when set. */
+  function materialTypeText(m) {
+    const t = timType(m && m.tim_type);
+    const p = t.parts && PARTS.find(x => x.v === m.parts);
+    return p ? t.label + ' · ' + p.short : t.label;
+  }
   function categoryColor(v) {
     const c = CATEGORIES.find(x => x.v === v);
     return c ? c.color : '#64748B';
@@ -229,7 +247,7 @@
     const now = util.nowIso();
     const m = {
       id: util.uid('mat'), rev: 0, created_at: now, updated_at: now,
-      vendor: '', model: '', tim_type: 'pad',
+      vendor: '', model: '', tim_type: 'pad', parts: '',   // parts: 劑型, Gap Filler / Thermal Putty only
       k: null, k_method: '', impedance: null, impedance_cond: '',
       hardness: null, hardness_scale: 'Shore 00', density: null, color: '',
       temp_min: null, temp_max: null,
@@ -337,6 +355,7 @@
     ['k', 'impedance', 'hardness', 'density', 'temp_min', 'temp_max', 'dielectric_kv_mm', 'dk',
       'comp_rec_min', 'comp_rec_max', 'shelf_life_months', 'moq', 'lead_time_wk'].forEach(k => { o[k] = numOrNull(o[k]); });
     if (!TIM_TYPES.some(t => t.v === o.tim_type)) o.tim_type = 'pad';
+    if (!hasParts(o.tim_type) || !PARTS.some(x => x.v === o.parts)) o.parts = '';
     o.datasheets = Array.isArray(o.datasheets) ? o.datasheets.filter(d => isObj(d) && typeof d.path === 'string' && d.path)
       .map(d => ({ path: d.path, name: String(d.name || d.path.split('/').pop()), size: numOrNull(d.size), at: d.at || '', by: d.by || '' })) : [];
     o.rev = Number.isFinite(o.rev) ? o.rev : 0;
@@ -379,9 +398,9 @@
 
   return {
     SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
-    SOURCE_STATUS, AVL_STATUS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
+    SOURCE_STATUS, AVL_STATUS, PARTS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
-    labelOf, productTypeLabel, projectSubline, timType, isDispense, categoryColor, normalizeCategory,
+    labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,
     normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeDb, validateDb, projectImageIds,
   };

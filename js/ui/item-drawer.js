@@ -161,7 +161,7 @@
               <${Field} label="材料（連結材料庫）" class="span-2">
                 <${Locked} display=${html`<b>${mat.vendor}</b> ${mat.model}`} source="材料庫" onUnlock=${ro ? null : () => A().unlinkMaterial(p.id, it.id)} />
               </${Field}>
-              <${Field} label="型態"><div class="ref-value">${schema.timType(mat.tim_type).label}</div></${Field}>
+              <${Field} label="型態"><div class="ref-value">${schema.materialTypeText(mat)}</div></${Field}>
               <${Field} label="k"><div class="ref-value mono">${mat.k == null ? '—' : util.fmt(mat.k, 2) + ' W/m·K'} <span class="src">${mat.k_method || ''}</span></div></${Field}>
             </div>
             <div class="row mt8" style="gap:8px">

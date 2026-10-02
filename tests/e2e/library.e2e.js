@@ -214,4 +214,91 @@ module.exports = [
       assert.equal(await page.evaluate(id => TIM.store.db.materials[id].hardness, mid), null);
     },
   },
+  {
+    name: '劑型: dropdown only for Gap Filler / Thermal Putty (new material), cleared with another type, undo; list / item / import show it',
+    async run(env) {
+      const { page, base } = env;
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      await installFakeFs(page);
+      assert.equal(await page.evaluate(() => { window.__root = __fs.dir('TIM-local'); return __fs.open(window.__root); }), true);
+      await page.evaluate(() => TIM.ui.go('library'));
+      await page.click('.home-actions button:has-text("新增材料")');
+      await page.waitForSelector('.drawer .field:has(> label:has-text("型態")) select');
+      const mid = await page.evaluate(() => location.hash.split('/').pop());
+      const typeSel = '.drawer .field:has(> label:has-text("型態")) select';
+      const partsSel = '.drawer .field:has(> label:has-text("劑型")) select';
+      const parts = () => page.evaluate(id => TIM.store.db.materials[id].parts, mid);
+      assert.equal(await page.inputValue(typeSel), 'pad');
+      assert.equal(await page.locator(partsSel).count(), 0, 'Thermal Pad: no 劑型');
+      for (const t of ['absorber', 'gel', 'grease', 'pcm']) {
+        await page.selectOption(typeSel, t);
+        await page.waitForFunction(([id, v]) => TIM.store.db.materials[id].tim_type === v, [mid, t]);
+        assert.equal(await page.locator(partsSel).count(), 0, t + ': no 劑型');
+      }
+      // Gap Filler → the dropdown appears, nothing chosen yet
+      await page.selectOption(typeSel, 'gap_filler');
+      await page.waitForSelector(partsSel);
+      assert.deepEqual(await page.locator(partsSel + ' option').allInnerTexts(), ['— 請選擇 —', '單劑型（1-part）', '雙劑型（2-part）']);
+      assert.equal(await page.inputValue(partsSel), '');
+      await page.selectOption(partsSel, 'two_part');
+      await page.waitForFunction(id => TIM.store.db.materials[id].parts === 'two_part', mid);
+      await page.waitForSelector('.tbl tbody tr:has-text("新材料") td:text-is("Gap Filler · 雙劑")');
+      // Thermal Putty keeps it
+      await page.selectOption(typeSel, 'putty');
+      await page.waitForFunction(id => TIM.store.db.materials[id].tim_type === 'putty', mid);
+      assert.equal(await page.inputValue(partsSel), 'two_part');
+      await page.waitForSelector('.tbl tbody tr:has-text("新材料") td:text-is("Thermal Putty · 雙劑")');
+      // another type → gone and cleared; undo brings both back (one step)
+      await page.selectOption(typeSel, 'pad');
+      await page.waitForFunction(id => TIM.store.db.materials[id].tim_type === 'pad', mid);
+      assert.equal(await parts(), '');
+      assert.equal(await page.locator(partsSel).count(), 0);
+      await page.waitForSelector('.tbl tbody tr:has-text("新材料") td:text-is("Thermal Pad")');
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Control+z');
+      // type changes within 2.5 s share one undo step (putty → pad), so this lands on Gap Filler: 劑型 is back either way
+      await page.waitForFunction(id => TIM.store.db.materials[id].parts === 'two_part', mid);
+      const back = await page.evaluate(id => TIM.store.db.materials[id].tim_type, mid);
+      assert.ok(['gap_filler', 'putty'].includes(back), back);
+      await page.waitForSelector(partsSel);
+      assert.equal(await page.inputValue(partsSel), 'two_part');
+      await page.selectOption(typeSel, 'putty');
+      await page.waitForFunction(id => TIM.store.db.materials[id].tim_type === 'putty', mid);
+      // saved with the database
+      await page.waitForFunction(id => Promise.resolve(__fs.read(window.__root, 'tim_db.json')).then(t => {
+        const m = t && JSON.parse(t).materials[id];
+        return !!m && m.tim_type === 'putty' && m.parts === 'two_part';
+      }), mid);
+      // a linked item shows the material's type with its 劑型
+      const ids = await page.evaluate(id => {
+        const pid = TIM.actions.createProject({ name: 'DEMO-P' });
+        const iid = TIM.actions.addItem(pid);
+        TIM.actions.linkMaterial(pid, iid, id);
+        return { pid, iid };
+      }, mid);
+      await page.evaluate(x => TIM.ui.go('p/' + x.pid + '/bom/' + x.iid), ids);
+      await page.waitForSelector('.drawer .field:has(> label:text-is("型態")) .ref-value:text-is("Thermal Putty · 雙劑")');
+      // import: 劑型 from the AI file; on a grease it is dropped with a reminder
+      await page.evaluate(() => TIM.ui.go('library'));
+      await page.click('.home-actions button:has-text("匯入材料")');
+      await page.waitForSelector('.modal:has-text("匯入材料")');
+      await page.fill('.mi-paste', JSON.stringify({ format: 'tim-material', version: 1, materials: [
+        { vendor: 'Vendor-D', model: 'GF-D1', tim_type: 'gap_filler', parts: '1-Part Dispensable', k: 9, evidence: { parts: 'p.1 1-Part Dispensable Gap Filler' } },
+        { vendor: 'Vendor-C', model: 'TP-800', tim_type: 'grease', parts: 'one_part', k: 3.2 },
+      ] }));
+      await page.waitForSelector('.mi-table tbody tr:has-text("TP-800")');
+      const rows = page.locator('.mi-table > tbody > tr:not(.mi-detail)');
+      assert.match(await rows.nth(0).innerText(), /Gap Filler · 單劑/);
+      assert.match(await rows.nth(1).innerText(), /1 個提醒/);
+      await rows.nth(0).locator('button:has-text("明細")').click();
+      const detail = await page.locator('.mi-detail').innerText();
+      assert.match(detail, /劑型[\s\S]*單劑型（1-part）/);
+      assert.match(detail, /p\.1 1-Part Dispensable Gap Filler/);
+      await page.click('.modal-foot button:has-text("匯入 2 種材料")');
+      await page.waitForSelector('.toast:has-text("新增 2 種")');
+      const got = await page.evaluate(() => Object.values(TIM.store.db.materials).filter(m => m.vendor !== '').map(m => [m.model, m.tim_type, m.parts]).sort());
+      assert.deepEqual(got, [['GF-D1', 'gap_filler', 'one_part'], ['TP-800', 'grease', '']]);
+    },
+  },
 ];

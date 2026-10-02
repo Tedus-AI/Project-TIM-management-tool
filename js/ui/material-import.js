@@ -30,6 +30,7 @@
     if (f.kind === 'bool') return v ? '是' : '否';
     if (f.key === 'tim_type') return schema.timType(v).label;
     if (f.key === 'silicone') return schema.labelOf(schema.SILICONE, v);
+    if (f.key === 'parts') return schema.labelOf(schema.PARTS, v);
     return String(v) + (f.unit ? ' ' + f.unit : '');
   }
   const fieldOf = key => MI.FIELDS.find(f => f.key === key);
@@ -133,7 +134,7 @@
             <td><select class="sel" value=${r.action} onChange=${e => setAction(r.i, e.target.value)}>${(cur ? ACTIONS_OLD : ACTIONS_NEW).map(a => html`<option value=${a.v}>${a.label}</option>`)}</select></td>
             <td>${f.vendor || html`<span class="muted">—</span>`}</td>
             <td><b>${f.model || '—'}</b> ${cur ? html`<span class="tag tag-mute">已在材料庫</span>` : html`<span class="tag tag-ok">新材料</span>`}</td>
-            <td>${f.tim_type ? schema.timType(f.tim_type).label : html`<span class="muted">—</span>`}</td>
+            <td>${f.tim_type ? schema.materialTypeText(f) : html`<span class="muted">—</span>`}</td>
             <td class="r mono">${(() => {
               const keep = cur && r.action === 'fill' && cur.k != null;
               const k = r.action === 'skip' ? (cur ? cur.k : null) : keep ? cur.k : f.k;
