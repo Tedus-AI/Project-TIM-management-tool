@@ -1,6 +1,7 @@
 'use strict';
 // Settings, project list owners, material library columns and datasheets in a local database folder.
 const assert = require('node:assert/strict');
+const { installFakeFs } = require('./fake-fs');
 
 /** Open an in-memory database folder (File System Access stand-in with sub-folders). */
 async function openLocalFolder(page) {
@@ -141,6 +142,76 @@ module.exports = [
       assert.ok(!(await page.locator('.ds-field [data-ds="view"]').isDisabled()));
       await page.click('.ds-field [data-ds="view"]');
       await page.waitForSelector('.modal.viewer iframe.ds-frame');
+    },
+  },
+  {
+    name: '匯入材料: copy the AI prompt, AI reply pasted / dropped with the datasheet, preview (new / fill), import + attach, undo',
+    async run(env) {
+      const { page, base, context } = env;
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base.replace(/\/$/, '') });
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      await installFakeFs(page);
+      assert.equal(await page.evaluate(() => { window.__root = __fs.dir('TIM-local'); return __fs.open(window.__root); }), true);
+      const mid = await page.evaluate(() => TIM.actions.createMaterial({ vendor: 'Vendor-B', model: 'GF-750', tim_type: 'pad', k: 7, note: 'kept' }));
+      await page.evaluate(() => TIM.ui.go('library'));
+      await page.click('.home-actions button:has-text("匯入材料")');
+      await page.waitForSelector('.modal:has-text("匯入材料")');
+      // 1. the instructions for the AI
+      await page.click('.modal button:has-text("複製 AI 指令")');
+      await page.waitForSelector('.toast:has-text("已複製 AI 指令")');
+      const prompt = await page.evaluate(() => navigator.clipboard.readText());
+      assert.match(prompt, /"format": "tim-material"/);
+      assert.match(prompt, /- k：熱傳導係數 k（單位 W\/m·K）/);
+      // 2. a reply that is not JSON → clear message
+      await page.fill('.mi-paste', '抱歉，這份 PDF 我讀不到表格。');
+      await page.waitForSelector('.modal .text-err:has-text("找不到可讀的 JSON")');
+      await page.fill('.mi-paste', '');
+      // the AI's file + the datasheet, dropped together
+      const reply = {
+        format: 'tim-material', version: 1,
+        materials: [
+          { vendor: 'Vendor-B', model: 'GF-750', tim_type: 'pad', k: 7.5, hardness: 45, hardness_scale: 'Shore 00', temp_min: -40, temp_max: 200,
+            evidence: { hardness: 'p.2 Hardness 45 Shore 00', temp_min: 'p.1 -40 to 200 °C' } },
+          { vendor: 'Vendor-C', model: 'TP-800', tim_type: 'grease', k: 3.2, ul94: 'V0', evidence: { k: 'p.1 3.2 W/m-K' } },
+        ],
+      };
+      await page.evaluate(json => {
+        const dt = new DataTransfer();
+        dt.items.add(new File([json], 'GF-750.tim-material.json', { type: 'application/json' }));
+        dt.items.add(new File(['%PDF-1.4 TDS'], 'GF-750_TDS.pdf', { type: 'application/pdf' }));
+        document.querySelector('.mi-drop').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      }, JSON.stringify(reply));
+      await page.waitForSelector('.mi-table tbody tr:has-text("TP-800")');
+      const rows = page.locator('.mi-table > tbody > tr:not(.mi-detail)');
+      assert.equal(await rows.count(), 2);
+      assert.equal(await rows.nth(0).locator('select').inputValue(), 'fill', 'existing material: fill the empty fields');
+      assert.match(await rows.nth(0).innerText(), /已在材料庫/);
+      assert.equal(await rows.nth(1).locator('select').inputValue(), 'new');
+      assert.match(await rows.nth(1).innerText(), /新材料/);
+      await rows.nth(0).locator('button:has-text("明細")').click();
+      const detail = await page.locator('.mi-detail').innerText();
+      assert.match(detail, /p\.2 Hardness 45 Shore 00/, 'AI evidence shown next to the value');
+      assert.doesNotMatch(detail, /熱傳導係數 k/, 'k already in the library → not changed when filling');
+      // the datasheet goes to GF-750 only
+      await page.selectOption('.mi-doc select', '0');
+      await page.click('.modal-foot button:has-text("匯入 2 種材料")');
+      await page.waitForSelector('.toast:has-text("新增 1 種、更新 1 種")');
+      await page.waitForSelector('.drawer:has-text("GF-750")');
+      await page.waitForFunction(id => (TIM.store.db.materials[id].datasheets || []).length === 1, mid);
+      const lib = await page.evaluate(() => Object.values(TIM.store.db.materials).map(m => ({ model: m.model, k: m.k, hardness: m.hardness, note: m.note, type: m.tim_type, ul94: m.ul94, ds: (m.datasheets || []).map(d => d.name) })));
+      const gf = lib.find(m => m.model === 'GF-750'), tp = lib.find(m => m.model === 'TP-800');
+      assert.deepEqual([gf.k, gf.hardness, gf.note, gf.ds], [7, 45, 'kept', ['GF-750_TDS.pdf']]);
+      assert.deepEqual([tp.k, tp.type, tp.ul94, tp.ds], [3.2, 'grease', 'V-0', []]);
+      assert.equal(await page.evaluate(() => __fs.read(window.__root, 'Datasheets/Vendor-B/GF-750/GF-750_TDS.pdf')), '%PDF-1.4 TDS');
+      // undo: the attachment, then the whole import (one step)
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.drawer'));
+      await page.keyboard.press('Control+z');
+      await page.waitForFunction(id => !(TIM.store.db.materials[id].datasheets || []).length, mid);
+      await page.keyboard.press('Control+z');
+      await page.waitForFunction(() => Object.keys(TIM.store.db.materials).length === 1);
+      assert.equal(await page.evaluate(id => TIM.store.db.materials[id].hardness, mid), null);
     },
   },
 ];

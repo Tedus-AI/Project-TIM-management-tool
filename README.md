@@ -19,7 +19,7 @@ TIM 溫升估算、第二來源、成本與變更紀錄。用來取代「一個�
 | **位置標註** | 在 Bottom / Top case 等 CAD 截圖上標出 TIM 位置：比例尺校正後 pad 以**實際尺寸**放置、可旋轉；標籤自動拉引線到同 Item 的 pad（一個標籤可指多片）；圖例、放置數與 Q'ty 比對、PNG 匯出 |
 | **間隙與熱檢核** | 每個 Item 的壓縮率範圍圖（含建議範圍）、TIM 溫升 ΔT 排行 |
 | **變更紀錄** | 每次修改自動記錄（誰、何時、舊值 → 新值）、手動紀錄 / ECN、Build 基準（EVT / DVT / PVT）與任兩版本差異比較 |
-| **材料庫** | 跨專案共用的 TIM 材料（k 值、硬度、溫度範圍、UL…）與**規格書檔案**（檢視 / 上傳 / 下載 / 刪除 / 清單，可一次多份），Where-used 反查哪些專案在用；Item 連結材料後，材料資料由材料庫帶入 |
+| **材料庫** | 跨專案共用的 TIM 材料（k 值、硬度、溫度範圍、UL…）；**匯入材料**（規格書交給 AI，匯入它輸出的 JSON）；**規格書檔案**（檢視 / 上傳 / 下載 / 刪除 / 清單，可一次多份），Where-used 反查哪些專案在用；Item 連結材料後，材料資料由材料庫帶入 |
 
 ### 比原本 Excel 多記錄的項目（摘要）
 
@@ -103,6 +103,30 @@ Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案�
    單頁應用程式（SPA）的重新導向 URI** 加上 `https://tedus-ai.github.io/Project-TIM-management-tool/auth.html`。
    權限沿用 `Files.ReadWrite.All`、`Sites.Read.All`、`Sites.ReadWrite.All`。
 3. 使用者需要該網站的編輯權限。網站、資料夾路徑在 `js/db/sharepoint.js` 的 `CONFIG`。
+
+### 材料庫：規格書交給 AI，匯入就建好材料
+
+材料庫右上「匯入材料」：
+1. 按「複製 AI 指令」，把指令連同廠商規格書（PDF）一起交給 AI（Claude、ChatGPT、Copilot…）。
+2. AI 輸出 `tim-material` 格式的 JSON；把檔案拖進來，或直接貼上 AI 的回覆（前後有說明文字、包在 ```json 裡都可以）。
+   規格書 PDF 也可以一起拖進來，匯入時附到材料上（需以 SharePoint 或資料夾開啟資料庫）。
+3. 預覽每一種材料：Vendor + Model 跟材料庫相同的會標「已在材料庫」，預設**只補空白欄位**（可改「覆蓋」或「略過」）；
+   新的標「新材料」。「明細」列出每個欄位的匯入值、材料庫目前值，以及 AI 附上的**規格書原文與頁碼**，方便核對。
+4. 「匯入」是一個 Undo 步驟（材料庫 Ctrl+Z 復原）。
+
+**為什麼用 JSON**：AI 輸出結構化資料最穩定（欄位名固定、數字與單位分開、一份規格書多個型號就是多筆、每個欄位可附依據），
+不會有 Excel 欄位錯位、編碼或合併儲存格的問題。格式：
+
+```json
+{ "format": "tim-material", "version": 1,
+  "materials": [ { "vendor": "Vendor-B", "model": "GF-750", "tim_type": "pad", "k": 7.5, "k_method": "ASTM D5470",
+                   "hardness": 45, "hardness_scale": "Shore 00", "temp_min": -40, "temp_max": 200, "...": "...",
+                   "evidence": { "k": "p.1 Thermal Conductivity 7.5 W/m-K (ASTM D5470)" } } ] }
+```
+
+欄位、單位與可用選項以「複製 AI 指令」的內容為準（同一份定義也用來讀檔：`js/core/matimport.js`）。
+讀檔時會自動整理常見寫法：數字帶單位（`7.5 W/m·K`）、`Shore OO`、`V0`、`Compliant`、`Gap Pad` 之類都會轉成工具的選項；
+看不懂的值與多出來的欄位會列成提醒，不會匯入。
 
 ### 3. 把現有的 Excel 搬進來
 
@@ -217,7 +241,8 @@ Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案�
 ```
 index.html            進入點（載入順序即相依順序）
 css/app.css           設計 token 與元件樣式
-js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）
+js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）、
+                      matimport（材料匯入格式、AI 指令、解析）
 js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、每日備份、
                       sync.js（SharePoint → 本機副本；本機資料夾 → 合併寫入 SharePoint）
 js/io/                Excel 匯出 / 匯入、圖片處理、視圖繪製、分享檔
