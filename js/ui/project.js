@@ -1,4 +1,4 @@
-/* Project page: header + tabs (總覽 / TIM 清單 / 位置標註 / 間隙與熱檢核 / 變更紀錄). */
+/* Project page: header + tabs (總覽 / TIM 清單 / 位置標註 / 間隙與壓力檢核 / 變更紀錄). */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -10,7 +10,7 @@
     { id: 'overview', label: '總覽', icon: 'home' },
     { id: 'bom', label: 'TIM 清單', icon: 'grid' },
     { id: 'map', label: '位置標註', icon: 'map' },
-    { id: 'analysis', label: '間隙與熱檢核', icon: 'chart' },
+    { id: 'analysis', label: '間隙與壓力檢核', icon: 'chart' },
     { id: 'log', label: '變更紀錄', icon: 'history' },
   ];
 

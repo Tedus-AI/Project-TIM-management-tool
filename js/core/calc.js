@@ -16,6 +16,19 @@
     return item && item.material_id && db && db.materials ? db.materials[item.material_id] || null : null;
   }
 
+  /**
+   * The library material an unlinked item names exactly (Vendor + Model, case and spaces ignored) — the item does not
+   * use it (k, curves…) until it is linked. null when linked, unnamed, or not exactly one match.
+   */
+  function libraryMatch(db, item) {
+    if (!item || item.material_id || !db || !db.materials) return null;
+    const norm = s => util.toHalfWidth(String(s == null ? '' : s)).trim().replace(/\s+/g, ' ').toUpperCase();
+    const v = norm(item.vendor), m = norm(item.model);
+    if (!v && !m) return null;
+    const hits = Object.values(db.materials).filter(x => norm(x.vendor) === v && norm(x.model) === m);
+    return hits.length === 1 ? hits[0] : null;
+  }
+
   /** Effective vendor/model/type/k for an item (mirrors the linked material — single source of truth). */
   function effective(item, mat) {
     if (mat) return { vendor: mat.vendor, model: mat.model, tim_type: mat.tim_type || item.tim_type, k: fin(mat.k) ? mat.k : null, linked: true };
@@ -222,13 +235,18 @@
     out.comps = gi.comps.map(x => {
       const row = { id: x.id, part: x.c.part, refdes: x.c.refdes, h: x.h, gap: { min: x.min, nom: x.nom, max: x.max },
         cMin: fin(x.max) ? compressionAt(t, x.max) : null, cNom: fin(x.nom) ? compressionAt(t, x.nom) : null, cMax: fin(x.min) ? compressionAt(t, x.min) : null,
-        pMin: null, pMax: null, area: contactArea(item, x.c), force: null, allow: null, ratio: null, status: 'na', msg: '' };
-      row.allow = allowPsi(x.c, row.area);
+        pMin: null, pMax: null, area: contactArea(item, x.c), force: null, allow: null, ratio: null, status: 'na', msg: '',
+        loadType: x.c.load_type || '', exempt: false };
+      // 受壓類型: E-PAD / QFN / LGA / leaded → the pressure is computed and shown, the allowable load is not judged
+      const lt = schema.loadType(x.c.load_type);
+      row.exempt = !!(lt && !lt.check);
+      row.allow = row.exempt ? null : allowPsi(x.c, row.area);
       if (fin(row.cMax) && row.cMax > 0) row.pMax = pressureAt(mat, t, row.cMax);
       if (fin(row.cMin) && row.cMin > 0) row.pMin = pressureAt(mat, t, row.cMin);
       if (row.pMax) row.force = forceN(row.pMax.psi, row.area);
       const name = [x.c.part, x.c.refdes].filter(Boolean).join(' ') || '元件';
-      if (row.allow && row.allow.needsArea) row.msg = '耐壓以力表示，需要封裝尺寸（L × W）才能換算壓力';
+      if (lt && lt.check && !row.allow) row.msg = lt.short + ' 需檢核耐壓：請填元件規格書的 max static load';
+      else if (row.allow && row.allow.needsArea) row.msg = '耐壓以力表示，需要封裝尺寸（L × W）才能換算壓力';
       else if (row.allow && !row.pMax && fin(row.cMax) && row.cMax > 0) row.msg = hasCurve ? '' : '材料沒有壓力–壓縮曲線，無法判定是否過壓';
       else if (row.allow && row.pMax && fin(row.allow.psi)) {
         row.ratio = r4(row.pMax.psi / row.allow.psi * 100);
@@ -390,6 +408,8 @@
       const dispense = schema.isDispense(eff.tim_type);
 
       if (!eff.vendor && !eff.model) add('info', 'no_material', it, label + '：未填材料（Vendor / Model）');
+      const twin = libraryMatch(db, it);
+      if (twin) add('warn', 'unlinked_material', it, label + '：Vendor / Model 與材料庫的 ' + twin.vendor + ' ' + twin.model + ' 相同但未連結（k 值、壓力曲線不會帶入）');
       if (!dispense && !(fin(it.size.l) && fin(it.size.w) && fin(it.size.t))) add('info', 'no_size', it, label + '：尺寸不完整（L × W × T）');
       if (!fin(it.qty)) add('info', 'no_qty', it, label + "：未填 Q'ty");
       if (!String(it.delta_pn || '').trim()) add('info', 'no_pn', it, label + '：未填台達料號');
@@ -625,6 +645,7 @@
     { key: 'pkg', label: '封裝', fields: ['pkg_l', 'pkg_w'] },
     { key: 'height', label: '高度', fields: ['h_min', 'h_nom', 'h_max'] },
     { key: 'allow', label: '耐壓', fields: ['p_allow', 'p_unit'], has: ['p_allow'] },
+    { key: 'load', label: '受壓類型', fields: ['load_type'] },
   ];
   const filledVal = v => v !== null && v !== undefined && v !== '';
   const groupHas = (c, g) => (g.has || g.fields).some(f => filledVal(c[f]));
@@ -720,6 +741,7 @@
     const f = x => (fin(x) ? util.fmt(x, 4) : '—');
     const out = [];
     if (o.cat !== false && v.cat) out.push(v.cat);
+    if (schema.loadType(v.load_type)) out.push(schema.loadType(v.load_type).short);
     if (fin(v.power_w)) out.push('功耗 ' + f(v.power_w) + ' W');
     if (fin(v.top_pct)) out.push('頂面 ' + f(v.top_pct) + '%');
     if (fin(v.pkg_l) || fin(v.pkg_w)) out.push('封裝 ' + f(v.pkg_l) + ' × ' + f(v.pkg_w));
@@ -730,7 +752,7 @@
 
   return {
     knownComponents, matchKnown, groupKnown, knownPatch, componentSummary, nameKey, COMP_GROUPS,
-    materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
+    libraryMatch, materialOf, effective, padArea, compressionAt, timPower, recCompression, compressionCheck, thermalEstimate,
     designRange, heightRange, gapInfo, curveSet, pressureAt, contactArea, allowPsi, forceN, PSI_PA,
     sourceRisk, placedCount, placedCounts, coveredQty, itemCost, itemColor, locationOf, orderedItems,
     projectChecks, projectStats, materialUsage, itemDigest, makeSnapshot, diffSnapshots,

@@ -25,6 +25,10 @@
 - 間隙 / 壓縮 / 壓力：`calc.gapInfo`（`item.gap_design` = 凸台到元件頂面的設計間距 ± 公差，加上元件高度公差，最壞情況；`gap_manual` 時用手填 `item.gap`）是唯一來源，
   `compressionCheck`（壓縮率只檢核下限；過壓 = `pressureAt` 由材料 `pressure_curves` 內插 vs 元件耐壓，`settings.pressure_warn_pct`）
   同時給 Item 抽屜、TIM 清單、分析頁、Excel、PDF 用。不要在 UI 直接讀 `item.gap` 判斷。曲線編輯 / 圖在 `js/ui/curves.js`。
+  受壓類型：覆蓋元件 `load_type`（`schema.LOAD_TYPES`，`check: false` 的 E-PAD 類 → `row.exempt`，壓力照算、`allow = null` 不判定；空值 = 未指定，有耐壓才判定），屬於 `COMP_GROUPS`。
+- 材料連結：Item 的 Vendor / Model（TIM 清單格子與抽屜）用 `MaterialCombo`（`js/ui/material-combo.js`）—— 開啟列出整個材料庫、打字篩選、選取 → `actions.linkMaterial`；
+  手打離開欄位時 `calc.libraryMatch`（未連結且 Vendor ＋ Model 正規化後剛好等於一筆材料）→ 自動連結；TIM 清單提示列「全部連結」→ `actions.linkMatchingMaterials`（一個 undo 步驟）；
+  `projectChecks` 的 `unlinked_material` 警示。**材料不要用原生 `<datalist>`**：它不會連結，而且有值時只列出符合的選項（使用者選錯無法重選）。
 - 元件快選（RefDes 欄下拉）：`calc.knownComponents(db)` 從所有專案的覆蓋元件整理，**以 RefDes ＋ 元件料號為一個元件**
   （`calc.nameKey`；不以料號為鍵，使用者常只在 RefDes 填元件名稱），最近更新的專案優先，`COMP_GROUPS` 分組帶入（數量 / 備註不帶）；
   `calc.groupKnown` 依類別分組。沒有獨立的元件庫資料。抽屜的 `CompField`（`item-drawer.js`，RefDes 欄）選取 → `actions.applyKnownComponent`。

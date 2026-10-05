@@ -208,12 +208,13 @@
       return { it, eff: calc.effective(it, mat), cc: calc.compressionCheck(it, mat, db.settings), loc: calc.locationOf(p, it) };
     }).filter(r => r.cc.status !== 'na');
     const STATUS = { ok: ['OK', '#1E8E4E', '#E7F5EC'], warn: ['Warning', '#B7791F', '#FFF4DB'], error: ['Fail', '#C0392B', '#FDECEA'] };
-    const cW = [7, 11, 22, 6, 18, 8, 8, 10, 9];
-    const cHead = '<tr>' + ['Item', 'Location', '材料', 'T (mm)', '間隙 min / nom / max', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
+    const cW = [7, 10, 14, 18, 6, 17, 7, 7, 9, 8];
+    const cHead = '<tr>' + ['Item', 'Location', '覆蓋元件', '材料', 'T (mm)', '間隙 min / nom / max', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
     const f = v => (v == null ? '—' : util.fmt(v, 3));
     const cRows = comp.map(r => {
       const [label, color, bg] = STATUS[r.cc.status];
       return '<tr>' + td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : '')) +
+        td(esc((r.it.covered || []).map(c => c.refdes || c.part).filter(Boolean).join(', ')), 'font-family:' + MONO) +
         td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right') +
         td([r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
         td(util.fmt(r.cc.min, 1), 'text-align:right' + (r.cc.rec && r.cc.min != null && r.cc.min < r.cc.rec.min ? ';color:#C0392B;font-weight:700' : '')) + td(util.fmt(r.cc.max, 1), 'text-align:right') +

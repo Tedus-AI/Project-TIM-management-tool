@@ -435,9 +435,29 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 /* 元件快選: RefDes field + dropdown of the components entered before, grouped by 類別 */
 .comp-field { position: relative; }
 .comp-field .inp { padding-right: 22px; }
-.comp-field .dd-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 20px; height: 22px; display: grid; place-items: center;
+.comp-field .dd-btn, .mat-combo .dd-btn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 20px; height: 22px; display: grid; place-items: center;
   color: var(--ink-3); background: transparent; border: none; cursor: pointer; }
-.comp-field .dd-btn:hover { color: var(--d-600); background: var(--d-50); }
+.comp-field .dd-btn:hover, .mat-combo .dd-btn:hover { color: var(--d-600); background: var(--d-50); }
+/* material combobox (Vendor / Model): the whole library when opened, picking links the item */
+.mat-combo { position: relative; }
+.mat-combo:not(.in-grid) .inp { padding-right: 24px; }
+.mat-combo.in-grid { height: 100%; }
+.mat-list { position: fixed; z-index: 140; max-height: 320px; max-width: min(560px, calc(100vw - 16px)); overflow: auto; background: var(--surface);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); animation: fadeIn .1s; }
+.mat-list .mc-head { position: sticky; top: 0; padding: 5px 10px; font-size: 10.5px; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.mat-list .mc-row { display: grid; grid-template-columns: minmax(70px, auto) minmax(110px, 1fr) auto 16px; gap: 10px; align-items: center; width: 100%;
+  padding: 6px 10px; text-align: left; font-size: 12.5px; color: var(--ink); background: transparent; border-bottom: 1px solid var(--line); cursor: pointer; }
+.mat-list .mc-row:last-child { border-bottom: none; }
+.mat-list .mc-row.on { background: var(--d-50); box-shadow: inset 3px 0 0 var(--d-500); }
+.mat-list .mc-v { color: var(--ink-2); }
+.mat-list .mc-t { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.mat-list .mc-row svg { color: var(--d-500); }
+.mat-list .mc-empty { padding: 10px; font-size: 11.5px; color: var(--ink-3); }
+.link-hint { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: var(--warn); background: var(--warn-bg); border: 1px solid rgba(184, 110, 0, 0.25); }
+.link-hint span { flex: 1; }
+.unlinked-banner { display: flex; align-items: center; gap: 10px; margin: 0 28px 8px; padding: 8px 12px; font-size: 12.5px; color: var(--warn);
+  background: var(--warn-bg); border: 1px solid rgba(184, 110, 0, 0.3); }
+.unlinked-banner span { flex: 1; }
 .suggest { position: absolute; left: 0; top: calc(100% + 2px); z-index: 30; width: 440px; max-width: calc(100vw - 48px); max-height: 340px; overflow: auto;
   background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); animation: fadeIn .1s; }
 .suggest-head { position: sticky; top: 0; padding: 5px 10px; font-size: 10.5px; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }

@@ -1,4 +1,4 @@
-/* 間隙與熱檢核: compression range chart per item + TIM temperature-rise ranking. */
+/* 間隙與壓力檢核: compression / pressure check per item (range chart) + TIM temperature-rise ranking. */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -11,6 +11,10 @@
     warn: { label: 'Warning', icon: '!', cls: 'tag-warn' },
     error: { label: 'Fail', icon: '✕', cls: 'tag-err' },
   };
+
+  /** Names of the covered components (RefDes, else the part number), e.g. "U101, U102" — for the check table. */
+  const coveredNames = it => (it.covered || []).map(c => c.refdes || c.part).filter(Boolean).join(', ');
+  const coveredTitle = it => (it.covered || []).map(c => [c.refdes, c.part].filter(Boolean).join(' / ') + (c.qty && c.qty !== 1 ? ' × ' + c.qty : '')).filter(Boolean).join('\n');
 
   function RangeCell(props) {
     const { cc, hi } = props;
@@ -72,12 +76,13 @@
         </div>
         ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
           <thead><tr>
-            ${th('item', 'Item')}<th>Location</th><th>材料</th><th class="r">T</th><th class="r">間隙 min / nom / max</th>
+            ${th('item', 'Item')}<th>Location</th><th>覆蓋元件</th><th>材料</th><th class="r">T</th><th class="r">間隙 min / nom / max</th>
             ${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}<th class="r">壓力 max psi</th>
             <th class="rangecell">0 ~ ${hi}%</th>${th('status', '判定')}
           </tr></thead>
           <tbody>${sorted.map(r => html`<tr key=${r.it.id} class="clickable" onClick=${() => go('p/' + p.id + '/bom/' + r.it.id)}>
             <td class="mono"><b>${r.it.item_no}</b></td><td>${r.loc ? r.loc.name : ''}</td>
+            <td class="mono ellipsis" style="max-width:170px" title=${coveredTitle(r.it)}>${coveredNames(r.it) || html`<span class="muted">—</span>`}</td>
             <td class="ellipsis" style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td>
             <td class="r mono">${util.fmt(r.it.size.t)}</td>
             <td class="r mono" title=${r.cc.gap.source === 'stack' ? '設計間距 ± 公差 + 元件高度公差' : '手動輸入'}>${[r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}${r.cc.gap.source === 'stack' ? html` <span class="tag tag-mute" style="font-size:10px">設計間距</span>` : null}</td>

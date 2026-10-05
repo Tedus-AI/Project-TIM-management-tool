@@ -82,10 +82,10 @@ module.exports = [
       await field(page, '間距公差 +').fill('0.05');
       await field(page, '間距公差 −').fill('0.05');
       const hrow = n => page.locator('#d-gap .h-table tbody tr').nth(n);
-      await hrow(0).locator('td >> nth=1 >> input').fill('1.35');     // PLL: 1.35 / 1.4 / 1.45
-      await hrow(0).locator('td >> nth=2 >> input').fill('1.4');
-      await hrow(0).locator('td >> nth=3 >> input').fill('1.45');
-      await hrow(1).locator('td >> nth=2 >> input').fill('1.3');      // MIX: nom only
+      await hrow(0).locator('td >> nth=2 >> input').fill('1.35');     // PLL: 1.35 / 1.4 / 1.45
+      await hrow(0).locator('td >> nth=3 >> input').fill('1.4');
+      await hrow(0).locator('td >> nth=4 >> input').fill('1.45');
+      await hrow(1).locator('td >> nth=3 >> input').fill('1.3');      // MIX: nom only
       // derived gaps (locked, ✂ to edit): PLL 1.5 / 1.6 / 1.7; MIX is 0.1 mm lower → 1.65 / 1.7 / 1.75 → item 1.5 / 1.6 / 1.75
       const gapField = page.locator('#d-gap .field:has(> label:text-is("間隙 min / nom / max"))');
       await page.waitForFunction(() => /1\.5 \/ 1\.6 \/ 1\.75 mm/.test(document.querySelector('#d-gap').innerText));
@@ -106,16 +106,16 @@ module.exports = [
       }));
       assert.deepEqual(aligned, [true, true]);
       // allowable: PLL 22 psi → 91 % → Warning; MIX 10 psi → Fail
-      await hrow(0).locator('td >> nth=4 >> input').fill('22');
-      await hrow(1).locator('td >> nth=4 >> input').fill('10');
+      await hrow(0).locator('td >> nth=5 >> input').fill('22');
+      await hrow(1).locator('td >> nth=5 >> input').fill('10');
       await page.waitForSelector('#d-gap .calc-box .tag-err:text-is("Fail")');
       assert.match(await prow(0).innerText(), /Warning/);
       assert.match(await prow(1).innerText(), /Fail/);
       assert.match(await page.locator('#d-gap').innerText(), /MIX-1139[^\n]*超過耐壓 10 psi/);
       // MIX 30 psi → OK; PLL as a force: 10 N over 7 × 7 mm ≈ 29.6 psi → 68 % → OK
-      await hrow(1).locator('td >> nth=4 >> input').fill('30');
-      await hrow(0).locator('td >> nth=4 >> input').fill('10');
-      await hrow(0).locator('td >> nth=5 >> select').selectOption('N');
+      await hrow(1).locator('td >> nth=5 >> input').fill('30');
+      await hrow(0).locator('td >> nth=5 >> input').fill('10');
+      await hrow(0).locator('td >> nth=6 >> select').selectOption('N');
       await page.waitForSelector('#d-gap .calc-box .tag-ok:text-is("OK")');
       assert.match(await prow(0).innerText(), /10 N[\s\S]*68%/);
       const a2 = await item(page, 'A2');
