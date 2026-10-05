@@ -633,6 +633,23 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .an-table td { padding: 6px 10px; }
 .an-table .rangecell { width: 300px; min-width: 240px; }
 .an-sortable { cursor: pointer; user-select: none; }
+/* 間隙與壓力檢核: one tbody per item, one line per covered component (item cells rowspan) */
+.an-check tbody.an-item { cursor: pointer; }
+.an-check tbody.an-item:hover td { background: var(--d-50); }
+.an-check tbody.an-item td { border-bottom: none; }
+.an-check tbody.an-item tr:last-child td, .an-check tbody.an-item td[rowspan] { border-bottom: 1px solid var(--line); }
+.an-check tr.an-sub td:not([rowspan]) { border-top: 1px dashed var(--line); }
+.an-check .lt-chip { height: 16px; padding: 0 4px; font-size: 10px; margin-left: 4px; vertical-align: 1px; }
+.an-check .c-cell { display: flex; align-items: center; gap: 8px; }
+.an-check .c-cell .rangebar { flex: 1; min-width: 150px; }
+.an-check .c-val { font-size: 11px; white-space: nowrap; min-width: 78px; text-align: right; color: var(--ink-2); }
+.an-check .p-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.an-check .p-meter { width: 44px; height: 6px; flex: none; background: var(--line); border-radius: 3px; overflow: hidden; }
+.an-check .p-meter i { display: block; height: 100%; background: var(--d-500); border-radius: 3px; }
+.an-check .p-meter.warn i { background: #E39A1C; }
+.an-check .p-meter.error i { background: var(--err); }
+.an-check .p-ratio { font-size: 11px; min-width: 34px; text-align: right; }
+.an-check .p-note { font-size: 11px; }
 .an-sortable:hover { color: var(--d-600); }
 .dt-bar { display: flex; align-items: center; gap: 8px; }
 .dt-bar > i { display: block; height: 8px; background: var(--d-400); min-width: 1px; }

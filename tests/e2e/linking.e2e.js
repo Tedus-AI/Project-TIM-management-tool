@@ -103,6 +103,8 @@ module.exports = [
       await page.waitForSelector('#d-gap:has-text("BGA 需檢核耐壓")');
       assert.equal(await hrow(0).locator('td >> nth=5 >> input').count(), 1, '耐壓 editable again');
       assert.match(await page.locator('#d-hist').innerText(), /受壓類型/);
+      await hrow(0).locator('td >> nth=1 >> select').selectOption('epad');
+      await page.waitForSelector('#d-gap .p-table tbody tr:nth-child(1) .tag:has-text("不檢核")');
       await page.click('.drawer button[title="關閉 (Esc)"]');
       await page.waitForSelector('.drawer', { state: 'detached' });
 
@@ -113,6 +115,13 @@ module.exports = [
       assert.deepEqual(heads.slice(li, li + 3), ['Location', '覆蓋元件', '材料']);
       const a11 = await page.locator('table.an-table >> nth=0 >> tbody tr:has(b:text-is("A1-1"))').innerText();
       assert.match(a11, /U101-U104/);
+      // the E-PAD component: compression still judged, pressure 不檢核 (not an OK that looks like a judgement)
+      const a2first = page.locator('table.an-table >> nth=0 >> tbody.an-item:has(b:text-is("A2")) tr >> nth=0');
+      assert.match(await a2first.innerText(), /E-PAD/);
+      const tags = (await a2first.locator('td .tag:not(.lt-chip)').allInnerTexts()).map(t => t.trim());
+      assert.equal(tags.length, 2);
+      assert.match(tags[0], /OK|Fail/);
+      assert.equal(tags[1], '不檢核');
     },
   },
 ];

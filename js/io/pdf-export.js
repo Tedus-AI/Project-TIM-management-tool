@@ -208,22 +208,43 @@
       return { it, eff: calc.effective(it, mat), cc: calc.compressionCheck(it, mat, db.settings), loc: calc.locationOf(p, it) };
     }).filter(r => r.cc.status !== 'na');
     const STATUS = { ok: ['OK', '#1E8E4E', '#E7F5EC'], warn: ['Warning', '#B7791F', '#FFF4DB'], error: ['Fail', '#C0392B', '#FDECEA'] };
-    const cW = [7, 10, 14, 18, 6, 17, 7, 7, 9, 8];
-    const cHead = '<tr>' + ['Item', 'Location', '覆蓋元件', '材料', 'T (mm)', '間隙 min / nom / max', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
+    const judge = st => { const [label, color, bg] = STATUS[st]; return td(label, `text-align:center;font-weight:700;color:${color};background:${bg}`); };
+    const muted = t => td(esc(t), `text-align:center;color:${INK3}`);
+    const cW = [6, 9, 15, 15, 5, 14, 9, 15, 7, 7];
+    const cHead = '<tr>' + ['Item', 'Location', '覆蓋元件', '材料', 'T (mm)', '間隙 min / nom / max', '壓縮率 %', '壓力 max / 規格 psi', '壓縮判定', '壓力判定'].map(t => th(t)).join('') + '</tr>';
     const f = v => (v == null ? '—' : util.fmt(v, 3));
-    const cRows = comp.map(r => {
-      const [label, color, bg] = STATUS[r.cc.status];
-      return '<tr>' + td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : '')) +
-        td(esc((r.it.covered || []).map(c => c.refdes || c.part).filter(Boolean).join(', ')), 'font-family:' + MONO) +
-        td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right') +
-        td([r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
-        td(util.fmt(r.cc.min, 1), 'text-align:right' + (r.cc.rec && r.cc.min != null && r.cc.min < r.cc.rec.min ? ';color:#C0392B;font-weight:700' : '')) + td(util.fmt(r.cc.max, 1), 'text-align:right') +
-        td(r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—', 'text-align:right') +
-        td(label, `text-align:center;font-weight:700;color:${color};background:${bg}`) + '</tr>';
+    const f1 = v => (v == null ? '—' : util.fmt(v, 1));
+    // one row per covered component (gaps, compression and pressure differ per component); the item cells on its
+    // first row, the item number repeated in grey on the others so a page break never loses it
+    const cRows = [];
+    comp.forEach(r => {
+      const comps = r.cc.comps.length ? r.cc.comps : [null];
+      comps.forEach((c, i) => {
+        const g = c ? c.gap : r.cc.gap;
+        const min = c ? c.cMin : r.cc.min, max = c ? c.cMax : r.cc.max;
+        const cst = c ? c.cStatus : r.cc.cStatus;
+        const low = min != null && (min <= 0 || (r.cc.rec && min < r.cc.rec.min));
+        const lt = c && schema.loadType(c.loadType);
+        const name = c ? esc(c.refdes || c.part || '元件') + (lt ? `<span style="color:${INK3}">（${esc(lt.short)}）</span>` : '') : '—';
+        let pr;
+        if (c && c.pMax) {
+          const v = (c.pMax.beyond ? '> ' : '') + util.fmt(c.pMax.psi, 1);
+          pr = c.ratio != null && c.allow ? `<b>${v}</b> / ${util.fmt(c.allow.psi, 1)}（${util.fmt(c.ratio, 0)}%）` : `<b>${v}</b>` + (c.pNote ? `<span style="color:${INK3}">（${esc(c.exempt ? '規格不需' : c.pNote)}）</span>` : '');
+        } else if (c) pr = '—' + (c.pNote ? `<span style="color:${INK3}">（${esc(c.pNote)}）</span>` : '');
+        else pr = r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—';
+        const pj = !c ? muted('未判定') : c.exempt ? td('不檢核', `text-align:center;color:${INK3};background:#F1F3F6`) : c.status === 'na' ? muted('未判定') : judge(c.status);
+        cRows.push('<tr>' + (i ? td(esc(r.it.item_no), `text-align:center;color:${INK3}`) + td('') : td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : ''))) +
+          td(name, 'font-family:' + MONO) +
+          (i ? td('') + td('') : td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right')) +
+          td([g.min, g.nom, g.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
+          td(`<span style="${low ? 'color:#C0392B;font-weight:700' : ''}">${f1(min)}</span> ~ ${f1(max)}`, 'text-align:center') +
+          td(pr, 'text-align:right') +
+          (cst === 'na' ? muted('—') : judge(cst)) + pj + '</tr>');
+      });
     });
     const blocks = [
       want.usage ? { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' } : null,
-      want.compression ? { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差；C min 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足）；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' } : null,
+      want.compression ? { title: '壓縮率與壓力檢核', sub: '每顆覆蓋元件一列。C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差。壓縮判定：C min 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足）。壓力 = 材料壓力–壓縮曲線在 C max 的值 / 元件規格（耐壓）（比例）；壓力判定：> 100% → Fail、≥ ' + (db.settings.pressure_warn_pct || 80) + '% → Warning；受壓類型 E-PAD / QFN / LGA / 引腳 → 不檢核（壓力只顯示）；未判定 = 缺規格或材料曲線', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' } : null,
     ].filter(Boolean);
     const pages = [];
     let cur = '', room = BODY_H;

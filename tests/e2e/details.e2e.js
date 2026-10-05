@@ -150,12 +150,21 @@ module.exports = [
       await a2row.locator('.cell-ro.r.mono').first().waitFor();
       assert.deepEqual((await a2row.locator('.cell-ro.r.mono').allInnerTexts()).slice(0, 3), ['1.5', '1.6', '1.75']);
       assert.match(await a2row.innerText(), /12\.5~25[\s\S]*20/);
-      // 間隙與壓力檢核: the range cell draws one bar per component
+      // 間隙與壓力檢核: one line per component — its own range bar with the numbers next to it (no hover needed),
+      // design pressure / spec with the ratio, and separate compression / pressure judgements
       await page.click('.tab:has-text("間隙與壓力檢核")');
-      const a2an = page.locator('table.an-table >> nth=0 >> tbody tr:has(b:text-is("A2"))');
+      const a2an = page.locator('table.an-table >> nth=0 >> tbody.an-item:has(b:text-is("A2"))');
       await a2an.waitFor();
+      assert.equal(await a2an.locator('tr').count(), 2);
       assert.equal(await a2an.locator('.rangecell .span').count(), 2);
-      assert.match(await a2an.locator('.rangecell .rangebar').getAttribute('title'), /PLL-4368[^\n]*15 ~ 25%\nMIX-1139[^\n]*12\.5 ~ 17\.5%/);
+      assert.deepEqual(await a2an.locator('.c-val').allInnerTexts(), ['15 ~ 25%', '12.5 ~ 17.5%']);
+      const tips = await a2an.locator('.rangecell .rangebar').evaluateAll(els => els.map(e => e.title));
+      assert.match(tips[0], /^PLL-4368[^\n]*壓縮率 15 ~ 25%（nom 20%）$/);
+      assert.ok(!tips.some(t => /最小壓縮/.test(t)), 'the hover text does not describe the minimum compression');
+      const pcells = await a2an.locator('.p-cell').allInnerTexts();
+      assert.match(pcells[0].replace(/\s+/g, ' '), /20 \/ 29\.6 psi 68%/);   // 10 N over 7 × 7 mm ≈ 29.6 psi
+      assert.match(pcells[1].replace(/\s+/g, ' '), /15 \/ 30 psi 50%/);
+      assert.deepEqual((await a2an.locator('tr').nth(0).locator('td .tag').allInnerTexts()).map(t => t.trim()), ['✓ OK', '✓ OK']);
     },
   },
   {
