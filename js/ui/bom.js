@@ -148,10 +148,13 @@
       const locNames = p.locations.map(l => l.name.toUpperCase());
       const looksLoc = v => locNames.includes(String(v || '').trim().toUpperCase()) || /case|cover|heatsink|shield|location|位置/i.test(String(v || ''));
       const startsWithLoc = first === 'location' || (first === 'auto' && matrix.some(r => looksLoc(r[0])));
-      const order = startsWithLoc ? DEFAULT_ORDER : DEFAULT_ORDER.slice(1);
+      const order = (startsWithLoc ? DEFAULT_ORDER : DEFAULT_ORDER.slice(1)).slice();
+      // rows from the tool's own Excel export carry k between Model and Size (ignored: it comes from the library)
+      const withK = parse.hasKColumn(matrix, order.indexOf('model') + 1);
+      if (withK) order.splice(order.indexOf('model') + 1, 0, '_k');
       const map = {};
       order.forEach((f, i) => { map[f] = i; });
-      return { headerRow: -1, map, note: startsWithLoc ? '依現行 Excel 欄序（第一欄 = Location）' : '依現行 Excel 欄序（第一欄 = Item，Location 用預設）' };
+      return { headerRow: -1, map, note: (startsWithLoc ? '依現行 Excel 欄序（第一欄 = Location）' : '依現行 Excel 欄序（第一欄 = Item，Location 用預設）') + (withK ? '；Model 後面有 k 欄（材料庫帶入，略過）' : '') };
     }, [matrix, first]);
     const rows = useMemo(() => (plan ? parse.rowsToItems(matrix, plan.headerRow, plan.map, {}) : []), [plan]);
     const defLoc = props.locationId || (p.locations[0] && p.locations[0].id);
@@ -340,8 +343,12 @@
      */
     function applyMatrix(r0, c0, matrix, fillVisible) {
       if (ro) return;
-      // whole columns from the anchor (hidden ones included), skipping read-only material values such as k
-      const seq = allCols.slice(allCols.indexOf(cols[c0])).filter((c, i) => i === 0 || !c.rangeSkip);
+      // whole columns from the anchor (hidden ones included), skipping read-only material values such as k — unless
+      // the rows carry one (copied from the tool's own Excel export: … Model, k, Size …)
+      const full = allCols.slice(allCols.indexOf(cols[c0]));
+      const ki = full.findIndex((c, i) => i > 0 && c.rangeSkip);
+      const keepK = ki > 0 && full[ki + 1] && full[ki + 1].key === 'size' && parse.hasKColumn(matrix, ki);
+      const seq = full.filter((c, i) => i === 0 || keepK || !c.rangeSkip);
       const colAt = j => (fillVisible ? cols[c0 + j] : seq[j]);
       let hiddenHit = 0;
       const patches = [], newRows = [];

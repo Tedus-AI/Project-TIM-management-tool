@@ -49,12 +49,13 @@ module.exports = [
         const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
         await wb.xlsx.load(buf.buffer);
         const ws = wb.getWorksheet('TIM List');
-        const row = r => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(c => ws.getCell(r, c).text);
-        return { head: row(1), first: row(2), a8: row(10), single: ws.getCell(2, 10).fill.fgColor.argb, rot: ws.getCell(2, 1).alignment.textRotation };
+        const row = r => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(c => ws.getCell(r, c).text);
+        return { head: row(1), first: row(2), a8: row(10), single: ws.getCell(2, 11).fill.fgColor.argb, rot: ws.getCell(2, 1).alignment.textRotation };
       }, b64);
-      assert.deepEqual(cells.head, ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source']);
-      assert.deepEqual(cells.first, ['Bottom Case', 'A1-1', 'RF', 'Vendor-A', 'AbsorbPad AX', '51.5*9*3', '4', 'DEMO-0001', 'PAD-2601*4', 'Vendor-A only source']);
-      assert.equal(cells.a8[1], 'A8'); assert.equal(cells.a8[2], 'PWR/DDR'); assert.equal(cells.a8[9], 'Vendor-C TP-750');
+      // the existing Excel's columns with the TIM 清單's names: k after Model, Note → 覆蓋元件
+      assert.deepEqual(cells.head, ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k (W/m·K)', 'Size', "Q'ty", 'Delta Part No.', '覆蓋元件', '2nd source']);
+      assert.deepEqual(cells.first, ['Bottom Case', 'A1-1', 'RF', 'Vendor-A', 'AbsorbPad AX', '1.6', '51.5*9*3', '4', 'DEMO-0001', 'PAD-2601*4', 'Vendor-A only source']);
+      assert.equal(cells.a8[1], 'A8'); assert.equal(cells.a8[2], 'PWR/DDR'); assert.equal(cells.a8[5], '7.5'); assert.equal(cells.a8[10], 'Vendor-C TP-750');
       assert.equal(cells.single, 'FFF9CBF0', 'single-source cell is pink');
       assert.equal(cells.rot, 90);
     },
@@ -91,21 +92,21 @@ module.exports = [
           const wb = new ExcelJS.Workbook();
           await wb.xlsx.load(Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer);
           const ws = wb.getWorksheet('TIM List');
-          const head = []; for (let c = 1; c <= 12; c++) head.push(ws.getCell(1, c).text);
+          const head = []; for (let c = 1; c <= 14; c++) head.push(ws.getCell(1, c).text);
           const items = []; for (let r = 2; r <= 30; r++) { const t = ws.getCell(r, 2).text; if (/^A\d/.test(t)) items.push(t); }
           const col = (name, key) => { const w = wb.getWorksheet(name); const out = []; w.eachRow((row, i) => { if (i > 1) out.push(row.getCell(key).text); }); return out; };
           return { head, items, pink: ws.getCell(2, head.indexOf('2nd source') + 1).fill.fgColor.argb, comp: col('Components', 1), gap: col('Gap & Thermal', 1), legend: ws.getCell(items.length + 3, 1).text };
         }, b64);
       };
       let x = await exportXlsx(true);
-      assert.deepEqual(x.head.filter(Boolean), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', 'Note', '2nd source', 'Type', 'Status']);
+      assert.deepEqual(x.head.filter(Boolean), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k (W/m·K)', 'Size', '覆蓋元件', '2nd source', 'Type', 'Status']);
       assert.ok(!x.items.includes('A2') && x.items.includes('A1-1') && x.items.includes('A3'));
       assert.equal(x.pink, 'FFF9CBF0', 'the 2nd source colour follows its column');
       assert.ok(!x.comp.includes('A2') && !x.gap.includes('A2'), 'hidden Item left out of the detail sheets');
       assert.match(x.legend, /未列出隱藏的 1 個 Item、2 欄/);
       // turned off → everything
       x = await exportXlsx(false);
-      assert.deepEqual(x.head.slice(0, 10), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source']);
+      assert.deepEqual(x.head.slice(0, 11), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k (W/m·K)', 'Size', "Q'ty", 'Delta Part No.', '覆蓋元件', '2nd source']);
       assert.ok(x.items.includes('A2') && x.comp.includes('A2'));
     },
   },

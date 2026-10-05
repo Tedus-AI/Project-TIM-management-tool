@@ -209,7 +209,7 @@
     size: ['size', '尺寸', 'dimension', 'dim', 'lwt', 'lxwxt', '規格'],
     qty: ['qty', 'quantity', '數量', '用量', 'pcs', 'q'],
     delta_pn: ['deltapartno', 'deltapn', 'deltap', 'partno', 'pn', '料號', '台達料號', 'partnumber'],
-    covered: ['note', 'notes', '備註', 'component', 'components', '元件', 'coveredcomponent', 'usedfor', 'cover', 'ic'],
+    covered: ['note', 'notes', '備註', 'component', 'components', '元件', '覆蓋元件', 'coveredcomponent', 'usedfor', 'cover', 'ic'],
     second_source: ['2ndsource', 'secondsource', '2nd', '第二來源', '第二供應商', 'alternate', 'alternative', '替代料', 'altsource'],
   };
 
@@ -244,6 +244,24 @@
       if (score >= 3 && (!best || score > best.score)) best = { row: r, map, score };
     }
     return best;
+  }
+
+  /**
+   * Rows copied from the tool's own TIM List (Excel export) have the material k between Model and Size; the
+   * existing Excel does not. True when the cells at kIdx look like k (a number or empty) with a size (L*W*T)
+   * right after them, and no row has its size at kIdx.
+   */
+  function hasKColumn(rows, kIdx) {
+    const cell = v => String(v == null ? '' : v).trim();
+    const num = v => cell(v) === '' || /^[-+]?\d+(\.\d+)?$/.test(cell(v));
+    const size = v => /\d\s*[*xX×]\s*\d/.test(cell(v));
+    let yes = 0;
+    for (const r of rows || []) {
+      if (!r || r.length <= kIdx) continue;
+      if (size(r[kIdx])) return false;
+      if (num(r[kIdx]) && size(r[kIdx + 1])) yes++;
+    }
+    return yes > 0;
   }
 
   /** Guess the TIM type from vendor / model wording. */
@@ -310,7 +328,7 @@
 
   return {
     parseSize, formatSize, parseCovered, formatCovered, mergeCovered, parseUsedOn, formatUsedOn,
-    parseSecondSource, formatSources, mergeSources, parseTsv, toTsv, HEADER_SYNONYMS, matchHeader, detectHeader,
+    parseSecondSource, formatSources, mergeSources, parseTsv, toTsv, HEADER_SYNONYMS, matchHeader, detectHeader, hasKColumn,
     guessTimType, rowsToItems,
   };
 });

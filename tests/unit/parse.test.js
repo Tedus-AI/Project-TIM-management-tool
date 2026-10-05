@@ -151,3 +151,15 @@ test('2nd source display text round-trips through the parser', () => {
   const back = parse.parseSecondSource(text);
   assert.deepEqual(back.sources.map(s => [s.vendor, s.model, s.note]), [['甲廠', '', 'short'], ['Vendor-C', 'TP-800', 'long']]);
 });
+
+test('hasKColumn: rows from the tool\'s own Excel export carry k between Model and Size, the existing Excel does not', () => {
+  // existing Excel: Item, Used On, Vendor, Model, Size, Q'ty …  (k slot = index 4)
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'AbsorbPad AX', '51.5*9*3', '4']], 4), false);
+  // export: … Model, k, Size …
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'AbsorbPad AX', '1.6', '51.5*9*3', '4']], 4), true);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'Pad', '', '10x10x1.5', '2']], 4), true, 'no k on file: empty cell');
+  // a size where k would be in any row → no k column; no size after an empty cell → no k column
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'V', 'M', '1.6', '5*5*1'], ['A2', 'RF', 'V', 'M', '6*6*2']], 4), false);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'V', 'M', '', '4', 'PN']], 4), false);
+  assert.equal(parse.hasKColumn([], 4), false);
+});

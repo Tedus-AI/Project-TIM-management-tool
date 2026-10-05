@@ -386,12 +386,14 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 ## 9. 匯入 / 匯出
 
 ### 9.1 Excel 匯出
-- **TIM List** 工作表：欄位與現行 Excel 相同（Location 直排合併、分組底色、單一來源粉紅底），可勾選附加欄位（型態、k、狀態、間隙、壓縮率、功耗、ΔT、單價、小計、MPN、加工廠）。
+- **TIM List** 工作表：現行 Excel 的欄位、欄名與畫面一致（`Location | Item | Used On | Vendor | Model | k (W/m·K) | Size | Q'ty | Delta Part No. | 覆蓋元件 | 2nd source`；
+  Location 直排合併、分組底色、單一來源粉紅底），可勾選附加欄位（型態、狀態、間隙、壓縮率、壓力、功耗、ΔT、單價、小計、MPN、加工廠）。
+  再匯入時「覆蓋元件」與 Note 同義、k 欄忽略（由材料庫帶入）；直接複製整列貼回 TIM 清單時自動判斷有沒有 k 欄。
 - 表格下方嵌入各視圖 PNG（紅字標題 Bottom case / Top case）。
 - 附加工作表：Components（覆蓋元件展開）、2nd Source、Gap & Thermal、Changelog、Project。
 
 ### 9.2 Excel 匯入
-- 自動偵測標題列（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source，含中文同義詞），可手動調整欄位對應。
+- 自動偵測標題列（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note（= 覆蓋元件）/ 2nd source，含中文同義詞；本工具匯出的 k 欄忽略），可手動調整欄位對應。
 - 合併儲存格（直排 Location）自動向下帶入。
 - `51.5*9*3` → L/W/T；`LDO-A*2,BUCK-B*4` → 覆蓋元件；`Vendor-A only source` → 單一來源；`short:甲廠,long:Vendor-C` → 兩筆第二來源＋策略備註。
 - 偵測工作表內嵌圖片 → 可一鍵建立位置標註視圖（以圖片上方的文字當視圖名稱）。
