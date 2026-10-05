@@ -33,7 +33,8 @@
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。
 - TIM 清單「顯示 / 隱藏」（`bom.js` 的 `HidePanel`）：`usePref('bom_hidden_cols')`（欄 key，全部專案共用）、`usePref('bom_hidden_rows')`（{ 專案 id: [item id] }），
-  只是個人畫面，不寫資料庫、不影響匯出；`item_no` 不可隱藏。`cols` = 看得到的欄（data-cell 的欄索引），`allCols` = 完整欄序：
+  只是個人畫面，不寫資料庫；`item_no` 不可隱藏。匯出同步：`bomHiddenForExport(p)` → 匯出 opts.hide，`xlsxExport.viewProject`（去掉隱藏 Item，位置圖仍用原專案）、
+  `listColumns`（TIM List 欄位）同時給 Excel 與 PDF 用。`cols` = 看得到的欄（data-cell 的欄索引），`allCols` = 完整欄序：
   **複製（`rangeTsv`）與貼上（`applyMatrix`）一律用 `allCols` 從錨點對應**，否則從 Excel 貼整列會錯位；單值填滿框選範圍、Delete、Ctrl+D 只動看得到的欄。
 - 工具列 `AccountChip`（`app.js`）顯示 `TIM.spBackend.account()` 的 ID；過期 / 未登入時可點擊登入（SharePoint 模式 `spRelogin`，本機資料夾同步 `pushNow`）。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。

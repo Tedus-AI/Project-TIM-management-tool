@@ -41,6 +41,24 @@
   }
 
   const TIM_LIST_HEADERS = ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source'];
+  // the TIM 清單 grid column of each TIM List column (Location and Item are always exported)
+  const TIM_LIST_KEYS = [null, null, 'used_on', 'vendor', 'model', 'size', 'qty', 'delta_pn', 'covered', 'second'];
+
+  /**
+   * What the TIM 清單「顯示 / 隱藏」leaves out, as exported (Excel and PDF follow the screen):
+   * hide = { rows: [item ids], cols: [grid column keys] } (null = everything).
+   *  - listColumns(hide): indices of the TIM List columns to write
+   *  - viewProject(p, hide): the project without the hidden items (every table and summary uses it;
+   *    the placement drawings stay as they are)
+   */
+  function listColumns(hide) {
+    const off = new Set((hide && hide.cols) || []);
+    return TIM_LIST_KEYS.map((k, i) => i).filter(i => !TIM_LIST_KEYS[i] || !off.has(TIM_LIST_KEYS[i]));
+  }
+  function viewProject(p, hide) {
+    const off = new Set((hide && hide.rows) || []);
+    return off.size ? Object.assign({}, p, { items: p.items.filter(it => !off.has(it.id)) }) : p;
+  }
 
   /**
    * TIM List content shared by the Excel and PDF exports: location groups (in location order)
@@ -81,7 +99,10 @@
     opts = opts || {};
     const ExcelJS = await TIM.loader.load('exceljs');
     const db = TIM.store.db;
-    const p = db.projects[pid];
+    const p0 = db.projects[pid];
+    const p = viewProject(p0, opts.hide);       // without the rows hidden in the TIM 清單
+    const lc = listColumns(opts.hide);          // TIM List columns shown in the TIM 清單
+    const at = i => lc.indexOf(i) + 1;          // sheet column of a TIM List column (0 = not exported)
     const wb = new ExcelJS.Workbook();
     wb.creator = 'TIM Management Tool';
     wb.created = new Date();
@@ -89,7 +110,7 @@
 
     // ───────── TIM List ─────────
     const ws = wb.addWorksheet('TIM List', { views: [{ state: 'frozen', ySplit: 1 }] });
-    const base = TIM_LIST_HEADERS.map((h, i) => ({ header: h, width: [7, 8, 11, 14, 18, 15, 6, 15, 36, 26][i] }));
+    const base = lc.map(i => ({ header: TIM_LIST_HEADERS[i], width: [7, 8, 11, 14, 18, 15, 6, 15, 36, 26][i] }));
     const cols = base.concat(extras.map(e => ({ header: e.header, width: e.width })));
     cols.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
     const head = ws.getRow(1);
@@ -108,36 +129,40 @@
       const startRow = r;
       const fg = util.textOn(loc.color) === '#FFFFFF' ? 'FFFFFFFF' : 'FF000000';
       rows.forEach(({ it, vals: base10, extraVals, risk }) => {
-        const vals = base10.concat(extraVals);
+        const src = lc.concat(extraVals.map(() => -1));     // TIM List index of each written column (-1 = extra)
+        const vals = lc.map(i => base10[i]).concat(extraVals);
         const row = ws.getRow(r);
-        vals.forEach((v, i) => {
-          const cell = row.getCell(i + 1);
+        vals.forEach((v, j) => {
+          const i = src[j];
+          const cell = row.getCell(j + 1);
           cell.value = v === null ? null : v;
           cell.font = { name: 'Arial', size: 10, color: { argb: fg } };
           cell.alignment = { vertical: 'middle', horizontal: i === 8 || i === 9 ? 'left' : 'center', wrapText: i === 8 };
           cell.border = border;
           cell.fill = fill(loc.color);
         });
-        row.getCell(8).numFmt = '@';
-        const sc = row.getCell(10);
-        if (risk === 'single') { sc.fill = fill(PINK); sc.font = { name: 'Arial', size: 10, color: { argb: 'FFB4237A' } }; }
-        else if (risk === 'unverified') { sc.fill = fill(AMBER); sc.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } }; }
+        if (at(7)) row.getCell(at(7)).numFmt = '@';
+        const sc = at(9) ? row.getCell(at(9)) : null;
+        if (sc && risk === 'single') { sc.fill = fill(PINK); sc.font = { name: 'Arial', size: 10, color: { argb: 'FFB4237A' } }; }
+        else if (sc && risk === 'unverified') { sc.fill = fill(AMBER); sc.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } }; }
         if (it.status === 'obsolete') row.eachCell(c => { c.font = Object.assign({}, c.font, { strike: true }); });
         r++;
       });
       if (r - 1 > startRow) ws.mergeCells(startRow, 1, r - 1, 1);
-      const lc = ws.getCell(startRow, 1);
-      lc.value = loc.name;
-      lc.alignment = { textRotation: 90, vertical: 'middle', horizontal: 'center' };
-      lc.font = { name: 'Arial', size: 10, bold: true, color: { argb: fg } };
-      lc.fill = fill(loc.color);
-      lc.border = border;
+      const locCell = ws.getCell(startRow, 1);
+      locCell.value = loc.name;
+      locCell.alignment = { textRotation: 90, vertical: 'middle', horizontal: 'center' };
+      locCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: fg } };
+      locCell.fill = fill(loc.color);
+      locCell.border = border;
     });
 
     // legend + provenance
     r += 1;
     const legend = ws.getCell(r, 1);
-    legend.value = '2nd source 底色：粉紅 = 單一來源（無第二來源）、淺黃 = 第二來源尚未承認';
+    legend.value = '2nd source 底色：粉紅 = 單一來源（無第二來源）、淺黃 = 第二來源尚未承認' +
+      (p.items.length < p0.items.length || lc.length < TIM_LIST_HEADERS.length ? '；依 TIM 清單的顯示設定，未列出隱藏的 ' +
+        [p.items.length < p0.items.length ? (p0.items.length - p.items.length) + ' 個 Item' : '', lc.length < TIM_LIST_HEADERS.length ? (TIM_LIST_HEADERS.length - lc.length) + ' 欄' : ''].filter(Boolean).join('、') : '');
     legend.font = { name: 'Arial', size: 9, color: { argb: 'FF595959' } };
     ws.getCell(r + 1, 1).value = '匯出：' + p.name + ' · ' + p.stage + ' · ' + util.fmtDateTime(util.nowIso()) + ' · TIM Management Tool';
     ws.getCell(r + 1, 1).font = { name: 'Arial', size: 9, color: { argb: 'FF595959' } };
@@ -150,7 +175,7 @@
       let col = 0, blockRows = 0;
       for (const v of views) {
         let png;
-        try { png = await TIM.renderView.renderViewPng(p, v, { maxSide: 1600 }); } catch (e) { continue; }
+        try { png = await TIM.renderView.renderViewPng(p0, v, { maxSide: 1600 }); } catch (e) { continue; }
         const scale = IMG_W / png.width;
         const h = Math.round(png.height * scale);
         const startCol = col === 0 ? 0 : (() => { let c = 1; while (colLeftPx(ws, c) < IMG_W + 24 && c < 40) c++; return c; })();
@@ -213,7 +238,7 @@
       const g = cc.gap || calc.gapInfo(it);
       gt.push([it.item_no, it.size.t, it.gap_design.nom, it.gap_design.plus, it.gap_design.minus, { stack: '設計間距', manual: '手動' }[g.source] || '',
         g.min, g.nom, g.max, r1(cc.min), r1(cc.nom), r1(cc.max),
-        cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '一般值' }[cc.rec.source] + ')' : '', psi(cc.pressure),
+        cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '預設' }[cc.rec.source] + ')' : '', psi(cc.pressure),
         JUDGE[cc.status], th.k, r1(th.area), th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.concat(cc.notes).join('；')]);
       cc.comps.forEach(r => prs.push([it.item_no, r.part, r.refdes, r.h ? r.h.min : null, r.h ? r.h.nom : null, r.h ? r.h.max : null,
         r.gap.min, r.gap.nom, r.gap.max, r1(r.cMin), r1(r.cMax), psi(r.pMin), psi(r.pMax), r1(r.force),
@@ -248,5 +273,5 @@
     return name;
   }
 
-  TIM.xlsxExport = { EXTRA_COLUMNS, TIM_LIST_HEADERS, PINK, AMBER, timListGroups, buildWorkbook, exportProjectXlsx, secondSourceText };
+  TIM.xlsxExport = { EXTRA_COLUMNS, TIM_LIST_HEADERS, TIM_LIST_KEYS, PINK, AMBER, timListGroups, listColumns, viewProject, buildWorkbook, exportProjectXlsx, secondSourceText };
 })();

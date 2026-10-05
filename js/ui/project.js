@@ -14,16 +14,33 @@
     { id: 'log', label: '變更紀錄', icon: 'history' },
   ];
 
+  /**
+   * The TIM 清單 hides rows / columns → the export leaves them out too (checkbox, on by default; this browser).
+   * → [vnode | null, hide option for the export]
+   */
+  function useHiddenExport(pid) {
+    const h = useMemo(() => TIM.ui.bomHiddenForExport(TIM.store.db.projects[pid]), [pid]);
+    const [follow, setFollow] = usePref('export_follow_hidden', true);
+    if (!h.rows.length && !h.cols.length) return [null, null];
+    const short = list => (list.length > 6 ? list.slice(0, 6).join('、') + '…' : list.join('、'));
+    const what = [h.rows.length ? h.rows.length + ' 列（' + short(h.rowNos) + '）' : '', h.cols.length ? h.cols.length + ' 欄（' + short(h.colLabels) + '）' : ''].filter(Boolean).join('、');
+    const node = html`<div class="divider"></div>
+      <label class="check hidden-follow"><input type="checkbox" checked=${follow} onChange=${e => setFollow(e.target.checked)} /> 依 TIM 清單的「顯示 / 隱藏」：不匯出隱藏的 ${what}</label>
+      <div class="muted" style="font-size:11.5px;margin:4px 0 0 22px;line-height:1.55">隱藏的 Item 不出現在任何表格與統計（位置標註圖維持原圖）；隱藏的欄只影響 TIM 清單表格。取消勾選就匯出全部。</div>`;
+    return [node, follow ? { rows: h.rows, cols: h.cols } : null];
+  }
+
   function ExportModal(props) {
     const [extra, setExtra] = usePref('xlsx_extra', ['tim_type', 'status']);
     const [images, setImages] = usePref('xlsx_images', true);
     const [details, setDetails] = usePref('xlsx_details', true);
     const [busy, setBusy] = useState(false);
+    const [hiddenNode, hide] = useHiddenExport(props.pid);
     const toggle = k => setExtra(extra.includes(k) ? extra.filter(x => x !== k) : extra.concat(k));
     const run = async () => {
       setBusy(true);
       try {
-        const name = await TIM.xlsxExport.exportProjectXlsx(props.pid, { extra, images, details });
+        const name = await TIM.xlsxExport.exportProjectXlsx(props.pid, { extra, images, details, hide });
         toast('已匯出 ' + name, 'ok');
         props.close(true);
       } catch (e) {
@@ -44,6 +61,7 @@
       <label class="check"><input type="checkbox" checked=${images} onChange=${e => setImages(e.target.checked)} /> 在表格下方附上位置標註圖（與畫面相同的標籤與引線）</label>
       <div style="height:8px"></div>
       <label class="check"><input type="checkbox" checked=${details} onChange=${e => setDetails(e.target.checked)} /> 附加明細工作表：Components、2nd Source、Gap & Thermal、Changelog、Project</label>
+      ${hiddenNode}
     </${Modal}>`;
   }
 
@@ -53,14 +71,16 @@
 
   function PdfModal(props) {
     const all = TIM.pdfExport.SECTIONS.map(s => s.key);
-    const [sections, setSections] = usePref('pdf_sections', all);
+    const [saved, setSections] = usePref('pdf_sections', all);
+    const sections = TIM.pdfExport.normSections(saved);
     const [busy, setBusy] = useState(null);           // null | 'loading' | { done, total }
+    const [hiddenNode, hide] = useHiddenExport(props.pid);
     const toggle = k => setSections(sections.includes(k) ? sections.filter(x => x !== k) : all.filter(x => x === k || sections.includes(x)));
     const run = async () => {
       if (busy || !sections.length) return;
       setBusy('loading');
       try {
-        const r = await TIM.pdfExport.exportProjectPdf(props.pid, { sections, onProgress: (done, total) => setBusy({ done, total }) });
+        const r = await TIM.pdfExport.exportProjectPdf(props.pid, { sections, hide, onProgress: (done, total) => setBusy({ done, total }) });
         toast('已匯出 ' + r.name + '（' + r.pages + ' 頁）', 'ok');
         props.close(true);
       } catch (e) {
@@ -78,6 +98,7 @@
       <div style="display:flex;flex-direction:column;gap:8px">
         ${TIM.pdfExport.SECTIONS.map(s => html`<label class="check"><input type="checkbox" checked=${sections.includes(s.key)} disabled=${!!busy} onChange=${() => toggle(s.key)} /> ${s.label}</label>`)}
       </div>
+      ${hiddenNode}
     </${Modal}>`;
   }
 

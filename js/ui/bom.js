@@ -223,7 +223,7 @@
           })}
           ${!p.items.length ? html`<div class="muted" style="padding:6px 8px">還沒有 Item</div>` : null}
         </div>
-        <div class="hp-foot muted">也可在列號右鍵、或欄位標題右鍵直接隱藏。只影響你這台瀏覽器的畫面，資料與匯出不變。</div>
+        <div class="hp-foot muted">也可在列號右鍵、或欄位標題右鍵直接隱藏。只影響你這台瀏覽器的畫面、不改資料；匯出 Excel / PDF 會同步（匯出時可取消）。</div>
       </div>
     </div>`;
   }
@@ -818,6 +818,22 @@
     `;
   }
 
+  /**
+   * What the TIM 清單 hides for project p in this browser (its 顯示 / 隱藏 preferences), as the Excel / PDF exports
+   * use it: { rows:[item ids], cols:[TIM List column keys], rowNos:[Item numbers], colLabels:[TIM List headers] }.
+   */
+  function hiddenForExport(p) {
+    const read = (k, d) => { try { const v = localStorage.getItem('tim_pref_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+    const cols = read('bom_hidden_cols', []);
+    const rowsAll = read('bom_hidden_rows', {});
+    const ids = new Set(rowsAll && Array.isArray(rowsAll[p.id]) ? rowsAll[p.id] : []);
+    const items = calc.orderedItems(p).filter(it => ids.has(it.id));
+    const X = TIM.xlsxExport;
+    const keys = X.TIM_LIST_KEYS.filter(k => k && Array.isArray(cols) && cols.includes(k));
+    return { rows: items.map(i => i.id), cols: keys, rowNos: items.map(i => i.item_no || '(未編號)'), colLabels: keys.map(k => X.TIM_LIST_HEADERS[X.TIM_LIST_KEYS.indexOf(k)]) };
+  }
+
   TIM.ui.Bom = Bom;
+  TIM.ui.bomHiddenForExport = hiddenForExport;
   TIM.ui.bomInternals = { buildColumns, cellText, cellPatch, sizeParse, secondParse };
 })();

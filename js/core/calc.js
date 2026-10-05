@@ -193,7 +193,8 @@
 
   /**
    * Gap / compression / pressure check for one item.
-   *  - compression C = (T − g) / T: C_min uses the largest gap (contact: ≥ minimum, > 0), C_max the smallest
+   *  - compression C = (T − g) / T: C_min uses the largest gap, C_max the smallest; C_min below the minimum
+   *    (item override → generic 10 %) or ≤ 0 (no contact) → error (Fail)
    *  - pressure: per covered component, from the material's deflection curves at C_max, against the
    *    component's allowable load: > 100 % → error (Fail), ≥ settings.pressure_warn_pct → warn
    * status: 'na' (no data), 'ok', 'warn', 'error'. comps: per-component rows (gap, compression, pressure, status).
@@ -213,7 +214,7 @@
     out.status = 'ok';
     const warnPct = fin(settings && settings.pressure_warn_pct) ? settings.pressure_warn_pct : schema.DEFAULT_SETTINGS.pressure_warn_pct;
     if (out.min !== null && out.min <= 0) flag('error', '最大間隙 ' + util.fmt(gi.max) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm，可能完全未接觸');
-    else if (out.rec && out.min !== null && out.min < out.rec.min) flag('warn', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%（接觸可能不足）');
+    else if (out.rec && out.min !== null && out.min < out.rec.min) flag('error', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%（接觸可能不足）');
     if (out.max !== null && out.max >= 100) flag('error', '最小間隙 ≤ 0，請檢查間隙數值');
 
     const hasCurve = curveSet(mat).length > 0;
