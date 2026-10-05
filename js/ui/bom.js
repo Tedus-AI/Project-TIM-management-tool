@@ -187,6 +187,47 @@
     </${Modal}>`;
   }
 
+  // ───────── 顯示 / 隱藏 panel: tick columns and rows to show (this browser's view only) ─────────
+  const GROUP_LABEL = { basic: '基本', mech: '機構', thermal: '熱', supply: '供應', trace: '追溯' };
+  function HidePanel(props) {
+    const { p, allCols, hidCols, hidRows } = props;
+    const groups = [];
+    allCols.forEach(c => { let g = groups.find(x => x.key === c.group); if (!g) { g = { key: c.group, cols: [] }; groups.push(g); } g.cols.push(c); });
+    const nCols = allCols.filter(c => c.key !== 'item_no' && hidCols.includes(c.key)).length;
+    const nRows = p.items.filter(it => hidRows.has(it.id)).length;
+    const ordered = calc.orderedItems(p);
+    return html`<div class="hide-panel" role="dialog" aria-label="顯示 / 隱藏欄與列">
+      <div class="hp-col">
+        <div class="hp-head"><b>欄（直行）</b><span class="muted">${nCols ? '隱藏 ' + nCols : '全部顯示'}</span>
+          <button class="btn btn-ghost btn-xs" disabled=${!nCols} onClick=${props.showAllCols}>全部顯示</button></div>
+        <div class="hp-list">
+          ${groups.map(g => html`<div class="hp-group">${GROUP_LABEL[g.key] || g.key}</div>
+            ${g.cols.map(c => html`<label class=${cx('check hp-item', c.key === 'item_no' && 'fixed')} title=${c.key === 'item_no' ? 'Item 欄固定顯示' : ''}>
+              <input type="checkbox" checked=${c.key === 'item_no' || !hidCols.includes(c.key)} disabled=${c.key === 'item_no'}
+                onChange=${e => props.setCol(c.key, e.target.checked)} />
+              <span>${c.label}${c.sub ? html` <span class="muted">${c.sub}</span>` : null}</span></label>`)}`)}
+        </div>
+        <div class="hp-foot muted">機構 / 熱 / 供應 / 追溯欄位用左邊「欄位」按鈕展開後，也可在這裡個別隱藏</div>
+      </div>
+      <div class="hp-col">
+        <div class="hp-head"><b>列（Item）</b><span class="muted">${nRows ? '隱藏 ' + nRows : '全部顯示'}</span>
+          <button class="btn btn-ghost btn-xs" disabled=${!nRows} onClick=${props.showAllRows}>全部顯示</button></div>
+        <div class="hp-list">
+          ${p.locations.map(loc => {
+            const items = ordered.filter(it => it.location_id === loc.id);
+            if (!items.length) return null;
+            return html`<div class="hp-group"><i class="swatch" style=${{ background: loc.color }}></i>${loc.name}</div>
+              ${items.map(it => html`<label class="check hp-item">
+                <input type="checkbox" checked=${!hidRows.has(it.id)} onChange=${e => props.setRow(it.id, e.target.checked)} />
+                <span><b class="mono">${it.item_no || '(未編號)'}</b> <span class="muted">${[it.vendor, it.model].filter(Boolean).join(' ')}</span>${it.status === 'obsolete' ? html` <span class="tag tag-mute">停用</span>` : null}</span></label>`)}`;
+          })}
+          ${!p.items.length ? html`<div class="muted" style="padding:6px 8px">還沒有 Item</div>` : null}
+        </div>
+        <div class="hp-foot muted">也可在列號右鍵、或欄位標題右鍵直接隱藏。只影響你這台瀏覽器的畫面，資料與匯出不變。</div>
+      </div>
+    </div>`;
+  }
+
   // ───────── the grid ─────────
   function Bom(props) {
     const p = props.p;
@@ -196,6 +237,11 @@
     const [groups, setGroups] = usePref('bom_groups', { mech: false, thermal: false, supply: false, trace: false });
     const [filter, setFilter] = useState('');
     const [showObsolete, setShowObsolete] = usePref('bom_obsolete', true);
+    // hidden columns (all projects) / rows (per project): this browser's view only, the data and exports are unchanged
+    const [hiddenCols, setHiddenCols] = usePref('bom_hidden_cols', []);
+    const [hiddenRowsAll, setHiddenRowsAll] = usePref('bom_hidden_rows', {});
+    const [showPanel, setShowPanel] = useState(false);
+    const panelRef = useRef(null);
     const [range, setRange] = useState(null);           // {r0,c0,r1,c1}
     const [dropAt, setDropAt] = useState(null);         // {beforeId|null, locId}
     const dropRef = useRef(null);                       // same value, readable from memoised rows' handlers
@@ -206,13 +252,26 @@
     const dragRow = useRef(null);
     const pending = useRef(null);                       // focus request after re-render
     const openId = props.route.sub;
-    const cols = useMemo(() => buildColumns(groups), [groups.mech, groups.thermal, groups.supply, groups.trace]);
+    const allCols = useMemo(() => buildColumns(groups), [groups.mech, groups.thermal, groups.supply, groups.trace]);
+    const hidCols = Array.isArray(hiddenCols) ? hiddenCols : [];
+    const cols = useMemo(() => allCols.filter(c => c.key === 'item_no' || !hidCols.includes(c.key)), [allCols, hidCols.join(',')]);
+    const hidRows = new Set((hiddenRowsAll && hiddenRowsAll[p.id]) || []);
+    const setHidRows = fn => setHiddenRowsAll(all => {
+      const cur = (all && all[p.id]) || [];
+      const next = fn(cur).filter((id, i, a) => a.indexOf(id) === i);
+      const out = Object.assign({}, all);
+      if (next.length) out[p.id] = next; else delete out[p.id];
+      return out;
+    });
+    const hideRows = items => { setHidRows(cur => cur.concat(items.map(i => i.id))); setRange(null); };
+    const hideCol = key => { if (key !== 'item_no') setHiddenCols(h => (Array.isArray(h) ? h : []).filter(k => k !== key).concat(key)); setRange(null); };
+    const shown = it => (showObsolete || it.status !== 'obsolete') && !hidRows.has(it.id);
     // Latest render values: memoised rows keep older handler closures, which must read these.
     const live = useRef({});
     const dtWarn = db.settings.dt_warn || 10;
 
     const q = filter.trim().toUpperCase();
-    const visible = calc.orderedItems(p).filter(it => (showObsolete || it.status !== 'obsolete') &&
+    const visible = calc.orderedItems(p).filter(it => shown(it) &&
       (!q || [it.item_no, it.vendor, it.model, it.delta_pn, it.vendor_pn, parse.formatCovered(it.covered), parse.formatSources(it), it.note, calc.effective(it, calc.materialOf(db, it)).model]
         .some(v => String(v || '').toUpperCase().includes(q))));
     const ctxs = {};
@@ -220,6 +279,19 @@
     const placed = calc.placedCounts(p);
     const hasViews = p.views.some(v => v.shapes.length);
     live.current = { p, visible, ctxs, range, cols };
+    const hiddenItems = p.items.filter(it => hidRows.has(it.id));
+    const hiddenColsNow = allCols.filter(c => c.key !== 'item_no' && hidCols.includes(c.key));
+    const showAll = () => { setHiddenCols([]); setHidRows(() => []); setRange(null); };
+
+    // the 顯示 / 隱藏 panel closes on a click outside or Esc
+    useEffect(() => {
+      if (!showPanel) return undefined;
+      const down = e => { if (panelRef.current && !panelRef.current.contains(e.target)) setShowPanel(false); };
+      const key = e => { if (e.key === 'Escape') { e.stopPropagation(); setShowPanel(false); } };
+      window.addEventListener('mousedown', down, true);
+      window.addEventListener('keydown', key, true);
+      return () => { window.removeEventListener('mousedown', down, true); window.removeEventListener('keydown', key, true); };
+    }, [showPanel]);
     const vendors = useMemo(() => Array.from(new Set(Object.values(db.materials).map(m => m.vendor).concat(p.items.map(i => i.vendor)).filter(Boolean))).sort(), [st.version]);
     const models = useMemo(() => Array.from(new Set(Object.values(db.materials).map(m => m.model).concat(p.items.map(i => i.model)).filter(Boolean))).sort(), [st.version]);
 
@@ -260,8 +332,16 @@
     const inRange = (r, c) => { const b = rangeBox(); return b && (b.r1 > b.r0 || b.c1 > b.c0) && r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1; };
 
     // ── clipboard / bulk operations ──
-    function applyMatrix(r0, c0, matrix) {
+    /**
+     * Paste a matrix at visible cell (r0, c0). Columns follow the full column order from the anchor, so a hidden column
+     * still takes its value (as in Excel) and rows copied from Excel stay aligned; fillVisible (one value into a
+     * selected range): only the visible columns of the range.
+     */
+    function applyMatrix(r0, c0, matrix, fillVisible) {
       if (ro) return;
+      const base = allCols.indexOf(cols[c0]);
+      const colAt = j => (fillVisible ? cols[c0 + j] : allCols[base + j]);
+      let hiddenHit = 0;
       const patches = [], newRows = [];
       const anchorItem = visible[r0] || visible[visible.length - 1];
       const locId = anchorItem ? anchorItem.location_id : (p.locations[0] && p.locations[0].id);
@@ -272,9 +352,10 @@
         const ctx = it ? ctxs[it.id] : { mat: null, eff: calc.effective(target, null) };
         const patch = {};
         vals.forEach((v, j) => {
-          const col = cols[c0 + j];
+          const col = colAt(j);
           if (!col) return;
           const pt = cellPatch(col, v, target, ctx);
+          if (pt && !cols.includes(col) && Object.keys(pt).length) hiddenHit++;
           if (pt) Object.assign(patch, pt);
           else if (String(v || '').trim() && col.kind !== 'calc' && cellText(col, target, ctx).trim() !== String(v).trim()) skipped++;
         });
@@ -284,19 +365,23 @@
       });
       const lastId = visible.length ? visible[Math.min(visible.length - 1, r0 + matrix.length - 1)].id : null;
       const created = A().pasteIntoItems(p.id, patches, newRows, lastId);
-      const msg = '已貼上 ' + matrix.length + ' 列' + (created.length ? '（新增 ' + created.length + ' 個 Item）' : '') + (skipped ? '，' + skipped + ' 格無法套用（格式不符或為連結材料庫 / 計算欄位）' : '');
+      const msg = '已貼上 ' + matrix.length + ' 列' + (created.length ? '（新增 ' + created.length + ' 個 Item）' : '') + (skipped ? '，' + skipped + ' 格無法套用（格式不符或為連結材料庫 / 計算欄位）' : '') +
+        (hiddenHit ? '；' + hiddenHit + ' 格寫入已隱藏的欄' : '');
       toast(msg, skipped ? 'warn' : 'ok');
-      setRange({ r0, c0, r1: r0 + matrix.length - 1, c1: c0 + Math.max.apply(null, matrix.map(r => r.length)) - 1 });
+      const width = Math.max.apply(null, matrix.map(r => r.length));
+      const seen = Array.from({ length: width }, (_, j) => colAt(j)).filter(col => col && cols.includes(col));
+      setRange({ r0, c0, r1: r0 + matrix.length - 1, c1: seen.length ? cols.indexOf(seen[seen.length - 1]) : c0 });
     }
 
+    /** Columns from visible c0 to c1 including the hidden ones between them (copy / paste keep the Excel column order). */
+    const spanCols = (c0, c1) => allCols.slice(allCols.indexOf(cols[c0]), allCols.indexOf(cols[c1]) + 1);
     function rangeTsv(b) {
       const rows = [];
+      const span = spanCols(b.c0, b.c1);
       for (let r = b.r0; r <= b.r1; r++) {
         const it = visible[r];
         if (!it) continue;
-        const line = [];
-        for (let c = b.c0; c <= b.c1; c++) line.push(cellText(cols[c], it, ctxs[it.id]));
-        rows.push(line);
+        rows.push(span.map(col => cellText(col, it, ctxs[it.id])));
       }
       return parse.toTsv(rows);
     }
@@ -453,7 +538,7 @@
       if (!multi && many) {
         const fill = [];
         for (let r = b.r0; r <= b.r1; r++) { const line = []; for (let c = b.c0; c <= b.c1; c++) line.push(text); fill.push(line); }
-        applyMatrix(b.r0, b.c0, fill);
+        applyMatrix(b.r0, b.c0, fill, true);
         return;
       }
       applyMatrix(b ? b.r0 : pos.r, b ? b.c0 : pos.c, matrix);
@@ -490,7 +575,7 @@
     const addRow = (locId, after, before) => {
       const id = A().addItem(p.id, { location_id: locId, after, before });
       setTimeout(() => {
-        const ord = calc.orderedItems(st.db.projects[p.id]).filter(it => (showObsolete || it.status !== 'obsolete'));
+        const ord = calc.orderedItems(st.db.projects[p.id]).filter(shown);
         const r = ord.findIndex(x => x.id === id);
         if (r >= 0) { pending.current = { r, c: 0 }; st.emit(); }
       }, 0);
@@ -513,6 +598,7 @@
       const targets = multi && multi.some(x => x.id === it.id) ? multi : [it];
       openMenu(e, [
         { label: '開啟詳細', icon: 'chevR', onClick: () => go('p/' + p.id + '/bom/' + it.id) },
+        { label: targets.length > 1 ? '隱藏選取的 ' + targets.length + ' 列' : '隱藏此列', icon: 'eyeOff', onClick: () => hideRows(targets) },
         'sep',
         { label: '在上方插入', icon: 'plus', disabled: ro, onClick: () => addRow(it.location_id, null, it.id) },
         { label: '在下方插入', icon: 'plus', disabled: ro, onClick: () => addRow(it.location_id, it.id) },
@@ -521,6 +607,14 @@
         { header: '移到 Location' },
       ].concat(p.locations.filter(l => l.id !== it.location_id).map(l => ({ label: l.name, icon: 'chevR', disabled: ro, onClick: () => targets.forEach(x => A().moveItem(p.id, x.id, l.id)) })))
         .concat(['sep', { label: targets.length > 1 ? '刪除選取的 ' + targets.length + ' 列' : '刪除此列', icon: 'trash', danger: true, disabled: ro, onClick: () => deleteRows(targets) }]));
+    };
+
+    const colMenu = (e, col) => {
+      e.preventDefault();
+      openMenu(e, [
+        { label: col.key === 'item_no' ? 'Item 欄固定顯示' : '隱藏「' + col.label + '」欄', icon: 'eyeOff', disabled: col.key === 'item_no', onClick: () => hideCol(col.key) },
+        { label: '顯示全部欄位', icon: 'eye', disabled: !hiddenColsNow.length, onClick: () => { setHiddenCols([]); setRange(null); } },
+      ]);
     };
 
     // ── drag rows ──
@@ -626,6 +720,15 @@
           ${[['mech', '機構'], ['thermal', '熱'], ['supply', '供應'], ['trace', '追溯']].map(([k, l]) =>
             html`<button class=${groups[k] ? 'on' : ''} onClick=${() => setGroups(Object.assign({}, groups, { [k]: !groups[k] }))}>${l}</button>`)}
         </div>
+        <div class="hide-menu" ref=${panelRef}>
+          <button class=${cx('btn btn-ghost btn-sm', showPanel && 'on')} title="個別勾選要顯示的欄與列" onClick=${() => setShowPanel(!showPanel)}><${Icon} name="eye" /> 顯示 / 隱藏</button>
+          ${showPanel ? html`<${HidePanel} p=${p} allCols=${allCols} hidCols=${hidCols} hidRows=${hidRows}
+            setCol=${(key, on) => (on ? setHiddenCols(h => (Array.isArray(h) ? h : []).filter(k => k !== key)) : hideCol(key))}
+            setRow=${(id, on) => { setHidRows(cur => (on ? cur.filter(x => x !== id) : cur.concat(id))); setRange(null); }}
+            showAllCols=${() => { setHiddenCols([]); setRange(null); }} showAllRows=${() => { setHidRows(() => []); setRange(null); }} />` : null}
+        </div>
+        ${hiddenItems.length || hiddenColsNow.length ? html`<button class="hide-chip" title=${'已隱藏：' + [hiddenItems.length ? hiddenItems.map(i => i.item_no || '(未編號)').join(', ') : '', hiddenColsNow.map(c => c.label).join(', ')].filter(Boolean).join('；') + '\n點擊全部顯示'}
+          onClick=${showAll}><${Icon} name="eyeOff" size=${13} />已隱藏 ${[hiddenItems.length ? hiddenItems.length + ' 列' : '', hiddenColsNow.length ? hiddenColsNow.length + ' 欄' : ''].filter(Boolean).join('、')} · 全部顯示</button>` : null}
         <div class="searchbox" style="width:220px"><${Icon} name="search" /><input class="inp" style="height:28px" placeholder="篩選…" value=${filter} onInput=${e => setFilter(e.target.value)} /></div>
         <label class="check"><input type="checkbox" checked=${showObsolete} onChange=${e => setShowObsolete(e.target.checked)} /> 顯示停用</label>
         <button class="btn btn-ghost btn-sm rw-only" title="依 Item 編號排序（每個 Location 內）" onClick=${() => A().sortItems(p.id)}>依編號排序</button>
@@ -646,7 +749,8 @@
             <colgroup><col style="width:34px" /><col style="width:28px" />${cols.map(c => html`<col style=${{ width: c.width + 'px' }} />`)}<col style="width:72px" /></colgroup>
             <thead><tr>
               <th title="Location">Loc</th><th>#</th>
-              ${cols.map(c => html`<th class=${c.group !== 'basic' ? 'grp-' + c.group : ''} style=${{ textAlign: c.align === 'r' ? 'right' : 'left' }}>${c.label}${c.sub ? html`<span class="th-sub">${c.sub}</span>` : null}</th>`)}
+              ${cols.map(c => html`<th class=${c.group !== 'basic' ? 'grp-' + c.group : ''} style=${{ textAlign: c.align === 'r' ? 'right' : 'left' }} data-col=${c.key}
+                title="右鍵：隱藏此欄" onContextMenu=${e => colMenu(e, c)}>${c.label}${c.sub ? html`<span class="th-sub">${c.sub}</span>` : null}</th>`)}
               <th></th>
             </tr></thead>
             <tbody>
@@ -656,6 +760,7 @@
                 const pcs = rows.reduce((s, it) => s + (it.status !== 'obsolete' && Number.isFinite(it.qty) ? it.qty : 0), 0);
                 const cost = rows.reduce((s, it) => s + (it.status !== 'obsolete' ? (calc.itemCost(it) || 0) : 0), 0);
                 const fg = util.textOn(loc.color);
+                const hidHere = hiddenItems.filter(it => it.location_id === loc.id).length;
                 const band = html`<td class="loc-band" rowspan=${rows.length + 1} style=${{ background: loc.color, color: fg }} onContextMenu=${e => { e.preventDefault(); }}>
                   <span class="loc-text">${loc.name}</span></td>`;
                 const out = rows.map((it, i) => {
@@ -689,7 +794,7 @@
                     ${rows.length ? null : html`<td class="loc-band" style=${{ background: loc.color, color: fg }}><span class="loc-text" style="font-size:10px">${loc.name}</span></td>`}
                     <td colspan=${cols.length + 2}><div class="grp-foot-inner">
                       <button class="btn btn-ghost btn-xs rw-only" onClick=${() => addRow(loc.id)}><${Icon} name="plus" /> 新增至 ${loc.name}</button>
-                      <span class="mono"><b>${rows.length}</b> items · <b>${pcs}</b> pcs${cost ? html` · <b>${util.fmt(cost, 2)}</b>` : null}</span>
+                      <span class="mono"><b>${rows.length}</b> items · <b>${pcs}</b> pcs${cost ? html` · <b>${util.fmt(cost, 2)}</b>` : null}${hidHere ? html` · <span class="text-warn">另有 ${hidHere} 列隱藏</span>` : null}</span>
                     </div></td>
                   </tr>`;
               })}

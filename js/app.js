@@ -519,6 +519,26 @@
     return html`<div class=${cx('save-state', s.state)} title=${s.error || ''}><span class="save-dot"></span><span>${text}</span></div>`;
   }
 
+  /**
+   * The Microsoft account in use (SharePoint database, or SharePoint sync of a local folder): its ID, so it is
+   * clear who is signed in. Expired / not signed in → a click signs in.
+   */
+  function AccountChip() {
+    const st = TIM.store;
+    const sp = TIM.spBackend;
+    if (!sp || !st.backend) return null;
+    const onSp = st.backend.kind === 'sharepoint';
+    const acc = sp.account();
+    if (acc && !(onSp && sp.needsLogin())) {
+      return html`<div class="acct-chip" title=${'已登入 Microsoft（SharePoint）\n' + [acc.name, acc.email].filter(Boolean).join('\n')}>
+        <${Icon} name="user" size=${13} /><span>${acc.email || acc.name}</span></div>`;
+    }
+    if (!onSp && !sync.push.active) return null;   // local folder without SharePoint sync: no Microsoft account involved
+    return html`<button class="acct-chip off" title=${acc ? '登入已過期：點擊重新登入 Microsoft' : '尚未登入 Microsoft：點擊登入'}
+      onClick=${() => (onSp ? app.spRelogin() : app.pushNow())}>
+      <${Icon} name="user" size=${13} /><span>${acc ? (acc.email || acc.name) + '（需重新登入）' : '未登入 Microsoft'}</span></button>`;
+  }
+
   function Toolbar(props) {
     const st = TIM.store;
     const r = props.route;
@@ -537,6 +557,7 @@
       <div class="toolbar-spacer"></div>
       <div class="toolbar-right">
         <${SaveState} />
+        <${AccountChip} />
         <button class="db-chip" title=${'目前資料庫：' + (st.backend && st.backend.location ? st.backend.location() : st.backend ? st.backend.label() : '') + '\n點擊回到資料庫選擇畫面（會先存檔）'} onClick=${() => app.disconnect()}>
           <${Icon} name=${st.backend && st.backend.kind === 'sharepoint' ? 'cloud' : 'db'} size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
           <span class="db-chip-exit"><${Icon} name="exit" size=${13} />切換</span>

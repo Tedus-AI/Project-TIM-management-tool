@@ -251,3 +251,74 @@ module.exports.push({
     assert.equal(after.length, before.length);
   },
 });
+
+module.exports.push({
+  name: '顯示 / 隱藏: tick columns and rows off (panel, header / row right-click), indicator, copy / paste keep the Excel column order, show all',
+  async run(env) {
+    const { page } = env;
+    await openWithDemo(env);
+    await openBom(page);
+    const heads = () => page.locator('table.grid thead th[data-col]').evaluateAll(els => els.map(e => e.dataset.col));
+    const rowNos = () => page.locator('[data-cell$=",0"]').evaluateAll(els => els.map(e => e.value));
+    const all = await rowNos();
+    assert.ok(all.includes('A2') && all.includes('A3'));
+    assert.equal(await page.locator('.hide-chip').count(), 0);
+
+    // panel: Item stays, untick a column and a row
+    await page.click('.bom-toolbar button:has-text("顯示 / 隱藏")');
+    await page.waitForSelector('.hide-panel');
+    assert.equal(await page.locator('.hide-panel .hp-item:has-text("Item") input').isDisabled(), true);
+    await page.locator('.hide-panel .hp-col >> nth=0 >> .hp-item:has-text("Delta P/N") input').uncheck();
+    await page.locator('.hide-panel .hp-col >> nth=1 >> .hp-item:has(b:text-is("A2")) input').uncheck();
+    assert.ok(!(await heads()).includes('delta_pn'));
+    assert.ok(!(await rowNos()).includes('A2'));
+    await page.waitForSelector('.hide-chip:has-text("已隱藏 1 列、1 欄")');
+    assert.match(await page.locator('tr.grp-foot >> nth=0').innerText(), /另有 1 列隱藏/);
+    // Esc closes the panel; the hidden state stays (this browser's preference)
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.hide-panel', { state: 'detached' });
+    const pref = await page.evaluate(() => [localStorage.getItem('tim_pref_bom_hidden_cols'), localStorage.getItem('tim_pref_bom_hidden_rows')]);
+    assert.deepEqual(JSON.parse(pref[0]), ['delta_pn']);
+    assert.equal(Object.values(JSON.parse(pref[1]))[0].length, 1);
+
+    // row right-click → 隱藏此列; header right-click → 隱藏「…」欄 (Item cannot be hidden)
+    await page.click('tr:has([data-cell="' + (await rowOf(page, 'A3')) + ',0"]) td.row-handle', { button: 'right' });
+    await page.click('.menu button:has-text("隱藏此列")');
+    assert.ok(!(await rowNos()).includes('A3'));
+    await page.click('table.grid thead th[data-col="qty"]', { button: 'right' });
+    await page.click('.menu button:has-text("隱藏「Q\'ty」欄")');
+    assert.ok(!(await heads()).includes('qty'));
+    await page.click('table.grid thead th[data-col="item_no"]', { button: 'right' });
+    assert.equal(await page.locator('.menu button:has-text("Item 欄固定顯示")').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.hide-chip:has-text("已隱藏 2 列、2 欄")');
+    assert.equal(await item(page, 'A3').then(i => i.item_no), 'A3', 'hiding changes no data');
+
+    // copy Size .. Note (adjacent on screen): the hidden Q'ty and Delta P/N in between are copied too
+    const cIdx = async key => (await heads()).indexOf(key);
+    const r = await rowOf(page, 'A4');
+    const sizeC = await cIdx('size'), noteC = await cIdx('covered');
+    assert.equal(noteC, sizeC + 1, 'Q\'ty and Delta P/N are hidden between Size and Note');
+    await cell(page, r, sizeC).click();
+    await page.keyboard.press('Shift+ArrowRight');
+    const tsv = await page.evaluate(([r, c]) => {
+      const el = document.querySelector('[data-cell="' + r + ',' + c + '"]');
+      const dt = new DataTransfer();
+      el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+      return dt.getData('text/plain');
+    }, [r, sizeC]);
+    assert.deepEqual(tsv.split('\t'), ['6*6*2.5', '8', 'DEMO-0005', 'LDO-7172*2, BUCK-8627*4, BUCK-3219*2']);
+    // paste at Size: the values follow the full column order, the hidden Q'ty / Delta P/N take theirs
+    await page.keyboard.press('Escape');
+    await paste(page, r, sizeC, '7*7*2\t5\tDEMO-0999\tLDO-7172*2');
+    await page.waitForSelector('.toast:has-text("2 格寫入已隱藏的欄")');
+    const a4 = await item(page, 'A4');
+    assert.deepEqual([a4.size, a4.qty, a4.delta_pn, a4.covered.map(c => c.part)], [{ l: 7, w: 7, t: 2 }, 5, 'DEMO-0999', ['LDO-7172']]);
+
+    // show all
+    await page.click('.hide-chip');
+    await page.waitForSelector('.hide-chip', { state: 'detached' });
+    assert.deepEqual(await rowNos(), all);
+    assert.ok((await heads()).includes('delta_pn') && (await heads()).includes('qty'));
+  },
+});
