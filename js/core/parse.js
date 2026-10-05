@@ -209,7 +209,7 @@
     size: ['size', '尺寸', 'dimension', 'dim', 'lwt', 'lxwxt', '規格'],
     qty: ['qty', 'quantity', '數量', '用量', 'pcs', 'q'],
     delta_pn: ['deltapartno', 'deltapn', 'deltap', 'partno', 'pn', '料號', '台達料號', 'partnumber'],
-    covered: ['note', 'notes', '備註', 'component', 'components', '元件', 'coveredcomponent', 'usedfor', 'cover', 'ic'],
+    covered: ['note', 'notes', '備註', 'component', 'components', '元件', '覆蓋元件', 'coveredcomponent', 'usedfor', 'cover', 'ic'],
     second_source: ['2ndsource', 'secondsource', '2nd', '第二來源', '第二供應商', 'alternate', 'alternative', '替代料', 'altsource'],
   };
 
@@ -244,6 +244,27 @@
       if (score >= 3 && (!best || score > best.score)) best = { row: r, map, score };
     }
     return best;
+  }
+
+  /**
+   * Rows copied from the tool's own TIM List (Excel export) have the material k between Model and Size; the
+   * existing Excel does not. True when the cells at kIdx look like k (a number or empty) with a Size right after
+   * them, and no row has its Size at kIdx. A Size is any form the export writes: L*W*T / L*W, "T3" (thickness
+   * only) or a dispensed amount ("2 g", "1.5 cc"). With no Size to tell by (all empty), a full row is one cell
+   * wider than a full row of the existing Excel: fullWidth = the cell count of a full exported row.
+   */
+  function hasKColumn(rows, kIdx, fullWidth) {
+    const cell = v => util.toHalfWidth(String(v == null ? '' : v)).trim();
+    const num = v => cell(v) === '' || /^[-+]?\d+(\.\d+)?$/.test(cell(v));
+    const size = v => { const t = cell(v); return /\d\s*[*xX×]\s*\d/.test(t) || /^t\s*=?\s*\d/i.test(t) || /^\d+(\.\d+)?\s*(g|cc|ml)$/i.test(t); };
+    let yes = 0;
+    for (const r of rows || []) {
+      if (!r || r.length <= kIdx) continue;
+      if (size(r[kIdx])) return false;
+      if (num(r[kIdx]) && size(r[kIdx + 1])) yes++;
+    }
+    if (yes) return true;
+    return !!fullWidth && (rows || []).some(r => r && r.length === fullWidth && num(r[kIdx]) && !cell(r[kIdx + 1]));
   }
 
   /** Guess the TIM type from vendor / model wording. */
@@ -310,7 +331,7 @@
 
   return {
     parseSize, formatSize, parseCovered, formatCovered, mergeCovered, parseUsedOn, formatUsedOn,
-    parseSecondSource, formatSources, mergeSources, parseTsv, toTsv, HEADER_SYNONYMS, matchHeader, detectHeader,
+    parseSecondSource, formatSources, mergeSources, parseTsv, toTsv, HEADER_SYNONYMS, matchHeader, detectHeader, hasKColumn,
     guessTimType, rowsToItems,
   };
 });

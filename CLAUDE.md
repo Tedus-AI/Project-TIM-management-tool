@@ -41,8 +41,9 @@
   `listColumns`（TIM List 欄位）同時給 Excel 與 PDF 用。`cols` = 看得到的欄（data-cell 的欄索引），`allCols` = 完整欄序：
   **複製（`rangeTsv`）與貼上（`applyMatrix`）一律用 `allCols` 從錨點對應**，否則從 Excel 貼整列會錯位；單值填滿框選範圍、Delete、Ctrl+D 只動看得到的欄。
 - 工具列 `AccountChip`（`app.js`）顯示 `TIM.spBackend.account()` 的 ID；過期 / 未登入時可點擊登入（SharePoint 模式 `spRelogin`，本機資料夾同步 `pushNow`）。
-- Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。
-  畫面上 Note 欄叫「覆蓋元件」、Model 右邊多 k（`rangeSkip`：多欄複製 / 貼上略過，Excel 整列貼上才不會錯位）。
+- Excel「TIM List」工作表 = 使用者現行 Excel 的欄位，欄名與畫面一致（使用者同意）：Location / Item / Used On / Vendor / Model / **k (W/m·K)** / Size / Q'ty / Delta Part No. / **覆蓋元件** / 2nd source
+  （`TIM_LIST_HEADERS` / `TIM_LIST_KEYS`，格式用的索引在 `TL`）。畫面上 Model 右邊的 k 是 `rangeSkip`：多欄複製 / 貼上略過，
+  現行 Excel（沒有 k）整列貼上才不會錯位；來源若是本工具匯出的 Excel（有 k），`parse.hasKColumn` 判斷後保留 k 的位置（grid 貼上與「從 Excel 貼上多列」都是）。
   **PDF 的 TIM 清單不是 Excel 格式**：印畫面上看得到的欄（`ui.bomExportColumns(hide)`，`hide.gridCols`），文字用 `bomInternals.cellText`。
 
 ## 指令

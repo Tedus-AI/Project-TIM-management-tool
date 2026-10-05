@@ -126,6 +126,26 @@ module.exports = [
       // pasted Vendor-B / GF-750 on a new row links to the library automatically
       const linked = await state(page, () => { const p = Object.values(TIM.store.db.projects)[0]; return p.items.filter(i => i.material_id).length; });
       assert.ok(linked >= 9);
+      // a row copied from the tool's own Excel export carries k after Model → detected, the rest stays aligned
+      await paste(page, 8, 0, 'A8\tPWR/DDR\tVendor-B\tGF-750\t7.5\t58*22*3.5\t6\tDEMO-0104\tBRICK-48V, DDR4-16G*4\tVendor-C TP-750\n');
+      await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].items.find(i => i.item_no === 'A8').qty === 6);
+      const a8 = await item(page, 'A8');
+      assert.deepEqual([a8.size, a8.qty, a8.delta_pn], [{ l: 58, w: 22, t: 3.5 }, 6, 'DEMO-0104']);
+      // … also when its Size is a dispensed amount (the export writes "2 g") — pasted over A9
+      await paste(page, 9, 0, 'Z1\tRF\tVendor-X\tGEL-30\t3.5\t2 g\t1\tDEMO-0400\tU950\tVendor-X only source\n');
+      await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].items.some(i => i.item_no === 'Z1'));
+      const z1 = await item(page, 'Z1');
+      assert.deepEqual([z1.dispense.amount, z1.dispense.unit, z1.qty, z1.delta_pn, z1.covered.map(c => c.part)], [2, 'g', 1, 'DEMO-0400', ['U950']]);
+      // 「從 Excel 貼上多列」 without a header: the same k column is recognised and skipped
+      await page.click('.bom-toolbar button:has-text("從 Excel 貼上多列")');
+      await page.waitForSelector('.modal textarea');
+      await page.locator('.modal textarea').fill('Top Case\tC1\tRF\tVendor-B\tGF-750\t7.5\t12*12*2\t3\tDEMO-0300\tU901*3\tVendor-B only source\n');
+      await page.waitForSelector('.modal .modal-foot:has-text("Model 後面有 k 欄")');
+      assert.match(await page.locator('.modal .preview-tbl tbody tr').innerText(), /12\*12\*2\t3\tDEMO-0300/);
+      await page.click('.modal-foot button:has-text("新增 1 個 Item")');
+      await page.waitForSelector('.modal', { state: 'detached' });
+      const c1 = await item(page, 'C1');
+      assert.deepEqual([c1.size, c1.qty, c1.delta_pn], [{ l: 12, w: 12, t: 2 }, 3, 'DEMO-0300']);
 
       // range copy: rows 0-1, cols item..used_on
       await cell(page, 0, 0).click();

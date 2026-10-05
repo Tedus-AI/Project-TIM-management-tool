@@ -1,5 +1,5 @@
-/* Excel export (ExcelJS). Sheet "TIM List" reproduces the existing Excel layout:
- * Location (merged, rotated) | Item | Used On | Vendor | Model | Size | Q'ty | Delta Part No. | Note | 2nd source,
+/* Excel export (ExcelJS). Sheet "TIM List" follows the existing Excel layout, with the TIM 清單's names:
+ * Location (merged, rotated) | Item | Used On | Vendor | Model | k (W/m·K) | Size | Q'ty | Delta Part No. | 覆蓋元件 | 2nd source,
  * location colours on the rows, pink 2nd-source cells for single-source items, and the
  * annotated placement drawings below the table. Detail sheets follow. */
 (function () {
@@ -9,7 +9,6 @@
 
   const EXTRA_COLUMNS = [
     { key: 'tim_type', header: 'Type', width: 14, get: (c) => schema.timType(c.eff.tim_type).label },
-    { key: 'k', header: 'k (W/m·K)', width: 10, get: (c) => c.eff.k, num: true },
     { key: 'status', header: 'Status', width: 9, get: (c) => schema.labelOf(schema.ITEM_STATUS, c.it.status) },
     { key: 'gap', header: 'Gap min/nom/max (mm)', width: 18, get: (c) => { const g = c.comp.gap || calc.gapInfo(c.it); return fmtTriple(g.min, g.nom, g.max); } },
     { key: 'comp', header: 'Compression (%)', width: 15, get: (c) => c.comp.status === 'na' ? '' : util.fmt(c.comp.min, 1) + ' ~ ' + util.fmt(c.comp.max, 1) },
@@ -40,9 +39,11 @@
     return it.sourcing_note && it.sources.some(s => s.note) ? it.sourcing_note : parse.formatSources(it);
   }
 
-  const TIM_LIST_HEADERS = ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source'];
+  // the existing Excel's columns with the TIM 清單's names: Note → 覆蓋元件, the material k after Model
+  const TIM_LIST_HEADERS = ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k (W/m·K)', 'Size', "Q'ty", 'Delta Part No.', '覆蓋元件', '2nd source'];
   // the TIM 清單 grid column of each TIM List column (Location and Item are always exported)
-  const TIM_LIST_KEYS = [null, null, 'used_on', 'vendor', 'model', 'size', 'qty', 'delta_pn', 'covered', 'second'];
+  const TIM_LIST_KEYS = [null, null, 'used_on', 'vendor', 'model', 'k', 'size', 'qty', 'delta_pn', 'covered', 'second'];
+  const TL = { k: 5, pn: 8, covered: 9, second: 10 };   // indices used for formatting
 
   /**
    * What the TIM 清單「顯示 / 隱藏」leaves out, as exported (Excel and PDF follow the screen):
@@ -62,7 +63,7 @@
 
   /**
    * TIM List content shared by the Excel and PDF exports: location groups (in location order)
-   * of rows { it, vals (10 base columns, Location first), extraVals, risk }.
+   * of rows { it, vals (the TIM_LIST_HEADERS columns, Location first), extraVals, risk }.
    */
   function timListGroups(p, db, opts) {
     opts = opts || {};
@@ -79,7 +80,7 @@
           it,
           risk: calc.sourceRisk(it),
           vals: [
-            loc.name, it.item_no, parse.formatUsedOn(it.used_on), eff.vendor, eff.model,
+            loc.name, it.item_no, parse.formatUsedOn(it.used_on), eff.vendor, eff.model, Number.isFinite(eff.k) ? eff.k : null,
             schema.isDispense(eff.tim_type) ? (it.dispense.amount != null ? it.dispense.amount + ' ' + it.dispense.unit : '') : parse.formatSize(it.size),
             Number.isFinite(it.qty) ? it.qty : null, it.delta_pn || '', parse.formatCovered(it.covered), secondSourceText(it, eff),
           ],
@@ -110,7 +111,7 @@
 
     // ───────── TIM List ─────────
     const ws = wb.addWorksheet('TIM List', { views: [{ state: 'frozen', ySplit: 1 }] });
-    const base = lc.map(i => ({ header: TIM_LIST_HEADERS[i], width: [7, 8, 11, 14, 18, 15, 6, 15, 36, 26][i] }));
+    const base = lc.map(i => ({ header: TIM_LIST_HEADERS[i], width: [7, 8, 11, 14, 18, 9, 15, 6, 15, 36, 26][i] }));
     const cols = base.concat(extras.map(e => ({ header: e.header, width: e.width })));
     cols.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
     const head = ws.getRow(1);
@@ -128,21 +129,21 @@
     timListGroups(p, db, opts).forEach(({ loc, rows }) => {
       const startRow = r;
       const fg = util.textOn(loc.color) === '#FFFFFF' ? 'FFFFFFFF' : 'FF000000';
-      rows.forEach(({ it, vals: base10, extraVals, risk }) => {
+      rows.forEach(({ it, vals: all, extraVals, risk }) => {
         const src = lc.concat(extraVals.map(() => -1));     // TIM List index of each written column (-1 = extra)
-        const vals = lc.map(i => base10[i]).concat(extraVals);
+        const vals = lc.map(i => all[i]).concat(extraVals);
         const row = ws.getRow(r);
         vals.forEach((v, j) => {
           const i = src[j];
           const cell = row.getCell(j + 1);
           cell.value = v === null ? null : v;
           cell.font = { name: 'Arial', size: 10, color: { argb: fg } };
-          cell.alignment = { vertical: 'middle', horizontal: i === 8 || i === 9 ? 'left' : 'center', wrapText: i === 8 };
+          cell.alignment = { vertical: 'middle', horizontal: i === TL.covered || i === TL.second ? 'left' : 'center', wrapText: i === TL.covered };
           cell.border = border;
           cell.fill = fill(loc.color);
         });
-        if (at(7)) row.getCell(at(7)).numFmt = '@';
-        const sc = at(9) ? row.getCell(at(9)) : null;
+        if (at(TL.pn)) row.getCell(at(TL.pn)).numFmt = '@';
+        const sc = at(TL.second) ? row.getCell(at(TL.second)) : null;
         if (sc && risk === 'single') { sc.fill = fill(PINK); sc.font = { name: 'Arial', size: 10, color: { argb: 'FFB4237A' } }; }
         else if (sc && risk === 'unverified') { sc.fill = fill(AMBER); sc.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } }; }
         if (it.status === 'obsolete') row.eachCell(c => { c.font = Object.assign({}, c.font, { strike: true }); });
