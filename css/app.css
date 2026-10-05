@@ -489,6 +489,12 @@ select.cell-inp { appearance: none; cursor: pointer; padding-right: 4px; }
 .rangebar .span.error { background: var(--err); }
 .rangebar .nom { position: absolute; top: 2px; width: 3px; height: 16px; margin-left: -1px; background: var(--ink); }
 .rangebar-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); margin-top: 2px; }
+/* one bar per covered component (Item drawer) — label | bar | range, the axis under the bar column */
+.rangebars.multi .rb-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 104px; gap: 8px; align-items: center; margin-bottom: 4px; }
+.rangebars.multi .rb-label { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rangebars.multi .rb-val { font-size: 11px; text-align: right; color: var(--ink-3); }
+.rangebars.multi .rangebar-axis { margin-left: 148px; margin-right: 112px; }
+.rangebars.multi .rb-val.text-err { color: var(--err); }
 
 /* ━━━ Modal ━━━ */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(2, 27, 58, 0.45); z-index: 100; display: grid; place-items: center; padding: 24px; animation: fadeIn .15s var(--ease-out); }

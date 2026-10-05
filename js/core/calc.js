@@ -94,10 +94,11 @@
    * Design gap of an item. With a 設計間距 (pedestal → component top at nominal height, ± tolerance) the gap
    * is derived per component, worst case, adding the component's height tolerance:
    *   g_min = (間距 − 下公差) − (h_max − h_nom),  g_nom = 間距,  g_max = (間距 + 上公差) + (h_nom − h_min)
-   * Several components under one pad: the 設計間距 is to the tallest one (nominal); a lower component gets
-   * the height difference on top. Components without a height count as the reference height, no tolerance.
-   * Otherwise (or with item.gap_manual) the manual item.gap.
-   * → { source: 'stack'|'manual'|null, min, nom, max, design, stackReady, ref,
+   * Several components: by default each sits under its own pedestal at the 設計間距 (each adds its own height
+   * tolerance). item.gap_flat (one flat pedestal over all of them): the 設計間距 is to the tallest one (nominal),
+   * a lower component gets the height difference on top. Components without a height: no height tolerance
+   * (flat: counted at the reference height). Otherwise (or with item.gap_manual) the manual item.gap.
+   * → { source: 'stack'|'manual'|null, min, nom, max, design, stackReady, flat, ref (flat only),
    *     comps: [{ id, c, h, min, nom, max }] }  (item min / nom = the tightest component, max = the loosest)
    */
   function gapInfo(item) {
@@ -105,13 +106,16 @@
     const covered = (item && item.covered) || [];
     const hs = covered.map(heightRange);
     const noms = hs.filter(Boolean).map(h => h.nom);
-    const ref = noms.length ? Math.max.apply(null, noms) : null;
-    const out = { source: null, min: null, nom: null, max: null, design, stackReady: !!design, ref, comps: [] };
+    // gap_flat: one flat pedestal over every component → the design gap is for the tallest one (ref), the shorter
+    // ones add the height difference. Otherwise each component has its own pedestal at the design gap.
+    const flat = !!(item && item.gap_flat);
+    const ref = flat && noms.length ? Math.max.apply(null, noms) : null;
+    const out = { source: null, min: null, nom: null, max: null, design, stackReady: !!design, flat, ref, comps: [] };
     if (design && !item.gap_manual) {
       out.source = 'stack';
       out.comps = covered.map((c, i) => {
         const h = hs[i];
-        const off = h ? ref - h.nom : 0;
+        const off = h && ref !== null ? ref - h.nom : 0;
         return { id: c.id, c, h, min: r4(design.min + off - (h ? h.max - h.nom : 0)), nom: r4(design.nom + off), max: r4(design.max + off + (h ? h.nom - h.min : 0)) };
       });
       if (out.comps.length) {
@@ -226,9 +230,15 @@
     out.rec = recCompression(item, mat, settings);
     out.status = 'ok';
     const warnPct = fin(settings && settings.pressure_warn_pct) ? settings.pressure_warn_pct : schema.DEFAULT_SETTINGS.pressure_warn_pct;
-    if (out.min !== null && out.min <= 0) flag('error', '最大間隙 ' + util.fmt(gi.max) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm，可能完全未接觸');
-    else if (out.rec && out.min !== null && out.min < out.rec.min) flag('error', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%（接觸可能不足）');
-    if (out.max !== null && out.max >= 100) flag('error', '最小間隙 ≤ 0，請檢查間隙數值');
+    // several components with their own gaps: name the one that sets the worst value
+    const who = key => {
+      if (gi.source !== 'stack' || gi.comps.length < 2) return '';
+      const x = gi.comps.find(y => y[key] === gi[key]);
+      return x ? '（' + ([x.c.part, x.c.refdes].filter(Boolean).join(' ') || '元件') + '）' : '';
+    };
+    if (out.min !== null && out.min <= 0) flag('error', '最大間隙 ' + util.fmt(gi.max) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm' + who('max') + '，可能完全未接觸');
+    else if (out.rec && out.min !== null && out.min < out.rec.min) flag('error', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%' + who('max') + '（接觸可能不足）');
+    if (out.max !== null && out.max >= 100) flag('error', '最小間隙 ≤ 0' + who('min') + '，請檢查間隙數值');
 
     const hasCurve = curveSet(mat).length > 0;
     out.pressure = fin(out.max) ? pressureAt(mat, t, out.max) : null;
@@ -532,7 +542,7 @@
       qty: fin(item.qty) ? String(item.qty) : '',
       delta_pn: item.delta_pn || '', vendor_pn: item.vendor_pn || '', fabricator: item.fabricator || '',
       covered: parse.formatCovered(item.covered),
-      gap_design: item.gap_design && fin(item.gap_design.nom) ? util.fmt(item.gap_design.nom) + ' +' + util.fmt(fin(item.gap_design.plus) ? item.gap_design.plus : 0) + ' / −' + util.fmt(fin(item.gap_design.minus) ? item.gap_design.minus : 0) : '',
+      gap_design: item.gap_design && fin(item.gap_design.nom) ? util.fmt(item.gap_design.nom) + ' +' + util.fmt(fin(item.gap_design.plus) ? item.gap_design.plus : 0) + ' / −' + util.fmt(fin(item.gap_design.minus) ? item.gap_design.minus : 0) + (item.gap_flat ? '（同一平面）' : '') : '',
       gap: [item.gap && item.gap.min, item.gap && item.gap.nom, item.gap && item.gap.max].map(v => fin(v) ? util.fmt(v) : '-').join(' / ').replace(/^- \/ - \/ -$/, ''),
       sources: parse.formatSources(item),
       status: schema.labelOf(schema.ITEM_STATUS, item.status),

@@ -177,7 +177,7 @@
     dispense: '點膠量', qty: "Q'ty", delta_pn: 'Delta P/N', vendor_pn: 'Vendor P/N',
     fabricator: '裁切加工廠', drawing_no: '裁切圖號', covered: '覆蓋元件',
     gap: '設計間隙', comp_override: '最小壓縮率', sources: '2nd source',
-    gap_design: '設計間距', 'gap_design.nom': '設計間距 nom', 'gap_design.plus': '間距公差 +', 'gap_design.minus': '間距公差 −', gap_manual: '間隙手動輸入',
+    gap_design: '設計間距', 'gap_design.nom': '設計間距 nom', 'gap_design.plus': '間距公差 +', 'gap_design.minus': '間距公差 −', gap_manual: '間隙手動輸入', gap_flat: '間距基準',
     sourcing_note: '供應策略', price: '單價', moq: 'MOQ', lead_time_wk: '交期 (週)',
     validation: '驗證', note: '備註', links: '連結', color: '標註顏色',
     'gap.nom': '間隙 nom', 'gap.min': '間隙 min', 'gap.max': '間隙 max',
@@ -259,8 +259,10 @@
       covered: [], gap: { nom: null, min: null, max: null }, comp_override: null,
       // 設計間距: heat-sink pedestal → component top at the component's nominal height (the gap given to ME),
       // ± mechanical tolerance. With it the gap is derived per component, adding the component height
-      // tolerance (covered[].h_*), unless gap_manual.
-      gap_design: { nom: null, plus: null, minus: null }, gap_manual: false,
+      // tolerance (covered[].h_*), unless gap_manual. Several components: each sits under its own pedestal at
+      // this gap, unless gap_flat (one flat pedestal over all of them: the gap is for the tallest, the shorter
+      // ones add the height difference).
+      gap_design: { nom: null, plus: null, minus: null }, gap_manual: false, gap_flat: false,
       sources: [], sourcing_note: '',
       price: { unit: null, currency: '' }, moq: null, lead_time_wk: null,
       validation: { coverage_pct: null, result: '', date: '', note: '', image_id: null },
@@ -368,10 +370,12 @@
       const ref = o.covered.map(nominalHeight).filter(v => v !== null);
       if (H !== null && o.gap_design.nom === null && ref.length) {
         o.gap_design = { nom: Math.round((H - Math.max.apply(null, ref)) * 1e4) / 1e4, plus: numOrNull(o.mech.plus), minus: numOrNull(o.mech.minus) };
+        o.gap_flat = true;   // one pedestal height for every component
       }
     }
     delete o.mech;
     o.gap_manual = o.gap_manual === true;
+    o.gap_flat = o.gap_flat === true;
     if (o.comp_override && isObj(o.comp_override)) {
       o.comp_override = { min: numOrNull(o.comp_override.min), max: numOrNull(o.comp_override.max) };
     } else o.comp_override = null;
