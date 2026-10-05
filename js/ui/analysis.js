@@ -67,13 +67,13 @@
               <span><i class="swatch" style="background:var(--d-500)"></i>min~max 壓縮率</span>
               <span><i class="swatch" style="background:var(--ink);width:3px"></i>nom</span>
             </div>
-            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>間隙：設計間距 ± 公差，加上元件高度公差（最壞情況），或手動輸入<br/>! Warning：C<sub>min</sub> 低於最小壓縮率（Item 手動 → 一般值 10%）、壓力 ≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}%<br/>✕ Fail：最大間隙 ≥ T（未接觸）、壓力超過元件耐壓<br/>壓力：材料的壓力–壓縮曲線在 C<sub>max</sub> 的值</div></${InfoDot}>
+            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>間隙：設計間距 ± 公差，加上元件高度公差（最壞情況），或手動輸入<br/>! Warning：壓力 ≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}%<br/>✕ Fail：C<sub>min</sub> 低於最小壓縮率（預設 10%，Item 可手動調整）、最大間隙 ≥ T（未接觸）、壓力超過元件耐壓<br/>壓力：材料的壓力–壓縮曲線在 C<sub>max</sub> 的值</div></${InfoDot}>
           </div>
         </div>
         ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
           <thead><tr>
             ${th('item', 'Item')}<th>Location</th><th>材料</th><th class="r">T</th><th class="r">間隙 min / nom / max</th>
-            <th class="r">最小 %</th>${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}<th class="r">壓力 max psi</th>
+            ${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}<th class="r">壓力 max psi</th>
             <th class="rangecell">0 ~ ${hi}%</th>${th('status', '判定')}
           </tr></thead>
           <tbody>${sorted.map(r => html`<tr key=${r.it.id} class="clickable" onClick=${() => go('p/' + p.id + '/bom/' + r.it.id)}>
@@ -81,14 +81,13 @@
             <td class="ellipsis" style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td>
             <td class="r mono">${util.fmt(r.it.size.t)}</td>
             <td class="r mono" title=${r.cc.gap.source === 'stack' ? '設計間距 ± 公差 + 元件高度公差' : '手動輸入'}>${[r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}${r.cc.gap.source === 'stack' ? html` <span class="tag tag-mute" style="font-size:10px">設計間距</span>` : null}</td>
-            <td class="r mono" title=${r.cc.rec ? { item: 'Item 手動', generic: '一般值' }[r.cc.rec.source] : ''}>${r.cc.rec ? r.cc.rec.min + (r.cc.rec.source === 'generic' ? '*' : '') : '—'}</td>
-            <td class="r mono">${util.fmt(r.cc.min, 1)}</td><td class="r mono">${util.fmt(r.cc.max, 1)}</td>
+            <td class=${cx('r mono', r.cc.rec && r.cc.min != null && r.cc.min < r.cc.rec.min && 'text-err')} title=${r.cc.rec ? '最小壓縮率 ' + r.cc.rec.min + '%（' + { item: 'Item 手動', generic: '預設' }[r.cc.rec.source] + '）' : ''}>${util.fmt(r.cc.min, 1)}</td><td class="r mono">${util.fmt(r.cc.max, 1)}</td>
             <td class="r mono">${r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—'}</td>
             <td class="rangecell"><${RangeCell} cc=${r.cc} hi=${hi} /></td>
             <td><span class=${'tag ' + STATUS[r.cc.status].cls} title=${r.cc.msgs.join('\n')}>${STATUS[r.cc.status].icon} ${STATUS[r.cc.status].label}</span></td>
           </tr>`)}</tbody>
         </table></div>
-        <div class="muted" style="font-size:11px;margin-top:6px">* = 未手動設定最小壓縮率，使用一般值（經驗值 10%）。壓力需要材料庫的壓力–壓縮曲線。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙、壓縮與壓力」填入設計間距（凸台到元件頂面）與元件高度（或直接填間隙 min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
+        <div class="muted" style="font-size:11px;margin-top:6px">C min 低於最小壓縮率（預設 10%，可在 Item 詳細手動調整）→ Fail，數字以紅色標示。壓力需要材料庫的壓力–壓縮曲線。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙、壓縮與壓力」填入設計間距（凸台到元件頂面）與元件高度（或直接填間隙 min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
         ${missing.length ? html`<div class="panel panel-pad mt12" style="font-size:12px">
           <b>缺間隙資料：</b> ${missing.map((r, i) => html`${i ? '、' : ''}<a href=${'#/p/' + p.id + '/bom/' + r.it.id}>${r.it.item_no || '(未編號)'}</a>`)}
         </div>` : null}

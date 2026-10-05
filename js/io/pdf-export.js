@@ -2,7 +2,8 @@
  * landscape page is laid out as HTML off-screen, captured with html2canvas and placed in a
  * jsPDF document, so Chinese text is drawn by the browser and no fonts need embedding.
  * Pages: overview · TIM List (same columns / colours as the Excel sheet, split across pages
- * with the header repeated) · one page per placement view · material usage + compression.
+ * with the header repeated) · one page per placement view · material usage · compression / pressure.
+ * Rows and columns hidden in the TIM 清單 are left out (opts.hide, see xlsxExport.viewProject).
  * NOTE: html2canvas mis-renders letter-spacing — nothing here may use it. */
 (function () {
   'use strict';
@@ -19,14 +20,17 @@
   const HFONT = "'Space Grotesk','Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";
   const MONO = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
   const INK = '#0F1B2D', INK2 = '#3B4A5E', INK3 = '#6B7A90', LINE = '#7F7F7F', BLUE = '#2357A7';
-  const LEVEL = { error: ['✕', '#C0392B'], warn: ['!', '#B7791F'], info: ['i', '#2357A7'] };
 
   const SECTIONS = [
-    { key: 'overview', label: '總覽：專案資訊、狀態、待處理事項' },
+    { key: 'overview', label: '總覽：專案資訊與狀態' },
     { key: 'list', label: 'TIM 清單：與 Excel「TIM List」相同欄位與底色' },
     { key: 'maps', label: '位置標註圖：每張視圖一頁，含圖例' },
-    { key: 'checks', label: '材料用量彙總與壓縮率檢核' },
+    { key: 'usage', label: '材料用量彙總' },
+    { key: 'compression', label: '壓縮率與壓力檢核' },
   ];
+  /** Saved section choices: the earlier combined 'checks' becomes usage + compression. */
+  const normSections = list => (list || []).reduce((a, k) => a.concat(k === 'checks' ? ['usage', 'compression'] : [k]), [])
+    .filter((k, i, a) => SECTIONS.some(x => x.key === k) && a.indexOf(k) === i);
 
   // ───────── page frame ─────────
   function frame(p, o, inner) {
@@ -94,7 +98,6 @@
   // ───────── content builders ─────────
   function overviewPage(p, db) {
     const s = calc.projectStats(p, db);
-    const checks = calc.projectChecks(p, db);
     const costKeys = Object.keys(s.cost);
     const info = [
       ['案名', p.name], ['專案代碼', p.code], ['產品類型', schema.productTypeLabel(p.product_type)], ['客戶', p.customer],
@@ -115,35 +118,26 @@
       tile('壓縮 / 壓力異常', s.comp_issues, '', '壓縮不足、未接觸或超過元件耐壓', warn(s.comp_issues)),
       tile('位置圖放置', p.views.length ? s.placed + '/' + s.qty_total : '—', p.views.length ? 'pcs' : '', p.views.length ? p.views.length + ' 張位置圖' : '尚未建立位置圖'),
     ].join('');
-    const LINE_H = 17, maxLines = Math.floor((BODY_H - TITLE_H) / LINE_H);
-    const shown = checks.length > maxLines ? checks.slice(0, maxLines - 1) : checks;
-    const checkRows = shown.map(c => {
-      const [mark, color] = LEVEL[c.level] || LEVEL.info;
-      return `<div style="display:flex;gap:6px;align-items:center;height:${LINE_H}px;border-bottom:0.5px solid #E3E8EF">
-        <span style="flex:none;width:13px;height:13px;line-height:13px;text-align:center;font-size:8px;font-weight:700;color:#fff;background:${color}">${mark}</span>
-        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.msg)}</span></div>`;
-    }).join('') + (checks.length > shown.length ? `<div style="height:${LINE_H}px;line-height:${LINE_H}px;color:${INK3}">…另有 ${checks.length - shown.length} 項，請在工具的「總覽」查看</div>` : '');
     return `<div style="display:flex;gap:22px;height:100%">
-      <div style="width:47%">
+      <div style="width:44%">
         ${sectionTitle('專案資訊')}
         <table style="width:100%;border-collapse:collapse;font-size:9.5px">${info.map(([k, v]) => `<tr><td style="width:78px;padding:3px 6px;color:${INK3};border-bottom:0.5px solid #E3E8EF">${esc(k)}</td><td style="padding:3px 6px;border-bottom:0.5px solid #E3E8EF">${esc(v || '—')}</td></tr>`).join('')}</table>
-        ${p.description ? `<div style="margin-top:6px;font-size:9px;color:${INK2};max-height:40px;overflow:hidden"><span style="color:${INK3}">備註　</span>${esc(p.description)}</div>` : ''}
-        <div style="margin-top:12px">${sectionTitle('狀態', '不含停用 Item')}</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${tiles}</div>
+        ${p.description ? `<div style="margin-top:6px;font-size:9px;color:${INK2};max-height:80px;overflow:hidden"><span style="color:${INK3}">備註　</span>${esc(p.description)}</div>` : ''}
       </div>
       <div style="flex:1;min-width:0">
-        ${sectionTitle('待處理事項', checks.length + ' 項 · 自動檢核')}
-        ${checks.length ? checkRows : `<div style="color:${INK3}">沒有待處理事項。</div>`}
+        ${sectionTitle('狀態', '不含停用 Item')}
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px">${tiles}</div>
       </div>
     </div>`;
   }
 
   /** TIM List pages: Excel columns, location colour on the rows, rowspan location cell per page. */
-  function listPages(p, db) {
+  function listPages(p, db, hide) {
     const X = TIM.xlsxExport;
     const groups = X.timListGroups(p, db, {});
-    const widths = [10, 7, 10, 12, 16, 13, 5, 13, 30, 24];
-    const head = '<tr>' + X.TIM_LIST_HEADERS.map(h => th(h)).join('') + '</tr>';
+    const lc = X.listColumns(hide);              // columns shown in the TIM 清單 (Location, Item always)
+    const widths = lc.map(i => [10, 7, 10, 12, 16, 13, 5, 13, 30, 24][i]);
+    const head = '<tr>' + lc.map(i => th(X.TIM_LIST_HEADERS[i])).join('') + '</tr>';
     const flat = [];
     groups.forEach(g => g.rows.forEach(r => flat.push(Object.assign({ loc: g.loc }, r))));
     const rowHtml = (r, locCell) => {
@@ -152,8 +146,8 @@
       const v = r.vals;
       const sc = r.risk === 'single' ? `background:${X.PINK};color:#B4237A` : r.risk === 'unverified' ? `background:${X.AMBER};color:#000` : `background:${r.loc.color};color:${fg}`;
       return '<tr>' + (locCell == null ? td('', base) : locCell) +
-        [1, 2, 3, 4, 5, 6, 7].map(i => td(esc(v[i] == null ? '' : v[i]), base + (i === 1 ? ';font-weight:700' : ''))).join('') +
-        td(esc(v[8]), base + ';text-align:left') + td(esc(v[9]), sc + ';text-align:left') + '</tr>';
+        lc.slice(1).map(i => (i === 9 ? td(esc(v[9]), sc + ';text-align:left') : i === 8 ? td(esc(v[8]), base + ';text-align:left')
+          : td(esc(v[i] == null ? '' : v[i]), base + (i === 1 ? ';font-weight:700' : '')))).join('') + '</tr>';
     };
     if (!flat.length) return [{ title: 'TIM 清單', html: `<div style="color:${INK3}">還沒有 Item。</div>` }];
     const m = measure(widths, head, flat.map(r => rowHtml(r)));
@@ -203,8 +197,8 @@
     return out;
   }
 
-  /** Material usage and compression tables flowed across as many pages as needed. */
-  function checkPages(p, db) {
+  /** Material usage and / or compression tables (want.usage / want.compression) flowed across as many pages as needed. */
+  function checkPages(p, db, want) {
     const usage = calc.materialUsage(p, db);
     const uW = [18, 26, 14, 42];
     const uHead = '<tr>' + th('Vendor', 'left') + th('Model', 'left') + th('每台用量') + th('Items', 'left') + '</tr>';
@@ -214,23 +208,22 @@
       return { it, eff: calc.effective(it, mat), cc: calc.compressionCheck(it, mat, db.settings), loc: calc.locationOf(p, it) };
     }).filter(r => r.cc.status !== 'na');
     const STATUS = { ok: ['OK', '#1E8E4E', '#E7F5EC'], warn: ['Warning', '#B7791F', '#FFF4DB'], error: ['Fail', '#C0392B', '#FDECEA'] };
-    const cW = [7, 11, 21, 6, 17, 7, 7, 7, 9, 8];
-    const cHead = '<tr>' + ['Item', 'Location', '材料', 'T (mm)', '間隙 min / nom / max', '最小 %', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
+    const cW = [7, 11, 22, 6, 18, 8, 8, 10, 9];
+    const cHead = '<tr>' + ['Item', 'Location', '材料', 'T (mm)', '間隙 min / nom / max', 'C min %', 'C max %', '壓力 max psi', '判定'].map(t => th(t)).join('') + '</tr>';
     const f = v => (v == null ? '—' : util.fmt(v, 3));
     const cRows = comp.map(r => {
       const [label, color, bg] = STATUS[r.cc.status];
       return '<tr>' + td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : '')) +
         td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right') +
         td([r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
-        td(r.cc.rec ? r.cc.rec.min + (r.cc.rec.source === 'generic' ? '*' : '') : '—', 'text-align:center') +
-        td(util.fmt(r.cc.min, 1), 'text-align:right') + td(util.fmt(r.cc.max, 1), 'text-align:right') +
+        td(util.fmt(r.cc.min, 1), 'text-align:right' + (r.cc.rec && r.cc.min != null && r.cc.min < r.cc.rec.min ? ';color:#C0392B;font-weight:700' : '')) + td(util.fmt(r.cc.max, 1), 'text-align:right') +
         td(r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—', 'text-align:right') +
         td(label, `text-align:center;font-weight:700;color:${color};background:${bg}`) + '</tr>';
     });
     const blocks = [
-      { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' },
-      { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差；* = 一般值最小壓縮 10%；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' },
-    ];
+      want.usage ? { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' } : null,
+      want.compression ? { title: '壓縮率與壓力檢核', sub: 'C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差；C min 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足）；壓力 = 材料壓力–壓縮曲線在 C max 的值，超過元件耐壓 → Fail', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' } : null,
+    ].filter(Boolean);
     const pages = [];
     let cur = '', room = BODY_H;
     const flush = () => { if (cur) pages.push(cur); cur = ''; room = BODY_H; };
@@ -253,7 +246,8 @@
       room -= 14;
     });
     flush();
-    return pages.map((html, i) => ({ title: '材料用量與壓縮率檢核' + (i ? '（續）' : ''), kicker: 'CHECKS', html }));
+    const title = want.usage && want.compression ? '材料用量與壓縮率檢核' : want.usage ? '材料用量彙總' : '壓縮率與壓力檢核';
+    return pages.map((html, i) => ({ title: title + (i ? '（續）' : ''), kicker: 'CHECKS', html }));
   }
 
   /** Load the webfonts for every glyph we are about to draw (CJK fonts come in unicode-range subsets). */
@@ -269,24 +263,25 @@
   }
 
   /**
-   * Build and download the PDF. opts.sections: keys from SECTIONS (default all);
-   * opts.onProgress(done, total). → file name.
+   * Build and download the PDF. opts.sections: keys from SECTIONS (default all); opts.hide: rows / columns hidden
+   * in the TIM 清單 to leave out (xlsxExport.viewProject / listColumns); opts.onProgress(done, total). → file name.
    */
   async function exportProjectPdf(pid, opts) {
     opts = opts || {};
-    const want = new Set(opts.sections || SECTIONS.map(s => s.key));
+    const want = new Set(opts.sections ? normSections(opts.sections) : SECTIONS.map(s => s.key));
     const [html2canvas, jspdf] = await Promise.all([TIM.loader.load('html2canvas'), TIM.loader.load('jspdf')]);
     const db = TIM.store.db;
-    const p = db.projects[pid];
+    const p0 = db.projects[pid];
+    const p = TIM.xlsxExport.viewProject(p0, opts.hide);   // without the rows hidden in the TIM 清單; drawings use p0
     const sample = [p.name, p.description, p.customer, ...p.items.map(i => [i.item_no, i.vendor, i.model, i.note, i.sourcing_note, parse(i)].join(' ')),
       ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小設計間距公差元件高度曲線'].join(' ');
     await loadFonts(sample);
 
     const pages = [];
     if (want.has('overview')) pages.push({ title: 'TIM 專案總覽', kicker: 'PROJECT OVERVIEW', html: overviewPage(p, db) });
-    if (want.has('list')) listPages(p, db).forEach(pg => pages.push(Object.assign({ kicker: 'TIM LIST' }, pg)));
-    if (want.has('maps')) (await mapPages(p, db)).forEach(pg => pages.push(pg));
-    if (want.has('checks')) checkPages(p, db).forEach(pg => pages.push(pg));
+    if (want.has('list')) listPages(p, db, opts.hide).forEach(pg => pages.push(Object.assign({ kicker: 'TIM LIST' }, pg)));
+    if (want.has('maps')) (await mapPages(p0, db)).forEach(pg => pages.push(pg));
+    if (want.has('usage') || want.has('compression')) checkPages(p, db, { usage: want.has('usage'), compression: want.has('compression') }).forEach(pg => pages.push(pg));
     if (!pages.length) throw new Error('沒有可匯出的頁面');
 
     const pdf = new jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4', compress: true });
@@ -316,5 +311,5 @@
   }
   function parse(it) { return TIM.parse.formatCovered(it.covered) + ' ' + TIM.parse.formatSources(it); }
 
-  TIM.pdfExport = { SECTIONS, exportProjectPdf };
+  TIM.pdfExport = { SECTIONS, normSections, exportProjectPdf };
 })();

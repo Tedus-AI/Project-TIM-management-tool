@@ -170,7 +170,8 @@
     const history = (p.changelog || []).filter(c => c.target_id && String(c.target_id).startsWith(it.id)).slice(-30).reverse();
     const covQty = calc.coveredQty(it);
     const totalPower = util.sum(it.covered, c => { const pt = calc.timPower(c); return pt === null ? NaN : pt * (Number.isFinite(c.qty) ? c.qty : 1); });
-    const recSrcLabel = cc.rec ? { item: '手動', generic: '一般值' }[cc.rec.source] : '';
+    const recSrcLabel = cc.rec ? { item: '手動', generic: '預設' }[cc.rec.source] : '';
+    const lowC = !!(cc.rec && cc.min != null && cc.min > 0 && cc.min < cc.rec.min);   // compression min below the minimum → red (Fail)
     const gi = cc.gap || calc.gapInfo(it);
     const stack = gi.stackReady && !it.gap_manual;
     const uc = (c, f, v) => A().updateCovered(p.id, it.id, c.id, f, v);
@@ -321,7 +322,7 @@
         </${Sec}>
 
         <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="設計間距 ± 公差 + 元件高度公差 → 間隙（最壞情況）→ 壓縮率 → 壓力"
-          right=${html`<${InfoDot}><div class="formula">設計間距 = 凸台到元件頂面（元件高度 nom 時）<br/>間隙 min = (間距 − 下公差) − (元件 max − 元件 nom)<br/>間隙 nom = 間距<br/>間隙 max = (間距 + 上公差) + (元件 nom − 元件 min)<br/>一片 pad 蓋多顆元件：間距以最高（nom）的元件為準，較矮的元件加上高度差<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率 → 接觸可能不足；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
+          right=${html`<${InfoDot}><div class="formula">設計間距 = 凸台到元件頂面（元件高度 nom 時）<br/>間隙 min = (間距 − 下公差) − (元件 max − 元件 nom)<br/>間隙 nom = 間距<br/>間隙 max = (間距 + 上公差) + (元件 nom − 元件 min)<br/>一片 pad 蓋多顆元件：間距以最高（nom）的元件為準，較矮的元件加上高度差<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足，紅字）；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
           ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率與壓力；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
           <div class="form-grid">
             <${Field} label="T（未壓縮厚度）"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
@@ -360,7 +361,7 @@
                   <${NumField} value=${it.gap.max} unit="max" disabled=${ro} onChange=${v => u('gap.max', v)} />
                 </div>`}
             </${Field}>
-            <${Field} label="最小壓縮率" info="低於此值 → 接觸可能不足。過壓改由壓力判定（材料曲線 vs 元件耐壓）。一般值 10% 為經驗值，可解鎖依材料 / 專案調整。">
+            <${Field} label="最小壓縮率" info="低於此值 → Fail（接觸可能不足，壓縮率 min 以紅字標示）。過壓改由壓力判定（材料曲線 vs 元件耐壓）。預設 10% 為經驗值，可解鎖依材料 / 專案調整。">
               <${Locked} unlocked=${!!(it.comp_override && it.comp_override.min != null)} source=${recSrcLabel}
                 display=${cc.rec ? html`<span class="mono">${cc.rec.min} %</span>` : html`<span class="muted">—</span>`}
                 onUnlock=${ro ? null : () => u('comp_override', { min: cc.rec ? cc.rec.min : 10 })}
@@ -370,7 +371,7 @@
             </${Field}>
           </div>
           ${cc.status !== 'na' ? html`<div class="calc-box mt12">
-              <div><div class="k">壓縮率 min</div><div class="v">${cc.min == null ? '—' : util.fmt(cc.min, 1) + '%'}</div></div>
+              <div title=${lowC ? '低於最小壓縮率 ' + cc.rec.min + '%：接觸可能不足' : ''}><div class="k">壓縮率 min</div><div class=${cx('v', lowC && 'text-err')}>${cc.min == null ? '—' : util.fmt(cc.min, 1) + '%'}${lowC ? html`<span class="low-c">＜ ${cc.rec.min}%</span>` : null}</div></div>
               <div><div class="k">壓縮率 nom</div><div class="v">${cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%'}</div></div>
               <div><div class="k">壓縮率 max</div><div class="v">${cc.max == null ? '—' : util.fmt(cc.max, 1) + '%'}</div></div>
               <div title=${basisTxt(cc.pressure)}><div class="k">壓力 max</div><div class="v">${cc.pressure ? psiTxt(cc.pressure) + ' psi' : html`<span class="muted" style="font-size:12px">${mat ? '材料無曲線' : '未連結材料'}</span>`}</div></div>

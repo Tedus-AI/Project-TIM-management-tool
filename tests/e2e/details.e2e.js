@@ -22,10 +22,11 @@ module.exports = [
       await gap.nth(1).fill('1.6');
       await gap.nth(2).fill('1.75');
       await page.waitForSelector('#d-gap .calc-box .tag-ok:text-is("OK")');
-      // max gap 1.85 → C min 7.5 % < 10 % → Warning (contact)
+      // max gap 1.85 → C min 7.5 % < 10 % → Fail (contact), the compression min in red
       await gap.nth(2).fill('1.85');
-      await page.waitForSelector('#d-gap .calc-box .tag-warn:text-is("Warning")');
+      await page.waitForSelector('#d-gap .calc-box .tag-err:text-is("Fail")');
       assert.match(await page.locator('#d-gap').innerText(), /低於下限 10%/);
+      assert.match(await page.locator('#d-gap .calc-box .v.text-err').innerText(), /7\.5%[\s\S]*＜ 10%/);
       // unlock the minimum (✂) and lower it → OK again
       await page.click('#d-gap .field:has(> label:has-text("最小壓縮率")) button[title="解鎖，改為手動輸入"]');
       await page.locator('#d-gap .field:has(> label:has-text("最小壓縮率")) input').fill('5');

@@ -60,6 +60,56 @@ module.exports = [
     },
   },
   {
+    name: 'export follows the TIM 清單 顯示 / 隱藏: hidden rows left out of every sheet, hidden columns out of TIM List; can be turned off',
+    async run(env) {
+      const { page } = env;
+      await openWithDemo(env);
+      await page.click('.proj-name');
+      await page.click('.tab:has-text("TIM 清單")');
+      await page.waitForSelector('table.grid');
+      // hide row A2 and the Delta P/N + Q'ty columns in the grid
+      await page.click('.bom-toolbar button:has-text("顯示 / 隱藏")');
+      await page.locator('.hide-panel .hp-col >> nth=0 >> .hp-item:has-text("Delta P/N") input').uncheck();
+      await page.locator('.hide-panel .hp-col >> nth=0 >> .hp-item:has-text("Q\'ty") input').uncheck();
+      await page.locator('.hide-panel .hp-col >> nth=1 >> .hp-item:has(b:text-is("A2")) input').uncheck();
+      await page.keyboard.press('Escape');
+      const exportXlsx = async (follow) => {
+        await page.click('.proj-head-actions button:has-text("匯出 Excel")');
+        await page.waitForSelector('.modal:has-text("匯出 Excel")');
+        const note = page.locator('.modal label.hidden-follow');
+        assert.match(await note.innerText(), /不匯出隱藏的 1 列（A2）、2 欄（Q'ty、Delta Part No\.）/);
+        if ((await note.locator('input').isChecked()) !== follow) await note.locator('input').click();
+        const dl = page.waitForEvent('download', { timeout: 60000 });
+        await page.click('.modal-foot button:has-text("匯出")');
+        const file = path.join(OUT, 'export-hidden-' + follow + '.xlsx');
+        fs.mkdirSync(OUT, { recursive: true });
+        await (await dl).saveAs(file);
+        await page.waitForFunction(() => !document.querySelector('.modal'));
+        const b64 = fs.readFileSync(file).toString('base64');
+        return page.evaluate(async b64 => {
+          const ExcelJS = await TIM.loader.load('exceljs');
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer);
+          const ws = wb.getWorksheet('TIM List');
+          const head = []; for (let c = 1; c <= 12; c++) head.push(ws.getCell(1, c).text);
+          const items = []; for (let r = 2; r <= 30; r++) { const t = ws.getCell(r, 2).text; if (/^A\d/.test(t)) items.push(t); }
+          const col = (name, key) => { const w = wb.getWorksheet(name); const out = []; w.eachRow((row, i) => { if (i > 1) out.push(row.getCell(key).text); }); return out; };
+          return { head, items, pink: ws.getCell(2, head.indexOf('2nd source') + 1).fill.fgColor.argb, comp: col('Components', 1), gap: col('Gap & Thermal', 1), legend: ws.getCell(items.length + 3, 1).text };
+        }, b64);
+      };
+      let x = await exportXlsx(true);
+      assert.deepEqual(x.head.filter(Boolean), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', 'Note', '2nd source', 'Type', 'Status']);
+      assert.ok(!x.items.includes('A2') && x.items.includes('A1-1') && x.items.includes('A3'));
+      assert.equal(x.pink, 'FFF9CBF0', 'the 2nd source colour follows its column');
+      assert.ok(!x.comp.includes('A2') && !x.gap.includes('A2'), 'hidden Item left out of the detail sheets');
+      assert.match(x.legend, /未列出隱藏的 1 個 Item、2 欄/);
+      // turned off → everything
+      x = await exportXlsx(false);
+      assert.deepEqual(x.head.slice(0, 10), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'Size', "Q'ty", 'Delta Part No.', 'Note', '2nd source']);
+      assert.ok(x.items.includes('A2') && x.comp.includes('A2'));
+    },
+  },
+  {
     name: 'import: existing Excel format with merged cells and a drawing',
     async run(env) {
       const { page } = env;

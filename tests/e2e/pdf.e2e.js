@@ -10,7 +10,7 @@ async function exportPdf(page, sections) {
   await page.click('.proj-head-actions button:has-text("匯出 PDF")');
   await page.waitForSelector('.modal:has-text("匯出 PDF")');
   if (sections) {
-    const boxes = page.locator('.modal input[type=checkbox]');
+    const boxes = page.locator('.modal label.check:not(.hidden-follow) input[type=checkbox]');   // the page sections
     for (let i = 0; i < await boxes.count(); i++) {
       const want = sections.includes(i);
       if ((await boxes.nth(i).isChecked()) !== want) await boxes.nth(i).click();
@@ -59,8 +59,23 @@ module.exports = [
       const buttons = await page.locator('.proj-head-actions button').allInnerTexts();
       const xi = buttons.findIndex(b => /匯出 Excel/.test(b));
       assert.ok(xi >= 0 && /匯出 PDF/.test(buttons[xi + 1]), 'PDF button right next to Excel');
-      // everything: overview + list + 2 views + checks
-      let r = await exportPdf(page);
+      // options: overview without 待處理事項; material usage and the compression check are separate
+      await page.click('.proj-head-actions button:has-text("匯出 PDF")');
+      await page.waitForSelector('.modal:has-text("匯出 PDF")');
+      const labels = (await page.locator('.modal label.check').allInnerTexts()).map(t => t.trim());
+      assert.deepEqual(labels, ['總覽：專案資訊與狀態', 'TIM 清單：與 Excel「TIM List」相同欄位與底色', '位置標註圖：每張視圖一頁，含圖例', '材料用量彙總', '壓縮率與壓力檢核']);
+      await page.click('.modal-foot button:has-text("取消")');
+      // an earlier saved choice with the combined "checks" turns into both
+      await page.evaluate(() => localStorage.setItem('tim_pref_pdf_sections', JSON.stringify(['overview', 'checks'])));
+      await page.click('.proj-head-actions button:has-text("匯出 PDF")');
+      await page.waitForSelector('.modal:has-text("匯出 PDF")');
+      assert.deepEqual(await page.locator('.modal input[type=checkbox]').evaluateAll(els => els.map(e => e.checked)), [true, false, false, true, true]);
+      await page.click('.modal-foot button:has-text("取消")');
+      // usage only / compression only: one page each
+      assert.equal((await exportPdf(page, [3])).pages, 1);
+      assert.equal((await exportPdf(page, [4])).pages, 1);
+      // everything: overview + list + 2 views + usage and compression (flowed together)
+      let r = await exportPdf(page, [0, 1, 2, 3, 4]);
       assert.match(r.name, /_TIM_DVT_\d{8}\.pdf$/);
       assert.equal(r.bytes.slice(0, 5).toString(), '%PDF-');
       assert.equal(r.pages, 5);
@@ -78,6 +93,16 @@ module.exports = [
       });
       r = await exportPdf(page, [1]);
       assert.ok(r.pages >= 4 && r.pages <= 6, 'list split over ' + r.pages + ' pages');
+      // rows hidden in the TIM 清單 are left out: hide the 70 added rows → the list fits on one page again
+      await page.evaluate(() => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        localStorage.setItem('tim_pref_bom_hidden_rows', JSON.stringify({ [p.id]: p.items.filter(i => /^B/.test(i.item_no)).map(i => i.id) }));
+      });
+      await page.click('.proj-head-actions button:has-text("匯出 PDF")');
+      assert.match(await page.locator('.modal label.hidden-follow').innerText(), /不匯出隱藏的 70 列/);
+      await page.click('.modal-foot button:has-text("取消")');
+      r = await exportPdf(page, [1]);
+      assert.equal(r.pages, 1, 'hidden rows are not exported');
     },
   },
 ];

@@ -40,7 +40,8 @@ test('compression check: ok / warn / error', () => {
   it.gap = { nom: 1.6, min: 1.5, max: 1.7 };
   it.comp_override = { min: 20, max: 30 };
   c = calc.compressionCheck(it, mat, db.settings);
-  assert.equal(c.rec.source, 'item'); assert.equal(c.status, 'warn');   // min 15 % < 20 %
+  assert.equal(c.rec.source, 'item'); assert.equal(c.status, 'error');   // min 15 % < 20 % → Fail (contact)
+  assert.deepEqual(c.levels, ['error']);
   assert.ok(c.msgs.some(m => m.includes('低於下限 20%')));
   const bare = schema.newItem({ size: { l: 5, w: 5, t: 2 }, gap: { nom: 1.6 } });
   assert.equal(calc.recCompression(bare, null, db.settings).source, 'generic');
