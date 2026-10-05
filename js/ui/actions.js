@@ -33,6 +33,7 @@
     if (path === 'gap') return [v && v.min, v && v.nom, v && v.max].map(x => (x == null ? '-' : x)).join(' / ');
     if (path === 'comp_override') return v && v.min != null ? v.min + '%' : '自動';
     if (path === 'gap_manual') return v ? '手動' : '設計間距';
+    if (path === 'gap_flat') return v ? '同一平面（一片蓋多顆）' : '各元件各自凸台';
     if (v && typeof v === 'object') return JSON.stringify(v);
     return v;
   }

@@ -22,7 +22,7 @@
 - 材料匯入：`js/core/matimport.js` 的 `FIELDS` 是唯一定義 —— 同時產生給 AI 的指令（`prompt()`）、範例與解析 / 正規化規則；
   加材料欄位時一併更新這裡（README 的格式說明以「複製 AI 指令」內容為準）。UI 在 `js/ui/material-import.js`，寫入走 `actions.importMaterials`（一個 undo 步驟）。
   重新匯入：`openMaterialImport({ targetId })` → `plan(..., targetId)` 把那筆設為覆蓋、`keepName`（不改 Vendor / Model），`prompt({ target })` 叫 AI 照抄名稱。
-- 間隙 / 壓縮 / 壓力：`calc.gapInfo`（`item.gap_design` = 凸台到元件頂面的設計間距 ± 公差，加上元件高度公差，最壞情況；`gap_manual` 時用手填 `item.gap`）是唯一來源，
+- 間隙 / 壓縮 / 壓力：`calc.gapInfo`（`item.gap_design` = 凸台到元件頂面的設計間距 ± 公差，加上元件高度公差，最壞情況；多顆元件預設各自凸台、每顆都用設計間距，`item.gap_flat` = 同一平面時才以最高元件為準、較矮的加高度差；`gap_manual` 時用手填 `item.gap`）是唯一來源，
   `compressionCheck`（壓縮率只檢核下限；過壓 = `pressureAt` 由材料 `pressure_curves` 內插 vs 元件耐壓，`settings.pressure_warn_pct`）
   同時給 Item 抽屜、TIM 清單、分析頁、Excel、PDF 用。不要在 UI 直接讀 `item.gap` 判斷。曲線編輯 / 圖在 `js/ui/curves.js`。
   受壓類型：覆蓋元件 `load_type`（`schema.LOAD_TYPES`，`check: false` 的 E-PAD 類 → `row.exempt`，壓力照算、`allow = null` 不判定；空值 = 未指定，有耐壓才判定），屬於 `COMP_GROUPS`。

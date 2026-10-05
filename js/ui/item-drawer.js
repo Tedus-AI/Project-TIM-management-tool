@@ -115,17 +115,31 @@
     </section>`;
   }
 
+  /** Status of one component's compression range: no contact / below the minimum → error, else its pressure status. */
+  function compStatus(r, cc) {
+    if (r.cMin != null && (r.cMin <= 0 || (cc.rec && r.cMin < cc.rec.min))) return 'error';
+    if (r.cMax != null && r.cMax >= 100) return 'error';
+    return r.exempt || r.status === 'na' ? 'ok' : r.status;
+  }
+
+  /** Compression range bar(s): one bar per covered component when there are several (not merged), else the item. */
   function RangeBar(props) {
     const cc = props.cc;
     if (cc.status === 'na') return null;
-    const lo = 0, hi = Math.max(60, Math.ceil(((cc.max || 0) + 5) / 10) * 10);
+    const multi = cc.comps.length > 1 && cc.gap && cc.gap.source === 'stack';
+    const rows = multi
+      ? cc.comps.map(r => ({ key: r.id, label: [r.part, r.refdes].filter(Boolean).join(' ') || '元件', min: r.cMin, nom: r.cNom, max: r.cMax, status: compStatus(r, cc) }))
+      : [{ key: 'item', label: '', min: cc.min, nom: cc.nom, max: cc.max, status: cc.status }];
+    const lo = 0, hi = Math.max(60, Math.ceil((Math.max.apply(null, rows.map(r => r.max || 0)) + 5) / 10) * 10);
     const pct = v => util.clamp((v - lo) / (hi - lo) * 100, 0, 100);
-    return html`<div style="margin-top:10px">
-      <div class="rangebar">
+    const bar = r => html`<div class="rangebar" title=${(r.label ? r.label + '：' : '') + 'C ' + (r.min == null ? '—' : util.fmt(r.min, 1)) + ' ~ ' + (r.max == null ? '—' : util.fmt(r.max, 1)) + '%' + (r.nom != null ? '（nom ' + util.fmt(r.nom, 1) + '%）' : '')}>
         ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }} title=${'最小壓縮 ' + cc.rec.min + '%（接觸）'}></div>` : null}
-        ${cc.min != null && cc.max != null ? html`<div class=${cx('span', cc.status)} style=${{ left: pct(Math.max(lo, cc.min)) + '%', width: Math.max(0.6, pct(cc.max) - pct(Math.max(lo, cc.min))) + '%' }}></div>` : null}
-        ${cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }} title=${'nom ' + util.fmt(cc.nom, 1) + '%'}></div>` : null}
-      </div>
+        ${r.min != null && r.max != null ? html`<div class=${cx('span', r.status)} style=${{ left: pct(Math.max(lo, r.min)) + '%', width: Math.max(0.6, pct(r.max) - pct(Math.max(lo, r.min))) + '%' }}></div>` : null}
+        ${r.nom != null ? html`<div class="nom" style=${{ left: pct(r.nom) + '%' }} title=${'nom ' + util.fmt(r.nom, 1) + '%'}></div>` : null}
+      </div>`;
+    return html`<div class=${cx('rangebars', multi && 'multi')} style="margin-top:10px">
+      ${rows.map(r => multi ? html`<div class="rb-row" key=${r.key}><span class="rb-label mono" title=${r.label}>${r.label}</span>${bar(r)}
+          <span class=${cx('rb-val mono', r.status === 'error' && 'text-err')}>${r.min == null ? '—' : util.fmt(r.min, 1)} ~ ${r.max == null ? '—' : util.fmt(r.max, 1)}%</span></div>` : bar(r))}
       <div class="rangebar-axis"><span>0%</span><span>${hi / 2}%</span><span>${hi}%</span></div>
     </div>`;
   }
@@ -323,13 +337,18 @@
         </${Sec}>
 
         <${Sec} id="d-gap" title="機構間隙、壓縮與壓力" sub="設計間距 ± 公差 + 元件高度公差 → 間隙（最壞情況）→ 壓縮率 → 壓力"
-          right=${html`<${InfoDot}><div class="formula">設計間距 = 凸台到元件頂面（元件高度 nom 時）<br/>間隙 min = (間距 − 下公差) − (元件 max − 元件 nom)<br/>間隙 nom = 間距<br/>間隙 max = (間距 + 上公差) + (元件 nom − 元件 min)<br/>一片 pad 蓋多顆元件：間距以最高（nom）的元件為準，較矮的元件加上高度差<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足，紅字）；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
+          right=${html`<${InfoDot}><div class="formula">設計間距 = 凸台到元件頂面（元件高度 nom 時）<br/>間隙 min = (間距 − 下公差) − (元件 max − 元件 nom)<br/>間隙 nom = 間距<br/>間隙 max = (間距 + 上公差) + (元件 nom − 元件 min)<br/>多顆元件（預設「各元件各自凸台」）：每顆都用這個間距，各自加上自己的高度公差<br/>「同一平面」（一片 pad 跨多顆、凸台是同一個平面）：間距以最高（nom）的元件為準，較矮的元件加上高度差<br/>壓縮率 C = (T − g) / T × 100%：C<sub>min</sub> 用 g<sub>max</sub>、C<sub>max</sub> 用 g<sub>min</sub><br/>C<sub>min</sub> 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足，紅字）；g ≥ T → 未接觸<br/>壓力：材料庫的壓力–壓縮曲線（依厚度內插）在 C<sub>max</sub> 的值<br/>受力 = 壓力 × min(pad 面積, 元件頂面)<br/>壓力 > 耐壓 → Fail；≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}% → Warning<br/>曲線是廠商標準樣品、等速壓縮的值：實際面積、組裝速度、應力鬆弛都會不同，接近耐壓請實測。</div></${InfoDot}>`}>
           ${dispense ? html`<div class="muted" style="font-size:12px">點膠類材料不檢核壓縮率與壓力；請記錄 BLT 與設計間隙供熱估算。</div>` : null}
           <div class="form-grid">
             <${Field} label="T（未壓縮厚度）"><div class="ref-value mono">${it.size.t == null ? '—' : util.fmt(it.size.t) + ' mm'}</div></${Field}>
-            <${Field} label="設計間距 nom" info="散熱片凸台（或機殼）到元件頂面的間距，以元件高度 nom 為準 —— 也就是給機構的間距；一片 pad 蓋多顆元件時，以最高的那顆為準"><${NumField} value=${it.gap_design.nom} unit="mm" disabled=${ro} onChange=${v => u('gap_design.nom', v)} /></${Field}>
+            <${Field} label="設計間距 nom" info="散熱片凸台（或機殼）到元件頂面的間距，以元件高度 nom 為準 —— 也就是給機構的間距。多顆元件時預設每顆元件各自的凸台都是這個間距（見「間距基準」）"><${NumField} value=${it.gap_design.nom} unit="mm" disabled=${ro} onChange=${v => u('gap_design.nom', v)} /></${Field}>
             <${Field} label="間距公差 +" info="機構公差：凸台加工、PCB 翹曲、組裝；+ 讓間距變大（壓得少）"><${NumField} value=${it.gap_design.plus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('gap_design.plus', v)} /></${Field}>
             <${Field} label="間距公差 −" info="− 讓間距變小（壓得多）"><${NumField} value=${it.gap_design.minus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('gap_design.minus', v)} /></${Field}>
+            ${it.covered.length > 1 ? html`<${Field} label="間距基準（多顆元件）" class="span-2"
+                info=${html`<div style="max-width:340px;line-height:1.6"><b>各元件各自凸台</b>（預設）：每顆元件上方有自己的凸台，設計間距都是這個值（例如同一種 pad 貼在 PWR module 與 DDR 上）；每顆各自加上自己的高度公差。<br/><b>同一平面</b>：一片 pad 跨在多顆元件上、凸台是同一個平面；設計間距以最高（nom）的元件為準，較矮的元件加上高度差。</div>`}>
+              <${SelectField} value=${it.gap_flat ? 'flat' : 'each'} allowEmpty=${false} disabled=${ro}
+                options=${[{ v: 'each', label: '各元件各自凸台（每顆都用這個間距）' }, { v: 'flat', label: '同一平面（一片 pad 跨多顆，以最高的元件為準）' }]}
+                onChange=${v => u('gap_flat', v === 'flat')} /></${Field}>` : null}
           </div>
           ${it.covered.length ? html`<table class="subtbl mt12 h-table">
             <thead><tr><th style="width:18%">元件（覆蓋元件）</th>
@@ -384,6 +403,7 @@
               <div title=${basisTxt(cc.pressure)}><div class="k">壓力 max</div><div class="v">${cc.pressure ? psiTxt(cc.pressure) + ' psi' : html`<span class=${sug ? 'text-warn' : 'muted'} style="font-size:12px">${mat ? '材料無曲線' : '未連結材料'}</span>`}</div></div>
               <div><div class="k">判定</div><div class="v">${tag(cc.status)}</div></div>
             </div>
+            ${cc.comps.length > 1 && cc.gap.source === 'stack' ? html`<div class="muted" style="font-size:11.5px;margin-top:6px">上方是全部元件合併的最壞值（min 取最鬆的元件、max 取最緊的元件）；每顆元件的範圍見下圖與下表。</div>` : null}
             <${RangeBar} cc=${cc} />
             ${sug && !ro ? html`<div class="link-hint mt8"><${Icon} name="warn" size=${14} /><span>Vendor / Model 與材料庫的「${sug.vendor} ${sug.model}」相同，但這個 Item 還沒連結，壓力曲線與 k 值都沒有帶入。</span>
               <button class="btn btn-secondary btn-xs" onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /> 連結</button></div>` : null}

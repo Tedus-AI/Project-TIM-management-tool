@@ -86,13 +86,26 @@ module.exports = [
       await hrow(0).locator('td >> nth=3 >> input').fill('1.4');
       await hrow(0).locator('td >> nth=4 >> input').fill('1.45');
       await hrow(1).locator('td >> nth=3 >> input').fill('1.3');      // MIX: nom only
-      // derived gaps (locked, ✂ to edit): PLL 1.5 / 1.6 / 1.7; MIX is 0.1 mm lower → 1.65 / 1.7 / 1.75 → item 1.5 / 1.6 / 1.75
+      // derived gaps (locked, ✂ to edit), default 各元件各自凸台: each component has its own pedestal at 1.6 ± 0.05 —
+      // PLL adds its height tolerance → 1.5 / 1.6 / 1.7; MIX (nominal height only) 1.55 / 1.6 / 1.65 → item 1.5 / 1.6 / 1.7
       const gapField = page.locator('#d-gap .field:has(> label:text-is("間隙 min / nom / max"))');
-      await page.waitForFunction(() => /1\.5 \/ 1\.6 \/ 1\.75 mm/.test(document.querySelector('#d-gap').innerText));
+      await page.waitForFunction(() => /1\.5 \/ 1\.6 \/ 1\.7 mm/.test(document.querySelector('#d-gap').innerText));
       assert.match(await gapField.innerText(), /設計間距/);
-      // pressures: PLL C max 25 % → 20 psi; MIX 17.5 % → 15 psi; no allowable yet → no judgement on pressure
       const prow = n => page.locator('#d-gap .p-table tbody tr').nth(n);
       await page.waitForFunction(() => document.querySelectorAll('#d-gap .p-table tbody tr').length === 2);
+      assert.match(await prow(0).innerText(), /1\.5 \/ 1\.6 \/ 1\.7\t15 ~ 25\t13\.3 ~ 20\t/);
+      assert.match(await prow(1).innerText(), /1\.55 \/ 1\.6 \/ 1\.65\t17\.5 ~ 22\.5\t15 ~ 18\.3\t/);
+      // one range bar per component (not merged into one), with its own range
+      await page.waitForFunction(() => document.querySelectorAll('#d-gap .rangebars.multi .rb-row').length === 2);
+      assert.deepEqual(await page.locator('#d-gap .rb-row .rb-val').allInnerTexts(), ['15 ~ 25%', '17.5 ~ 22.5%']);
+      assert.match(await page.locator('#d-gap .rb-row .rb-label').first().innerText(), /PLL-4368/);
+      // 同一平面 (one flat pedestal over both): the gap is to the tallest (PLL 1.4 mm); MIX is 0.1 mm lower →
+      // 1.65 / 1.7 / 1.75 → item 1.5 / 1.6 / 1.75
+      await page.locator('#d-gap .field:has(> label:has-text("間距基準")) select').selectOption('flat');
+      await page.waitForFunction(() => /1\.5 \/ 1\.6 \/ 1\.75 mm/.test(document.querySelector('#d-gap').innerText));
+      assert.equal((await item(page, 'A2')).gap_flat, true);
+      assert.match(await page.locator('#d-hist').innerText(), /間距基準[\s\S]*同一平面/);
+      // pressures: PLL C max 25 % → 20 psi; MIX 17.5 % → 15 psi; no allowable yet → no judgement on pressure
       assert.match(await prow(0).innerText(), /1\.5 \/ 1\.6 \/ 1\.7\t15 ~ 25\t13\.3 ~ 20\t/);
       assert.match(await prow(1).innerText(), /1\.65 \/ 1\.7 \/ 1\.75\t12\.5 ~ 17\.5\t11\.7 ~ 15\t/);
       // numeric headers line up with their right-aligned values (component table and the thermal table)
@@ -137,6 +150,12 @@ module.exports = [
       await a2row.locator('.cell-ro.r.mono').first().waitFor();
       assert.deepEqual((await a2row.locator('.cell-ro.r.mono').allInnerTexts()).slice(0, 3), ['1.5', '1.6', '1.75']);
       assert.match(await a2row.innerText(), /12\.5~25[\s\S]*20/);
+      // 間隙與壓力檢核: the range cell draws one bar per component
+      await page.click('.tab:has-text("間隙與壓力檢核")');
+      const a2an = page.locator('table.an-table >> nth=0 >> tbody tr:has(b:text-is("A2"))');
+      await a2an.waitFor();
+      assert.equal(await a2an.locator('.rangecell .span').count(), 2);
+      assert.match(await a2an.locator('.rangecell .rangebar').getAttribute('title'), /PLL-4368[^\n]*15 ~ 25%\nMIX-1139[^\n]*12\.5 ~ 17\.5%/);
     },
   },
   {

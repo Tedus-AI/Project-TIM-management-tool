@@ -237,7 +237,7 @@
       const cc = calc.compressionCheck(it, mat, db.settings);
       const th = calc.thermalEstimate(it, mat);
       const g = cc.gap || calc.gapInfo(it);
-      gt.push([it.item_no, it.size.t, it.gap_design.nom, it.gap_design.plus, it.gap_design.minus, { stack: '設計間距', manual: '手動' }[g.source] || '',
+      gt.push([it.item_no, it.size.t, it.gap_design.nom, it.gap_design.plus, it.gap_design.minus, (g.source === 'stack' && g.flat ? '設計間距（同一平面）' : { stack: '設計間距', manual: '手動' }[g.source]) || '',
         g.min, g.nom, g.max, r1(cc.min), r1(cc.nom), r1(cc.max),
         cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '預設' }[cc.rec.source] + ')' : '', psi(cc.pressure),
         JUDGE[cc.status], th.k, r1(th.area), th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.concat(cc.notes).join('；')]);

@@ -16,15 +16,25 @@
   const coveredNames = it => (it.covered || []).map(c => c.refdes || c.part).filter(Boolean).join(', ');
   const coveredTitle = it => (it.covered || []).map(c => [c.refdes, c.part].filter(Boolean).join(' / ') + (c.qty && c.qty !== 1 ? ' × ' + c.qty : '')).filter(Boolean).join('\n');
 
+  /** Compression range of an item — one thin bar per covered component when they have their own gaps (not merged). */
   function RangeCell(props) {
     const { cc, hi } = props;
     const pct = v => util.clamp(v / hi * 100, 0, 100);
-    const tip = 'min ' + util.fmt(cc.min, 1) + '% · nom ' + (cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%') + ' · max ' + util.fmt(cc.max, 1) + '%' +
+    const multi = cc.comps.length > 1 && cc.gap && cc.gap.source === 'stack';
+    const name = r => [r.part, r.refdes].filter(Boolean).join(' ') || '元件';
+    const low = r => r.cMin != null && (r.cMin <= 0 || (cc.rec && r.cMin < cc.rec.min));
+    const tip = (multi
+      ? cc.comps.map(r => name(r) + '：' + util.fmt(r.cMin, 1) + ' ~ ' + util.fmt(r.cMax, 1) + '%').join('\n')
+      : 'min ' + util.fmt(cc.min, 1) + '% · nom ' + (cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%') + ' · max ' + util.fmt(cc.max, 1) + '%') +
       (cc.rec ? '\n最小壓縮 ' + cc.rec.min + '%' : '');
+    const span = (min, max, status, top, h) => html`<div class=${cx('span', status !== 'ok' && status)}
+      style=${{ left: pct(Math.max(0, min || 0)) + '%', width: Math.max(0.8, pct(max || 0) - pct(Math.max(0, min || 0))) + '%', borderRadius: '4px', top: top + 'px', height: h + 'px' }}></div>`;
+    const n = cc.comps.length, slot = 16 / Math.max(1, n), h = Math.max(3, Math.floor(slot) - 1);
     return html`<div class="rangebar" title=${tip}>
       ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }}></div>` : null}
-      <div class=${cx('span', cc.status !== 'ok' && cc.status)} style=${{ left: pct(Math.max(0, cc.min || 0)) + '%', width: Math.max(0.8, pct(cc.max || 0) - pct(Math.max(0, cc.min || 0))) + '%', borderRadius: '4px' }}></div>
-      ${cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }}></div>` : null}
+      ${multi ? cc.comps.map((r, i) => span(r.cMin, r.cMax, low(r) ? 'error' : (r.exempt || r.status === 'na' ? 'ok' : r.status), Math.round(3 + i * slot), h))
+        : span(cc.min, cc.max, cc.status, 6, 8)}
+      ${!multi && cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }}></div>` : null}
     </div>`;
   }
 
