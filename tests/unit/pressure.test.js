@@ -163,3 +163,27 @@ test('library match: an unlinked item named exactly like one library material is
   db.materials[twin.id] = twin;
   assert.equal(calc.libraryMatch(db, it), null, 'ambiguous');
 });
+
+test('per component: compression judgement (cStatus) apart from the pressure; why the pressure is not judged (pNote)', () => {
+  const m = schema.newMaterial({ pressure_curves: [{ t: 2.5, points: [[10, 20], [20, 40], [40, 60]] }] });
+  const it = schema.newItem({ size: { l: 20, w: 20, t: 2.5 }, gap_design: { nom: 1.5, plus: 0.1, minus: 0.1 }, covered: [
+    schema.newCovered({ refdes: 'A', h_nom: 1, p_allow: 30, p_unit: 'psi' }),
+    schema.newCovered({ refdes: 'B', h_nom: 1, load_type: 'epad' }),
+    schema.newCovered({ refdes: 'C', h_nom: 1 }),
+    schema.newCovered({ refdes: 'D', h_nom: 1, p_allow: 10, p_unit: 'N' }),
+  ] });
+  it.size.l = null;   // a force spec without a package size or pad area cannot be converted
+  const cc = calc.compressionCheck(it, m, settings);
+  assert.equal(cc.cStatus, 'ok');
+  assert.deepEqual(cc.comps.map(r => r.cStatus), ['ok', 'ok', 'ok', 'ok']);
+  assert.deepEqual(cc.comps.map(r => r.pNote), ['', '不檢核（E-PAD）', '未填規格', '缺封裝尺寸']);
+  assert.equal(cc.comps[0].status, 'warn');   // 24 psi of 30 → 80 %
+  assert.equal(calc.compressionCheck(it, null, settings).comps[2].pNote, '未連結材料');
+  assert.equal(calc.compressionCheck(it, schema.newMaterial(), settings).comps[2].pNote, '材料無曲線');
+  // not enough compression: the compression fails, the pressure judgement stays its own
+  it.gap_design.nom = 2.4;
+  const loose = calc.compressionCheck(it, m, settings);
+  assert.equal(loose.cStatus, 'error');
+  assert.deepEqual(loose.comps.map(r => r.cStatus), ['error', 'error', 'error', 'error']);
+  assert.equal(loose.comps[0].status, 'ok');
+});

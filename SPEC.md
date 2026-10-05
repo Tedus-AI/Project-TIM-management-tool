@@ -278,7 +278,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 **位置標註**：見第 6 章。
 
-**間隙與壓力檢核**：全部 Item 的覆蓋元件（Location 與材料之間；RefDes，沒填時用元件料號）、壓縮率 min / nom / max 範圍圖（建議範圍底色）、最大壓力、R_TIM、ΔT 排序表。
+**間隙與壓力檢核**：每個 Item 一組、每顆覆蓋元件一列（Item / Location / 材料 / T 合併儲存格；覆蓋元件欄在 Location 與材料之間，RefDes，沒填時用元件料號，附受壓類型）——間隙、壓縮率 min / nom / max 範圍圖（建議範圍底色，旁邊標 min ~ max %，顏色只代表壓縮判定）、壓力 max / 規格（psi，比例與小條圖）、**壓縮判定**與**壓力判定**兩欄（壓力判定：OK / Warning / Fail；受壓類型 E-PAD 類「不檢核」；缺規格、材料曲線或未連結材料「未判定」，滑鼠提示原因）。可依 Item、C min、壓力比例、兩種判定排序。另有 R_TIM、ΔT 排序表。
 
 **變更紀錄**
 - 自動紀錄每一個欄位變更（誰 / 何時 / 從 → 到），連續輸入自動合併。

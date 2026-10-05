@@ -74,11 +74,12 @@ module.exports = [
       // usage only / compression only: one page each
       assert.equal((await exportPdf(page, [3])).pages, 1);
       assert.equal((await exportPdf(page, [4])).pages, 1);
-      // everything: overview + list + 2 views + usage and compression (flowed together)
+      // everything: overview + list + 2 views + usage and compression flowed together (the compression table has one
+      // row per covered component → 16 rows, so the two take 2 pages)
       let r = await exportPdf(page, [0, 1, 2, 3, 4]);
       assert.match(r.name, /_TIM_DVT_\d{8}\.pdf$/);
       assert.equal(r.bytes.slice(0, 5).toString(), '%PDF-');
-      assert.equal(r.pages, 5);
+      assert.equal(r.pages, 6);
       const box = r.bytes.toString('latin1').match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
       assert.ok(box && Math.abs(+box[1] - 841.89) < 0.01 && Math.abs(+box[2] - 595.28) < 0.01, 'A4 landscape');
       // TIM list only, with 70 extra items → the table continues over several pages

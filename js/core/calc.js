@@ -214,11 +214,13 @@
    *    (item override → generic 10 %) or ≤ 0 (no contact) → error (Fail)
    *  - pressure: per covered component, from the material's deflection curves at C_max, against the
    *    component's allowable load: > 100 % → error (Fail), ≥ settings.pressure_warn_pct → warn
-   * status: 'na' (no data), 'ok', 'warn', 'error'. comps: per-component rows (gap, compression, pressure, status).
+   * status: 'na' (no data), 'ok', 'warn', 'error' (compression and pressure); cStatus: compression alone.
+   * comps: per-component rows — gap, compression (cMin / cNom / cMax, cStatus), pressure (pMin / pMax, allow, ratio,
+   * status = the pressure judgement; exempt = 受壓類型 not judged; pNote = why it was not judged, short).
    */
   function compressionCheck(item, mat, settings) {
     // msgs: warning / error texts; levels[i] is the level of msgs[i] ('warn' | 'error'); notes: informational
-    const out = { min: null, nom: null, max: null, rec: null, status: 'na', msgs: [], levels: [], notes: [], gap: null, comps: [], pressure: null };
+    const out = { min: null, nom: null, max: null, rec: null, status: 'na', cStatus: 'na', msgs: [], levels: [], notes: [], gap: null, comps: [], pressure: null };
     const flag = (level, text) => { out.status = worse(out.status, level); out.msgs.push(text); out.levels.push(level); };
     if (!item || schema.isDispense((mat && mat.tim_type) || item.tim_type)) return out;
     const t = item.size && item.size.t;
@@ -239,6 +241,13 @@
     if (out.min !== null && out.min <= 0) flag('error', '最大間隙 ' + util.fmt(gi.max) + ' mm ≥ 厚度 ' + util.fmt(t) + ' mm' + who('max') + '，可能完全未接觸');
     else if (out.rec && out.min !== null && out.min < out.rec.min) flag('error', '最小壓縮 ' + util.fmt(out.min, 1) + '% 低於下限 ' + out.rec.min + '%' + who('max') + '（接觸可能不足）');
     if (out.max !== null && out.max >= 100) flag('error', '最小間隙 ≤ 0' + who('min') + '，請檢查間隙數值');
+    out.cStatus = out.status;   // compression (contact) alone — the pressure is judged per component below
+    // one component's compression: no contact / below the minimum / gap ≤ 0 → error
+    const cJudge = (cMin, cMax) => {
+      if (!fin(cMin) && !fin(cMax)) return 'na';
+      if (fin(cMin) && (cMin <= 0 || (out.rec && cMin < out.rec.min))) return 'error';
+      return fin(cMax) && cMax >= 100 ? 'error' : 'ok';
+    };
 
     const hasCurve = curveSet(mat).length > 0;
     out.pressure = fin(out.max) ? pressureAt(mat, t, out.max) : null;
@@ -246,7 +255,8 @@
       const row = { id: x.id, part: x.c.part, refdes: x.c.refdes, h: x.h, gap: { min: x.min, nom: x.nom, max: x.max },
         cMin: fin(x.max) ? compressionAt(t, x.max) : null, cNom: fin(x.nom) ? compressionAt(t, x.nom) : null, cMax: fin(x.min) ? compressionAt(t, x.min) : null,
         pMin: null, pMax: null, area: contactArea(item, x.c), force: null, allow: null, ratio: null, status: 'na', msg: '',
-        loadType: x.c.load_type || '', exempt: false };
+        loadType: x.c.load_type || '', exempt: false, cStatus: 'na', pNote: '' };
+      row.cStatus = cJudge(row.cMin, row.cMax);
       // 受壓類型: E-PAD / QFN / LGA / leaded → the pressure is computed and shown, the allowable load is not judged
       const lt = schema.loadType(x.c.load_type);
       row.exempt = !!(lt && !lt.check);
@@ -273,6 +283,12 @@
       }
       if (row.status === 'error' || row.status === 'warn') flag(row.status, row.msg);
       else if (row.msg) out.notes.push(name + '：' + row.msg);
+      // why the pressure was not judged (short, for tables)
+      if (row.exempt) row.pNote = '不檢核（' + lt.short + '）';
+      else if (row.status === 'na') {
+        row.pNote = !(fin(row.cMax) && row.cMax > 0) ? '未受壓' : !mat ? '未連結材料' : !hasCurve ? '材料無曲線'
+          : !row.allow ? '未填規格' : row.allow.needsArea ? '缺封裝尺寸' : '';
+      }
       return row;
     });
     if (gi.source === 'stack' && gi.ref !== null) {

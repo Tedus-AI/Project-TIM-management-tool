@@ -115,25 +115,19 @@
     </section>`;
   }
 
-  /** Status of one component's compression range: no contact / below the minimum → error, else its pressure status. */
-  function compStatus(r, cc) {
-    if (r.cMin != null && (r.cMin <= 0 || (cc.rec && r.cMin < cc.rec.min))) return 'error';
-    if (r.cMax != null && r.cMax >= 100) return 'error';
-    return r.exempt || r.status === 'na' ? 'ok' : r.status;
-  }
-
-  /** Compression range bar(s): one bar per covered component when there are several (not merged), else the item. */
+  /** Compression range bar(s), coloured by the compression (contact) judgement only: one bar per covered component
+   *  when there are several (not merged), else the item. */
   function RangeBar(props) {
     const cc = props.cc;
     if (cc.status === 'na') return null;
     const multi = cc.comps.length > 1 && cc.gap && cc.gap.source === 'stack';
     const rows = multi
-      ? cc.comps.map(r => ({ key: r.id, label: [r.part, r.refdes].filter(Boolean).join(' ') || '元件', min: r.cMin, nom: r.cNom, max: r.cMax, status: compStatus(r, cc) }))
-      : [{ key: 'item', label: '', min: cc.min, nom: cc.nom, max: cc.max, status: cc.status }];
+      ? cc.comps.map(r => ({ key: r.id, label: [r.part, r.refdes].filter(Boolean).join(' ') || '元件', min: r.cMin, nom: r.cNom, max: r.cMax, status: r.cStatus }))
+      : [{ key: 'item', label: '', min: cc.min, nom: cc.nom, max: cc.max, status: cc.cStatus }];
     const lo = 0, hi = Math.max(60, Math.ceil((Math.max.apply(null, rows.map(r => r.max || 0)) + 5) / 10) * 10);
     const pct = v => util.clamp((v - lo) / (hi - lo) * 100, 0, 100);
     const bar = r => html`<div class="rangebar" title=${(r.label ? r.label + '：' : '') + 'C ' + (r.min == null ? '—' : util.fmt(r.min, 1)) + ' ~ ' + (r.max == null ? '—' : util.fmt(r.max, 1)) + '%' + (r.nom != null ? '（nom ' + util.fmt(r.nom, 1) + '%）' : '')}>
-        ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }} title=${'最小壓縮 ' + cc.rec.min + '%（接觸）'}></div>` : null}
+        ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }}></div>` : null}
         ${r.min != null && r.max != null ? html`<div class=${cx('span', r.status)} style=${{ left: pct(Math.max(lo, r.min)) + '%', width: Math.max(0.6, pct(r.max) - pct(Math.max(lo, r.min))) + '%' }}></div>` : null}
         ${r.nom != null ? html`<div class="nom" style=${{ left: pct(r.nom) + '%' }} title=${'nom ' + util.fmt(r.nom, 1) + '%'}></div>` : null}
       </div>`;

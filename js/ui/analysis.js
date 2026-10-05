@@ -12,30 +12,48 @@
     error: { label: 'Fail', icon: '✕', cls: 'tag-err' },
   };
 
-  /** Names of the covered components (RefDes, else the part number), e.g. "U101, U102" — for the check table. */
-  const coveredNames = it => (it.covered || []).map(c => c.refdes || c.part).filter(Boolean).join(', ');
-  const coveredTitle = it => (it.covered || []).map(c => [c.refdes, c.part].filter(Boolean).join(' / ') + (c.qty && c.qty !== 1 ? ' × ' + c.qty : '')).filter(Boolean).join('\n');
 
-  /** Compression range of an item — one thin bar per covered component when they have their own gaps (not merged). */
-  function RangeCell(props) {
-    const { cc, hi } = props;
+  /** Compression range bar of one component (or of the item when it has none): track 0 ~ hi, ≥ minimum zone, min ~ max, nom. */
+  function RangeBar(props) {
+    const { min, nom, max, status, hi, rec } = props;
     const pct = v => util.clamp(v / hi * 100, 0, 100);
-    const multi = cc.comps.length > 1 && cc.gap && cc.gap.source === 'stack';
-    const name = r => [r.part, r.refdes].filter(Boolean).join(' ') || '元件';
-    const low = r => r.cMin != null && (r.cMin <= 0 || (cc.rec && r.cMin < cc.rec.min));
-    const tip = (multi
-      ? cc.comps.map(r => name(r) + '：' + util.fmt(r.cMin, 1) + ' ~ ' + util.fmt(r.cMax, 1) + '%').join('\n')
-      : 'min ' + util.fmt(cc.min, 1) + '% · nom ' + (cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%') + ' · max ' + util.fmt(cc.max, 1) + '%') +
-      (cc.rec ? '\n最小壓縮 ' + cc.rec.min + '%' : '');
-    const span = (min, max, status, top, h) => html`<div class=${cx('span', status !== 'ok' && status)}
-      style=${{ left: pct(Math.max(0, min || 0)) + '%', width: Math.max(0.8, pct(max || 0) - pct(Math.max(0, min || 0))) + '%', borderRadius: '4px', top: top + 'px', height: h + 'px' }}></div>`;
-    const n = cc.comps.length, slot = 16 / Math.max(1, n), h = Math.max(3, Math.floor(slot) - 1);
-    return html`<div class="rangebar" title=${tip}>
-      ${cc.rec && cc.rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(cc.rec.min) + '%', width: (100 - pct(cc.rec.min)) + '%' }}></div>` : null}
-      ${multi ? cc.comps.map((r, i) => span(r.cMin, r.cMax, low(r) ? 'error' : (r.exempt || r.status === 'na' ? 'ok' : r.status), Math.round(3 + i * slot), h))
-        : span(cc.min, cc.max, cc.status, 6, 8)}
-      ${!multi && cc.nom != null ? html`<div class="nom" style=${{ left: pct(cc.nom) + '%' }}></div>` : null}
+    return html`<div class="rangebar" title=${props.title || ''}>
+      ${rec && rec.min != null ? html`<div class="rec rec-min" style=${{ left: pct(rec.min) + '%', width: (100 - pct(rec.min)) + '%' }}></div>` : null}
+      ${min != null && max != null ? html`<div class=${cx('span', status === 'error' && 'error')} style=${{ left: pct(Math.max(0, min)) + '%', width: Math.max(0.8, pct(max) - pct(Math.max(0, min))) + '%', borderRadius: '4px' }}></div>` : null}
+      ${nom != null ? html`<div class="nom" style=${{ left: pct(nom) + '%' }}></div>` : null}
     </div>`;
+  }
+
+  const fmtC = v => (v == null ? '—' : util.fmt(v, 1));
+  const tagOf = (status, title) => html`<span class=${'tag ' + STATUS[status].cls} title=${title || ''}>${STATUS[status].icon} ${STATUS[status].label}</span>`;
+
+  /** Design pressure vs the component's spec: "14.7 / 29.9 psi" + ratio meter, or why it is not judged. */
+  function PressureCell(props) {
+    const r = props.r;
+    if (!r.pMax) return html`<span class="muted">—${r.pNote ? html` <span class="p-note">${r.pNote}</span>` : null}</span>`;
+    const v = (r.pMax.beyond ? '> ' : '') + util.fmt(r.pMax.psi, 1);
+    const designTip = '設計最大壓力 ' + v + ' psi（C max ' + fmtC(r.cMax) + '%，材料壓力–壓縮曲線）';
+    if (r.allow && r.allow.psi != null && r.ratio != null) {
+      const spec = r.allow.unit === 'psi' ? util.fmt(r.allow.value) + ' psi' : util.fmt(r.allow.value) + ' ' + r.allow.unit + '（= ' + util.fmt(r.allow.psi, 1) + ' psi，以接觸面積換算）';
+      return html`<div class="p-cell" title=${designTip + '\n元件規格（耐壓）' + spec + '\n= 規格的 ' + util.fmt(r.ratio, 0) + '%'}>
+        <span class="mono"><b>${v}</b><span class="muted"> / ${util.fmt(r.allow.psi, 1)} psi</span></span>
+        <span class=${cx('p-meter', r.status)}><i style=${{ width: Math.min(100, r.ratio) + '%' }}></i></span>
+        <span class=${cx('mono p-ratio', r.status === 'error' && 'text-err', r.status === 'warn' && 'text-warn')}>${util.fmt(r.ratio, 0)}%</span>
+      </div>`;
+    }
+    return html`<div class="p-cell" title=${designTip}><span class="mono"><b>${v}</b><span class="muted"> psi</span></span>
+      ${r.pNote ? html`<span class="p-note muted">${r.exempt ? '規格不需' : r.pNote}</span>` : null}</div>`;
+  }
+
+  /** Pressure judgement of one component: OK / Warning / Fail, 不檢核 (受壓類型 E-PAD…), or 未判定 (missing data). */
+  function PressureJudge(props) {
+    const r = props.r;
+    if (r.exempt) {
+      const lt = schema.loadType(r.loadType);
+      return html`<span class="tag tag-mute" title=${lt.label + '：' + lt.why}>不檢核</span>`;
+    }
+    if (r.status === 'na') return html`<span class="muted" style="font-size:11.5px" title=${r.msg || r.pNote}>未判定</span>`;
+    return tagOf(r.status, r.msg);
   }
 
   function Analysis(props) {
@@ -52,13 +70,20 @@
 
     const withComp = rows.filter(r => r.cc.status !== 'na');
     const missing = rows.filter(r => r.cc.status === 'na' && !schema.isDispense(r.eff.tim_type));
-    const rank = { error: 0, warn: 1, ok: 2 };
+    const rank = { error: 0, warn: 1, ok: 2, na: 3 };
+    // worst pressure judgement of an item (exempt / not judged components count as na) and its highest ratio
+    const pWorst = r => r.cc.comps.reduce((w, c) => (c.exempt ? w : (rank[c.status] < rank[w] ? c.status : w)), 'na');
+    const pRatio = r => Math.max.apply(null, r.cc.comps.map(c => (c.ratio == null ? -1 : c.ratio)).concat([-1]));
+    const byNo = (a, b) => util.naturalCompare(a.it.item_no, b.it.item_no);
     const sorted = withComp.slice().sort((a, b) =>
-      sort === 'status' ? (rank[a.cc.status] - rank[b.cc.status]) || util.naturalCompare(a.it.item_no, b.it.item_no)
-        : sort === 'min' ? a.cc.min - b.cc.min
-          : sort === 'max' ? b.cc.max - a.cc.max
-            : 0);
-    const hi = Math.max(50, Math.ceil((Math.max.apply(null, withComp.map(r => r.cc.max).concat([0])) + 5) / 10) * 10);
+      sort === 'status' ? (rank[a.cc.status] - rank[b.cc.status]) || byNo(a, b)
+        : sort === 'cstatus' ? (rank[a.cc.cStatus] - rank[b.cc.cStatus]) || byNo(a, b)
+          : sort === 'pstatus' ? (rank[pWorst(a)] - rank[pWorst(b)]) || (pRatio(b) - pRatio(a)) || byNo(a, b)
+            : sort === 'pressure' ? (pRatio(b) - pRatio(a)) || ((b.cc.pressure ? b.cc.pressure.psi : -1) - (a.cc.pressure ? a.cc.pressure.psi : -1)) || byNo(a, b)
+              : sort === 'min' ? a.cc.min - b.cc.min
+                : sort === 'max' ? b.cc.max - a.cc.max
+                  : 0);
+    const hi = Math.max(50, Math.ceil((Math.max.apply(null, withComp.map(r => r.cc.max).concat([0])) + 5) / 10) * 10);   // shared axis
     const counts = { ok: 0, warn: 0, error: 0 };
     withComp.forEach(r => { counts[r.cc.status]++; });
 
@@ -78,31 +103,50 @@
           <div class="right">
             <div class="legend">
               <span><i class="swatch" style="background:rgba(30,142,78,.18);box-shadow:inset 0 0 0 1px var(--ok)"></i>≥ 最小壓縮率</span>
-              <span><i class="swatch" style="background:var(--d-500)"></i>min~max 壓縮率</span>
+              <span><i class="swatch" style="background:var(--d-500)"></i>各元件 min ~ max 壓縮率</span>
               <span><i class="swatch" style="background:var(--ink);width:3px"></i>nom</span>
             </div>
-            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>間隙：設計間距 ± 公差，加上元件高度公差（最壞情況），或手動輸入<br/>! Warning：壓力 ≥ 耐壓的 ${db.settings.pressure_warn_pct || 80}%<br/>✕ Fail：C<sub>min</sub> 低於最小壓縮率（預設 10%，Item 可手動調整）、最大間隙 ≥ T（未接觸）、壓力超過元件耐壓<br/>壓力：材料的壓力–壓縮曲線在 C<sub>max</sub> 的值</div></${InfoDot}>
+            <${InfoDot}><div class="formula">C = (T − g) / T × 100%<br/>C<sub>min</sub>：間隙最大時；C<sub>max</sub>：間隙最小時<br/>間隙：設計間距 ± 公差，加上元件高度公差（最壞情況），或手動輸入<br/>壓縮判定 Fail：C<sub>min</sub> 低於最小壓縮率（預設 10%，Item 可手動調整）、最大間隙 ≥ T（未接觸）<br/>壓力：材料的壓力–壓縮曲線在 C<sub>max</sub> 的值；比例 = 壓力 ÷ 元件規格（耐壓）<br/>壓力判定：＞ 100% Fail；≥ ${db.settings.pressure_warn_pct || 80}% Warning；受壓類型 E-PAD 類不檢核</div></${InfoDot}>
           </div>
         </div>
-        ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table">
+        ${withComp.length ? html`<div class="tbl-wrap"><table class="tbl an-table an-check">
           <thead><tr>
             ${th('item', 'Item')}<th>Location</th><th>覆蓋元件</th><th>材料</th><th class="r">T</th><th class="r">間隙 min / nom / max</th>
-            ${th('min', 'C min', 'r')}${th('max', 'C max', 'r')}<th class="r">壓力 max psi</th>
-            <th class="rangecell">0 ~ ${hi}%</th>${th('status', '判定')}
+            ${th('min', '壓縮率 %（0 ~ ' + hi + '）', 'rangecell')}${th('pressure', '壓力 max / 規格（psi）')}
+            ${th('cstatus', '壓縮判定')}${th('pstatus', '壓力判定')}
           </tr></thead>
-          <tbody>${sorted.map(r => html`<tr key=${r.it.id} class="clickable" onClick=${() => go('p/' + p.id + '/bom/' + r.it.id)}>
-            <td class="mono"><b>${r.it.item_no}</b></td><td>${r.loc ? r.loc.name : ''}</td>
-            <td class="mono ellipsis" style="max-width:170px" title=${coveredTitle(r.it)}>${coveredNames(r.it) || html`<span class="muted">—</span>`}</td>
-            <td class="ellipsis" style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td>
-            <td class="r mono">${util.fmt(r.it.size.t)}</td>
-            <td class="r mono" title=${r.cc.gap.source === 'stack' ? '設計間距 ± 公差 + 元件高度公差' : '手動輸入'}>${[r.cc.gap.min, r.cc.gap.nom, r.cc.gap.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}${r.cc.gap.source === 'stack' ? html` <span class="tag tag-mute" style="font-size:10px">設計間距</span>` : null}</td>
-            <td class=${cx('r mono', r.cc.rec && r.cc.min != null && r.cc.min < r.cc.rec.min && 'text-err')} title=${r.cc.rec ? '最小壓縮率 ' + r.cc.rec.min + '%（' + { item: 'Item 手動', generic: '預設' }[r.cc.rec.source] + '）' : ''}>${util.fmt(r.cc.min, 1)}</td><td class="r mono">${util.fmt(r.cc.max, 1)}</td>
-            <td class="r mono">${r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—'}</td>
-            <td class="rangecell"><${RangeCell} cc=${r.cc} hi=${hi} /></td>
-            <td><span class=${'tag ' + STATUS[r.cc.status].cls} title=${r.cc.msgs.join('\n')}>${STATUS[r.cc.status].icon} ${STATUS[r.cc.status].label}</span></td>
-          </tr>`)}</tbody>
+          ${sorted.map(r => {
+            // one line per covered component (their gaps, compression and pressure differ); item cells span them
+            const comps = r.cc.comps.length ? r.cc.comps : [null];
+            const n = comps.length;
+            const open = () => go('p/' + p.id + '/bom/' + r.it.id);
+            return html`<tbody key=${r.it.id} class="an-item clickable" onClick=${open}>${comps.map((c, i) => {
+              const g = c ? c.gap : r.cc.gap;
+              const min = c ? c.cMin : r.cc.min, nom = c ? c.cNom : r.cc.nom, max = c ? c.cMax : r.cc.max;
+              const cst = c ? c.cStatus : r.cc.cStatus;
+              const low = min != null && r.cc.rec && min < r.cc.rec.min;
+              const name = c ? [c.part, c.refdes].filter(Boolean).join(' ') : '';
+              const lt = c && schema.loadType(c.loadType);
+              return html`<tr key=${c ? c.id : 'item'} class=${i ? 'an-sub' : ''}>
+                ${i ? null : html`<td class="mono" rowspan=${n}><b>${r.it.item_no}</b></td><td rowspan=${n}>${r.loc ? r.loc.name : ''}</td>`}
+                <td class="mono ellipsis" style="max-width:190px" title=${c ? name + (lt ? '（' + lt.label + '）' : '') : ''}>${c ? html`${c.refdes || c.part || '元件'}${c.refdes && c.part ? html` <span class="muted">${c.part}</span>` : null}${lt ? html` <span class="tag tag-mute lt-chip">${lt.short}</span>` : null}` : html`<span class="muted">—</span>`}</td>
+                ${i ? null : html`<td class="ellipsis" rowspan=${n} style="max-width:180px">${[r.eff.vendor, r.eff.model].filter(Boolean).join(' ')}</td><td class="r mono" rowspan=${n}>${util.fmt(r.it.size.t)}</td>`}
+                <td class="r mono" title=${r.cc.gap.source === 'stack' ? '設計間距 ± 公差 + 元件高度公差' : '手動輸入'}>${[g.min, g.nom, g.max].map(v => (v == null ? '—' : util.fmt(v, 3))).join(' / ')}</td>
+                <td class="rangecell"><div class="c-cell">
+                  <${RangeBar} min=${min} nom=${nom} max=${max} status=${cst} hi=${hi} rec=${r.cc.rec}
+                    title=${(name ? name + '：' : '') + '壓縮率 ' + fmtC(min) + ' ~ ' + fmtC(max) + '%' + (nom != null ? '（nom ' + fmtC(nom) + '%）' : '')} />
+                  <span class="mono c-val"><span class=${low || (min != null && min <= 0) ? 'text-err' : ''}>${fmtC(min)}</span> ~ ${fmtC(max)}%</span>
+                </div></td>
+                <td>${c ? html`<${PressureCell} r=${c} />` : html`<span class="mono">${r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—'}</span>`}</td>
+                <td>${cst === 'na' ? html`<span class="muted">—</span>` : tagOf(cst, cst === 'error' ? r.cc.msgs.filter((m, k) => r.cc.levels[k] === 'error' && !/耐壓/.test(m)).join('\n') : '')}</td>
+                <td>${c ? html`<${PressureJudge} r=${c} />` : html`<span class="muted" style="font-size:11.5px" title="沒有覆蓋元件，無法對照元件規格">未判定</span>`}</td>
+              </tr>`;
+            })}</tbody>`;
+          })}
         </table></div>
-        <div class="muted" style="font-size:11px;margin-top:6px">C min 低於最小壓縮率（預設 10%，可在 Item 詳細手動調整）→ Fail，數字以紅色標示。壓力需要材料庫的壓力–壓縮曲線。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙、壓縮與壓力」填入設計間距（凸台到元件頂面）與元件高度（或直接填間隙 min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
+        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.7">每顆覆蓋元件一列。<b>壓縮判定</b>：C min 低於最小壓縮率（預設 10%，可在 Item 詳細調整）或最大間隙 ≥ T → Fail（接觸可能不足），數字以紅色標示。
+          <b>壓力判定</b>：設計最大壓力（材料壓力–壓縮曲線在 C max 的值）÷ 元件規格（耐壓）：＞ 100% → Fail、≥ ${db.settings.pressure_warn_pct || 80}% → Warning；
+          <span class="tag tag-mute">不檢核</span> = 受壓類型 E-PAD / QFN / LGA / 引腳（壓力照算、只顯示）；未判定 = 缺規格、材料曲線或未連結材料（滑鼠移到上面看原因）。點擊列開啟 Item。</div>` : html`<div class="empty"><h3>還沒有可檢核的 Item</h3><p>在 Item 詳細的「機構間隙、壓縮與壓力」填入設計間距（凸台到元件頂面）與元件高度（或直接填間隙 min / nom / max），或在 TIM 清單開啟「機構」欄位直接輸入。</p></div>`}
         ${missing.length ? html`<div class="panel panel-pad mt12" style="font-size:12px">
           <b>缺間隙資料：</b> ${missing.map((r, i) => html`${i ? '、' : ''}<a href=${'#/p/' + p.id + '/bom/' + r.it.id}>${r.it.item_no || '(未編號)'}</a>`)}
         </div>` : null}
