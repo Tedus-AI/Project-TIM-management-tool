@@ -248,20 +248,23 @@
 
   /**
    * Rows copied from the tool's own TIM List (Excel export) have the material k between Model and Size; the
-   * existing Excel does not. True when the cells at kIdx look like k (a number or empty) with a size (L*W*T)
-   * right after them, and no row has its size at kIdx.
+   * existing Excel does not. True when the cells at kIdx look like k (a number or empty) with a Size right after
+   * them, and no row has its Size at kIdx. A Size is any form the export writes: L*W*T / L*W, "T3" (thickness
+   * only) or a dispensed amount ("2 g", "1.5 cc"). With no Size to tell by (all empty), a full row is one cell
+   * wider than a full row of the existing Excel: fullWidth = the cell count of a full exported row.
    */
-  function hasKColumn(rows, kIdx) {
-    const cell = v => String(v == null ? '' : v).trim();
+  function hasKColumn(rows, kIdx, fullWidth) {
+    const cell = v => util.toHalfWidth(String(v == null ? '' : v)).trim();
     const num = v => cell(v) === '' || /^[-+]?\d+(\.\d+)?$/.test(cell(v));
-    const size = v => /\d\s*[*xX×]\s*\d/.test(cell(v));
+    const size = v => { const t = cell(v); return /\d\s*[*xX×]\s*\d/.test(t) || /^t\s*=?\s*\d/i.test(t) || /^\d+(\.\d+)?\s*(g|cc|ml)$/i.test(t); };
     let yes = 0;
     for (const r of rows || []) {
       if (!r || r.length <= kIdx) continue;
       if (size(r[kIdx])) return false;
       if (num(r[kIdx]) && size(r[kIdx + 1])) yes++;
     }
-    return yes > 0;
+    if (yes) return true;
+    return !!fullWidth && (rows || []).some(r => r && r.length === fullWidth && num(r[kIdx]) && !cell(r[kIdx + 1]));
   }
 
   /** Guess the TIM type from vendor / model wording. */

@@ -162,4 +162,15 @@ test('hasKColumn: rows from the tool\'s own Excel export carry k between Model a
   assert.equal(parse.hasKColumn([['A1', 'RF', 'V', 'M', '1.6', '5*5*1'], ['A2', 'RF', 'V', 'M', '6*6*2']], 4), false);
   assert.equal(parse.hasKColumn([['A1', 'RF', 'V', 'M', '', '4', 'PN']], 4), false);
   assert.equal(parse.hasKColumn([], 4), false);
+  // every Size form the export writes: dispensed amount, thickness only (and the same forms in the k slot = no k)
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'GEL-30', '3.5', '2 g', '1']], 4), true);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'GEL-30', '', '1.5 cc', '1']], 4), true);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'Pad', '1.6', 'T3', '2']], 4), true);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'GEL-30', '2 g', '1', 'PN']], 4), false);
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'Vendor-A', 'Pad', 'T3', '2', 'PN']], 4), false);
+  // no Size anywhere: a full exported row (Item … 2nd source = 10 cells from Item) is one cell wider
+  const full = ['A1', 'RF', 'Vendor-A', 'Pad', '1.6', '', '2', 'PN', 'U1', 'Vendor-B'];
+  assert.equal(parse.hasKColumn([full], 4, 10), true);
+  assert.equal(parse.hasKColumn([full.slice(0, 4).concat(full.slice(5))], 4, 10), false, 'existing Excel row, 9 cells');
+  assert.equal(parse.hasKColumn([['A1', 'RF', 'V', 'M', '', '2', 'PN', 'U1', 'Vendor-B', 'extra']], 4, 10), false, 'Q\'ty after an empty Size');
 });

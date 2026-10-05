@@ -131,6 +131,11 @@ module.exports = [
       await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].items.find(i => i.item_no === 'A8').qty === 6);
       const a8 = await item(page, 'A8');
       assert.deepEqual([a8.size, a8.qty, a8.delta_pn], [{ l: 58, w: 22, t: 3.5 }, 6, 'DEMO-0104']);
+      // … also when its Size is a dispensed amount (the export writes "2 g") — pasted over A9
+      await paste(page, 9, 0, 'Z1\tRF\tVendor-X\tGEL-30\t3.5\t2 g\t1\tDEMO-0400\tU950\tVendor-X only source\n');
+      await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].items.some(i => i.item_no === 'Z1'));
+      const z1 = await item(page, 'Z1');
+      assert.deepEqual([z1.dispense.amount, z1.dispense.unit, z1.qty, z1.delta_pn, z1.covered.map(c => c.part)], [2, 'g', 1, 'DEMO-0400', ['U950']]);
       // 「從 Excel 貼上多列」 without a header: the same k column is recognised and skipped
       await page.click('.bom-toolbar button:has-text("從 Excel 貼上多列")');
       await page.waitForSelector('.modal textarea');

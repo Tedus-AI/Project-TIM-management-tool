@@ -150,7 +150,7 @@
       const startsWithLoc = first === 'location' || (first === 'auto' && matrix.some(r => looksLoc(r[0])));
       const order = (startsWithLoc ? DEFAULT_ORDER : DEFAULT_ORDER.slice(1)).slice();
       // rows from the tool's own Excel export carry k between Model and Size (ignored: it comes from the library)
-      const withK = parse.hasKColumn(matrix, order.indexOf('model') + 1);
+      const withK = parse.hasKColumn(matrix, order.indexOf('model') + 1, order.length + 1);
       if (withK) order.splice(order.indexOf('model') + 1, 0, '_k');
       const map = {};
       order.forEach((f, i) => { map[f] = i; });
@@ -347,7 +347,7 @@
       // the rows carry one (copied from the tool's own Excel export: … Model, k, Size …)
       const full = allCols.slice(allCols.indexOf(cols[c0]));
       const ki = full.findIndex((c, i) => i > 0 && c.rangeSkip);
-      const keepK = ki > 0 && full[ki + 1] && full[ki + 1].key === 'size' && parse.hasKColumn(matrix, ki);
+      const keepK = ki > 0 && full[ki + 1] && full[ki + 1].key === 'size' && parse.hasKColumn(matrix, ki, full.findIndex(c => c.key === 'second') + 1);
       const seq = full.filter((c, i) => i === 0 || keepK || !c.rangeSkip);
       const colAt = j => (fillVisible ? cols[c0 + j] : seq[j]);
       let hiddenHit = 0;
