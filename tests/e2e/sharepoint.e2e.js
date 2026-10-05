@@ -106,14 +106,19 @@ module.exports = [
       await page.waitForSelector('.modal:has-text("建立 SharePoint 資料庫")');
       await page.keyboard.press('Enter');
       await page.waitForSelector('.empty:has-text("還沒有任何專案")');
+      // the toolbar shows the signed-in Microsoft ID
+      assert.equal((await page.locator('.toolbar .acct-chip:not(.off)').innerText()).trim(), 'tester.a@example.test');
+      assert.match(await page.locator('.toolbar .acct-chip').getAttribute('title'), /已登入 Microsoft[\s\S]*Tester A/);
       await page.evaluate(() => { window.__expired = true; TIM.actions.createProject({ name: 'Later' }); });
       await page.waitForSelector('.banner:has-text("Microsoft 登入已過期")');
+      await page.waitForSelector('.toolbar .acct-chip.off:has-text("需重新登入")');
       assert.equal(await page.evaluate(() => window.__popups || 0), 0, 'no popup without a click (it would be blocked)');
       assert.equal(Object.keys(g.json(DB).projects).length, 0);
       await page.click('.banner button:has-text("重新登入 Microsoft")');
       await saved(page);
       assert.equal(Object.values(g.json(DB).projects)[0].name, 'Later');
       assert.equal(await page.locator('.banner:has-text("儲存失敗")').count(), 0);
+      await page.waitForSelector('.toolbar .acct-chip:not(.off):has-text("tester.a@example.test")');
       // the expected failure was logged on purpose
       const other = env.errors.filter(e => !/save failed/.test(e));
       env.errors.length = 0; env.errors.push(...other);
