@@ -32,7 +32,7 @@
 - 元件快選（RefDes 欄下拉）：`calc.knownComponents(db)` 從所有專案的覆蓋元件整理，**以 RefDes ＋ 元件料號為一個元件**
   （`calc.nameKey`；不以料號為鍵，使用者常只在 RefDes 填元件名稱），最近更新的專案優先，`COMP_GROUPS` 分組帶入（數量 / 備註不帶）；
   `calc.groupKnown` 依類別分組。沒有獨立的元件庫資料。抽屜的 `CompField`（`item-drawer.js`，RefDes 欄）選取 → `actions.applyKnownComponent`。
-  只有清單選取會帶入：不要加依料號自動帶入（元件料號欄、Note 欄、貼上 / 匯入）—— 使用者明確不要綁料號。
+  只有清單選取會帶入：不要加依料號自動帶入（元件料號欄、覆蓋元件欄（原 Note）、貼上 / 匯入）—— 使用者明確不要綁料號。
   加覆蓋元件欄位時，若屬於元件本身（非設計），一併加進 `COMP_GROUPS`。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。
@@ -42,6 +42,8 @@
   **複製（`rangeTsv`）與貼上（`applyMatrix`）一律用 `allCols` 從錨點對應**，否則從 Excel 貼整列會錯位；單值填滿框選範圍、Delete、Ctrl+D 只動看得到的欄。
 - 工具列 `AccountChip`（`app.js`）顯示 `TIM.spBackend.account()` 的 ID；過期 / 未登入時可點擊登入（SharePoint 模式 `spRelogin`，本機資料夾同步 `pushNow`）。
 - Excel「TIM List」工作表的欄位標題必須與使用者現行 Excel 完全相同（Location / Item / Used On / Vendor / Model / Size / Q'ty / Delta Part No. / Note / 2nd source）。
+  畫面上 Note 欄叫「覆蓋元件」、Model 右邊多 k（`rangeSkip`：多欄複製 / 貼上略過，Excel 整列貼上才不會錯位）。
+  **PDF 的 TIM 清單不是 Excel 格式**：印畫面上看得到的欄（`ui.bomExportColumns(hide)`，`hide.gridCols`），文字用 `bomInternals.cellText`。
 
 ## 指令
 ```bash

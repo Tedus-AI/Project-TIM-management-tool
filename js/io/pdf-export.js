@@ -1,9 +1,10 @@
 /* PDF report — same approach and page frame as the Thermal Test Report Builder: every A4
  * landscape page is laid out as HTML off-screen, captured with html2canvas and placed in a
  * jsPDF document, so Chinese text is drawn by the browser and no fonts need embedding.
- * Pages: overview · TIM List (same columns / colours as the Excel sheet, split across pages
- * with the header repeated) · one page per placement view · material usage · compression / pressure.
- * Rows and columns hidden in the TIM 清單 are left out (opts.hide, see xlsxExport.viewProject).
+ * Pages: overview · TIM 清單 (the columns the TIM 清單 shows, its groups and order, location colours, split across
+ * pages with the header repeated) · one page per placement view (drawing + Item / 覆蓋元件 table) · material
+ * usage · compression / pressure. Rows and columns hidden in the TIM 清單 are left out (opts.hide, see
+ * xlsxExport.viewProject and ui.bomExportColumns).
  * NOTE: html2canvas mis-renders letter-spacing — nothing here may use it. */
 (function () {
   'use strict';
@@ -23,8 +24,8 @@
 
   const SECTIONS = [
     { key: 'overview', label: '總覽：專案資訊與狀態' },
-    { key: 'list', label: 'TIM 清單：與 Excel「TIM List」相同欄位與底色' },
-    { key: 'maps', label: '位置標註圖：每張視圖一頁，含圖例' },
+    { key: 'list', label: 'TIM 清單：與畫面上的 TIM 清單相同欄位（含展開的欄位群組）與底色' },
+    { key: 'maps', label: '位置標註圖：每張視圖一頁，旁邊附 Item 與覆蓋元件對照表' },
     { key: 'usage', label: '材料用量彙總' },
     { key: 'compression', label: '壓縮率與壓力檢核' },
   ];
@@ -54,8 +55,19 @@
       </div>
     </div>`;
   }
-  const sectionTitle = (t, sub) => `<div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px"><span style="font:700 12px ${HFONT}">${esc(t)}</span>${sub ? `<span style="font-size:9px;color:${INK3}">${esc(sub)}</span>` : ''}</div>`;
+  // the title stays on one line; a long sub-title wraps beside it (titleHeight measures the block)
+  const sectionTitle = (t, sub) => `<div style="display:flex;align-items:baseline;gap:10px;margin:0 0 6px"><span style="font:700 12px ${HFONT};white-space:nowrap;flex:none">${esc(t)}</span>${sub ? `<span style="font-size:9px;color:${INK3};flex:1;min-width:0">${esc(sub)}</span>` : ''}</div>`;
   const TITLE_H = 24;
+  function titleHeight(t, sub) {
+    if (!sub) return TITLE_H;
+    const box = document.createElement('div');
+    box.style.cssText = `position:fixed;left:-20000px;top:0;width:${BODY_W}px;font-family:${FONT};font-size:10px;line-height:1.45;visibility:hidden`;
+    box.innerHTML = sectionTitle(t, sub);
+    document.body.appendChild(box);
+    const h = box.firstChild.getBoundingClientRect().height + 6;
+    box.remove();
+    return Math.max(TITLE_H, Math.ceil(h) + 2);
+  }
 
   // ───────── tables ─────────
   // html2canvas draws each cell's own border (border-collapse doubles shared edges), so cells
@@ -65,17 +77,35 @@
     const total = widths.reduce((a, b) => a + b, 0);
     return '<colgroup>' + widths.map(w => `<col style="width:${(w / total * 100).toFixed(3)}%">`).join('') + '</colgroup>';
   }
-  function table(widths, headHtml, rowsHtml) {
-    return `<table style="width:100%;border-collapse:separate;border-spacing:0;border-top:0.75px solid ${LINE};border-left:0.75px solid ${LINE};table-layout:fixed;font-size:9px">${colgroup(widths)}<thead>${headHtml}</thead><tbody>${rowsHtml}</tbody></table>`;
+  function table(widths, headHtml, rowsHtml, fs) {
+    return `<table style="width:100%;border-collapse:separate;border-spacing:0;border-top:0.75px solid ${LINE};border-left:0.75px solid ${LINE};table-layout:fixed;font-size:${fs || 9}px">${colgroup(widths)}<thead>${headHtml}</thead><tbody>${rowsHtml}</tbody></table>`;
   }
   const th = (t, align) => `<th style="${cellCss};background:#D9E1F2;font-weight:700;text-align:${align || 'center'}">${esc(t)}</th>`;
   const td = (t, css) => `<td style="${cellCss};${css || ''}">${t}</td>`;
 
+  /**
+   * Column widths (px) that fill `avail`: proportional to `ws`, but never below `mins` — the narrow columns keep
+   * their minimum and the wide text columns give way (many columns shown → Location / Item still readable).
+   */
+  function fitWidths(ws, mins, avail) {
+    const fixed = ws.map(() => false);
+    let out = ws.slice();
+    for (let k = 0; k <= ws.length; k++) {
+      const freeW = ws.reduce((a, w, i) => a + (fixed[i] ? 0 : w), 0);
+      const room = avail - mins.reduce((a, m, i) => a + (fixed[i] ? m : 0), 0);
+      out = ws.map((w, i) => (fixed[i] ? mins[i] : w * room / freeW));
+      const low = out.map((w, i) => !fixed[i] && w < mins[i]);
+      if (!low.some(Boolean)) break;
+      low.forEach((l, i) => { if (l) fixed[i] = true; });
+    }
+    return out;
+  }
+
   /** Heights (px) of the header row and each body row, measured off-screen at page width. */
-  function measure(widths, headHtml, rows) {
+  function measure(widths, headHtml, rows, fs) {
     const box = document.createElement('div');
     box.style.cssText = `position:fixed;left:-20000px;top:0;width:${BODY_W}px;font-family:${FONT};font-size:10px;line-height:1.45;visibility:hidden`;
-    box.innerHTML = table(widths, headHtml, rows.join(''));
+    box.innerHTML = table(widths, headHtml, rows.join(''), fs);
     document.body.appendChild(box);
     const head = box.querySelector('thead tr').getBoundingClientRect().height;
     const heights = Array.from(box.querySelectorAll('tbody tr')).map(tr => tr.getBoundingClientRect().height);
@@ -131,28 +161,42 @@
     </div>`;
   }
 
-  /** TIM List pages: Excel columns, location colour on the rows, rowspan location cell per page. */
+  /**
+   * TIM 清單 pages: the columns the TIM 清單 shows (its 欄位 groups and order, hidden columns left out — the same
+   * labels, cell text and source-risk colours), location colour on the rows, rowspan location cell per page.
+   */
   function listPages(p, db, hide) {
     const X = TIM.xlsxExport;
-    const groups = X.timListGroups(p, db, {});
-    const lc = X.listColumns(hide);              // columns shown in the TIM 清單 (Location, Item always)
-    const widths = lc.map(i => [10, 7, 10, 12, 16, 13, 5, 13, 30, 24][i]);
-    const head = '<tr>' + lc.map(i => th(X.TIM_LIST_HEADERS[i])).join('') + '</tr>';
+    const B = TIM.ui.bomInternals;
+    const cols = TIM.ui.bomExportColumns(hide);
+    const dtWarn = db.settings.dt_warn || 10;
+    const items = calc.orderedItems(p).filter(it => it.status !== 'obsolete');
     const flat = [];
-    groups.forEach(g => g.rows.forEach(r => flat.push(Object.assign({ loc: g.loc }, r))));
+    p.locations.forEach(loc => items.filter(it => it.location_id === loc.id).forEach(it => flat.push({ loc, it, ctx: B.rowCtx(it, db, dtWarn) })));
+    const raw = [86].concat(cols.map(c => c.width || 100));
+    const total = raw.reduce((a, b) => a + b, 0);
+    const fs = total > 2000 ? 7 : total > 1500 ? 8 : 9;          // many 欄位 groups shown → smaller type
+    const MIN = { item_no: 44, used_on: 40, vendor: 54, model: 58, size: 54, delta_pn: 54, covered: 80, second: 72, tim_type: 56, note: 70 };
+    const widths = fitWidths(raw, [62].concat(cols.map(c => MIN[c.key] || 36)), BODY_W);
+    const headCell = (label, sub) => `<th style="${cellCss};background:#D9E1F2;font-weight:700;text-align:center">${esc(label)}${sub ? `<div style="font-weight:400;font-size:${fs - 1.5}px;color:${INK3}">${esc(sub)}</div>` : ''}</th>`;
+    const head = '<tr>' + headCell('Location') + cols.map(c => headCell(c.label, c.sub)).join('') + '</tr>';
+    const LEFT = ['covered', 'second', 'note', 'sourcing'];
     const rowHtml = (r, locCell) => {
       const fg = util.textOn(r.loc.color);
-      const base = `background:${r.loc.color};color:${fg};text-align:center`;
-      const v = r.vals;
-      const sc = r.risk === 'single' ? `background:${X.PINK};color:#B4237A` : r.risk === 'unverified' ? `background:${X.AMBER};color:#000` : `background:${r.loc.color};color:${fg}`;
-      return '<tr>' + (locCell == null ? td('', base) : locCell) +
-        lc.slice(1).map(i => (i === 9 ? td(esc(v[9]), sc + ';text-align:left') : i === 8 ? td(esc(v[8]), base + ';text-align:left')
-          : td(esc(v[i] == null ? '' : v[i]), base + (i === 1 ? ';font-weight:700' : '')))).join('') + '</tr>';
+      const base = `background:${r.loc.color};color:${fg}`;
+      return '<tr>' + (locCell == null ? td('', base) : locCell) + cols.map(c => {
+        const cls = c.cls ? c.cls(r.it, r.ctx) : '';
+        let css = cls === 'c-risk-single' ? `background:${X.PINK};color:#B4237A` : cls === 'c-risk-unverified' ? `background:${X.AMBER};color:#000` : base;
+        if (cls === 'c-err') css += ';color:#C0392B;font-weight:700';
+        else if (cls === 'c-warn') css += ';color:#8A5A00;font-weight:700';
+        if (c.key === 'item_no') css += ';font-weight:700';
+        css += ';text-align:' + (LEFT.includes(c.key) ? 'left' : 'center');
+        return td(esc(B.cellText(c, r.it, r.ctx)), css);
+      }).join('') + '</tr>';
     };
     if (!flat.length) return [{ title: 'TIM 清單', html: `<div style="color:${INK3}">還沒有 Item。</div>` }];
-    const m = measure(widths, head, flat.map(r => rowHtml(r)));
-    const LEGEND_H = 18;
-    const parts = paginate(m.heights.map(h => Math.max(h, 18)), m.head, BODY_H - LEGEND_H, BODY_H - LEGEND_H);
+    const m = measure(widths, head, flat.map(r => rowHtml(r)), fs);
+    const parts = paginate(m.heights.map(h => Math.max(h, 18)), m.head, BODY_H, BODY_H);
     return parts.map((part, pi) => {
       let rows = '';
       for (let i = part.start; i < part.end;) {
@@ -165,14 +209,11 @@
         }
         i = j;
       }
-      const legend = `<div style="margin-top:6px;font-size:8.5px;color:${INK3};display:flex;gap:14px;align-items:center">
-        <span><span style="display:inline-block;width:10px;height:8px;background:${X.PINK};margin-right:4px"></span>單一來源（無第二來源）</span>
-        <span><span style="display:inline-block;width:10px;height:8px;background:${X.AMBER};margin-right:4px"></span>第二來源尚未承認</span>
-        ${parts.length > 1 ? `<span style="margin-left:auto">第 ${pi + 1} / ${parts.length} 頁</span>` : ''}</div>`;
-      return { title: 'TIM 清單' + (pi ? '（續）' : ''), html: table(widths, head, rows) + legend };
+      return { title: 'TIM 清單' + (pi ? '（續）' : ''), html: table(widths, head, rows, fs) };
     });
   }
 
+  /** One page per placement view: the drawing, and beside it a table of the Items placed on it with their 覆蓋元件. */
   async function mapPages(p, db) {
     const out = [];
     for (const v of p.views.filter(x => x.image_id && db.images[x.image_id])) {
@@ -181,17 +222,26 @@
       const counts = {};
       (v.shapes || []).forEach(s => { counts[s.item_id] = (counts[s.item_id] || 0) + 1; });
       const items = calc.orderedItems(p).filter(it => counts[it.id]);
-      const LEG_H = items.length ? 22 : 0;
-      const sc = Math.min(BODY_W / png.width, (BODY_H - LEG_H) / png.height);
+      const SIDE = items.length ? 236 : 0, GAP = items.length ? 14 : 0;
+      const sc = Math.min((BODY_W - SIDE - GAP) / png.width, BODY_H / png.height);
       const w = Math.floor(png.width * sc), h = Math.floor(png.height * sc);
       const loc = p.locations.find(l => l.id === v.location_id);
-      const legend = items.map(it => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;white-space:nowrap">
-        <span style="display:inline-block;width:10px;height:10px;background:${calc.itemColor(p, it)}"></span><b>${esc(it.item_no)}</b>
-        <span style="color:${INK3}">× ${counts[it.id]}${Number.isFinite(it.qty) && it.qty !== counts[it.id] ? '（Q\'ty ' + it.qty + '）' : ''}</span></span>`).join('');
+      const fs = items.length > 18 ? 7.5 : items.length > 12 ? 8 : 9;
+      const side = items.length ? table([30, 56, 14],
+        '<tr>' + th('Item') + th('覆蓋元件') + th('片數') + '</tr>',
+        items.map(it => {
+          const n = counts[it.id];
+          const off = Number.isFinite(it.qty) && it.qty !== n;
+          return '<tr>' + td(`<span style="display:inline-block;width:9px;height:9px;background:${calc.itemColor(p, it)};margin-right:5px;vertical-align:-1px"></span><b>${esc(it.item_no)}</b>`, 'white-space:nowrap') +
+            td(esc(TIM.parse.formatCovered(it.covered)) || `<span style="color:${INK3}">—</span>`, 'font-family:' + MONO) +
+            td(n + (off ? `<div style="font-size:7px;color:#8A5A00">Q'ty ${it.qty}</div>` : ''), 'text-align:center') + '</tr>';
+        }).join(''), fs) : '';
       out.push({
         title: '位置標註 · ' + v.name + (loc ? '（' + loc.name + '）' : ''), kicker: 'PLACEMENT MAP',
-        html: `<div style="height:${BODY_H - LEG_H}px;display:flex;align-items:center;justify-content:center"><img src="${png.dataUrl}" style="width:${w}px;height:${h}px;border:0.75px solid #C9D3E0" /></div>
-          ${LEG_H ? `<div style="height:${LEG_H}px;padding-top:6px;box-sizing:border-box;font-size:9px;overflow:hidden;white-space:nowrap">${legend}</div>` : ''}`,
+        html: `<div style="display:flex;gap:${GAP}px;height:${BODY_H}px">
+          <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center"><img src="${png.dataUrl}" style="width:${w}px;height:${h}px;border:0.75px solid #C9D3E0" /></div>
+          ${SIDE ? `<div style="width:${SIDE}px;flex:none;align-self:center;max-height:${BODY_H}px;overflow:hidden">${side}</div>` : ''}
+        </div>`,
       });
     }
     return out;
@@ -250,19 +300,20 @@
     let cur = '', room = BODY_H;
     const flush = () => { if (cur) pages.push(cur); cur = ''; room = BODY_H; };
     blocks.forEach(b => {
+      const tH = titleHeight(b.title, b.sub);   // a long sub-title wraps → taller than TITLE_H
       if (!b.rows.length) {
-        if (room < TITLE_H + 24) flush();
+        if (room < tH + 24) flush();
         cur += sectionTitle(b.title, b.sub) + `<div style="color:${INK3};margin-bottom:14px">${b.empty}</div>`;
-        room -= TITLE_H + 28;
+        room -= tH + 28;
         return;
       }
       const m = measure(b.widths, b.head, b.rows);
-      if (room < TITLE_H + m.head + (m.heights[0] || 0) + 4) flush();
-      const parts = paginate(m.heights, m.head, room - TITLE_H, BODY_H - TITLE_H);
+      if (room < tH + m.head + (m.heights[0] || 0) + 4) flush();
+      const parts = paginate(m.heights, m.head, room - tH, BODY_H - TITLE_H);
       parts.forEach((part, i) => {
         if (i > 0) flush();
         cur += sectionTitle(b.title + (i ? '（續）' : ''), i ? '' : b.sub) + table(b.widths, b.head, b.rows.slice(part.start, part.end).join(''));
-        room -= TITLE_H + m.head + m.heights.slice(part.start, part.end).reduce((a, c) => a + c, 0);
+        room -= (i ? TITLE_H : tH) + m.head + m.heights.slice(part.start, part.end).reduce((a, c) => a + c, 0);
       });
       cur += '<div style="height:14px"></div>';
       room -= 14;
@@ -286,7 +337,8 @@
 
   /**
    * Build and download the PDF. opts.sections: keys from SECTIONS (default all); opts.hide: rows / columns hidden
-   * in the TIM 清單 to leave out (xlsxExport.viewProject / listColumns); opts.onProgress(done, total). → file name.
+   * in the TIM 清單 to leave out ({ rows, cols, gridCols }: xlsxExport.viewProject / ui.bomExportColumns);
+   * opts.onProgress(done, total). → file name.
    */
   async function exportProjectPdf(pid, opts) {
     opts = opts || {};
@@ -296,7 +348,9 @@
     const p0 = db.projects[pid];
     const p = TIM.xlsxExport.viewProject(p0, opts.hide);   // without the rows hidden in the TIM 清單; drawings use p0
     const sample = [p.name, p.description, p.customer, ...p.items.map(i => [i.item_no, i.vendor, i.model, i.note, i.sourcing_note, parse(i)].join(' ')),
-      ...p.locations.map(l => l.name), ...p.views.map(v => v.name), '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小設計間距公差元件高度曲線'].join(' ');
+      ...p.locations.map(l => l.name), ...p.views.map(v => v.name),
+      ...TIM.ui.bomExportColumns(opts.hide).map(c => c.label + ' ' + (c.sub || '')), ...schema.TIM_TYPES.map(t => t.label), ...schema.ITEM_STATUS.map(x => x.label || x),
+      '覆蓋元件片數受壓類型不檢核未判定規格不需', '專案資訊狀態待處理事項清單位置標註材料用量彙總壓縮率檢核判定單一來源第二來源尚未承認續頁另有請在工具的總覽查看沒有每台片數成本種類放置張圖建議範圍或未接觸間隙一般值片狀點膠類壓縮與壓力異常不足超過元件耐壓最小設計間距公差元件高度曲線'].join(' ');
     await loadFonts(sample);
 
     const pages = [];
@@ -333,5 +387,6 @@
   }
   function parse(it) { return TIM.parse.formatCovered(it.covered) + ' ' + TIM.parse.formatSources(it); }
 
-  TIM.pdfExport = { SECTIONS, normSections, exportProjectPdf };
+  // internals: page builders (tests look at the laid-out HTML)
+  TIM.pdfExport = { SECTIONS, normSections, exportProjectPdf, internals: { listPages, mapPages, checkPages, sectionTitle } };
 })();

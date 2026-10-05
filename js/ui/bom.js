@@ -56,10 +56,13 @@
     add({ key: 'used_on', label: 'Used On', width: 90, kind: 'parsed', text: it => parse.formatUsedOn(it.used_on), parse: t => ({ used_on: parse.parseUsedOn(t) }) });
     add({ key: 'vendor', label: 'Vendor', width: 112, kind: 'material', field: 'vendor' });
     add({ key: 'model', label: 'Model', width: 150, kind: 'material', field: 'model' });
+    // material value (read-only); skipped when a multi-column range is copied / pasted, so whole rows keep the
+    // Excel column order (… Model, Size, Q'ty …)
+    add({ key: 'k', label: 'k', sub: 'W/m·K', width: 64, kind: 'calc', align: 'r', rangeSkip: true, text: (it, ctx) => fmtNum(ctx.eff.k, 2), title: () => '材料庫數值（連結材料時自動帶入）' });
     add({ key: 'size', label: 'Size', sub: 'L*W*T mm', width: 120, kind: 'parsed', mono: true, text: sizeText, parse: sizeParse });
     add({ key: 'qty', label: "Q'ty", width: 78, kind: 'num', path: 'qty', align: 'r' });
     add({ key: 'delta_pn', label: 'Delta P/N', width: 120, kind: 'text', path: 'delta_pn', mono: true });
-    add({ key: 'covered', label: 'Note', sub: '覆蓋元件', width: 230, kind: 'parsed', text: it => parse.formatCovered(it.covered), parse: (t, it) => ({ covered: parse.mergeCovered(it.covered, parse.parseCovered(t)) }) });
+    add({ key: 'covered', label: '覆蓋元件', width: 230, kind: 'parsed', text: it => parse.formatCovered(it.covered), parse: (t, it) => ({ covered: parse.mergeCovered(it.covered, parse.parseCovered(t)) }) });
     add({ key: 'second', label: '2nd source', width: 190, kind: 'parsed', text: secondText, parse: secondParse,
       cls: (it, ctx) => ({ single: 'c-risk-single', unverified: 'c-risk-unverified', ok: '' }[ctx.risk]), title: (it, ctx) => RISK_LABEL[ctx.risk] });
     add({ key: 'tim_type', label: '型態', width: 120, kind: 'select', path: 'tim_type', options: schema.TIM_TYPES.map(t => ({ v: t.v, label: t.label, zh: t.zh })), lockedByMaterial: true });
@@ -78,7 +81,6 @@
         title: () => '材料壓力–壓縮曲線在最大壓縮率的壓力；與元件耐壓的比較在 Item 詳細' });
     }
     if (groups.thermal) {
-      add({ key: 'k', group: 'thermal', label: 'k', sub: 'W/m·K', width: 64, kind: 'calc', align: 'r', text: (it, ctx) => fmtNum(ctx.eff.k, 2), title: () => '材料庫數值（連結材料時自動帶入）' });
       add({ key: 'area', group: 'thermal', label: '面積', sub: 'mm²', width: 74, kind: 'calc', align: 'r', text: (it, ctx) => fmtNum(ctx.th.area, 1) });
       add({ key: 'power', group: 'thermal', label: 'P_TIM', sub: 'W / 顆 max', width: 78, kind: 'calc', align: 'r', text: it => { const ps = it.covered.map(calc.timPower).filter(Number.isFinite); return ps.length ? fmtNum(Math.max.apply(null, ps), 3) : ''; }, title: () => '經由 TIM 的熱量 = 功耗 × 頂面 %' });
       add({ key: 'r', group: 'thermal', label: 'R_TIM', sub: '°C/W', width: 74, kind: 'calc', align: 'r', text: (it, ctx) => fmtNum(ctx.th.R_pad, 3) });
@@ -338,8 +340,9 @@
      */
     function applyMatrix(r0, c0, matrix, fillVisible) {
       if (ro) return;
-      const base = allCols.indexOf(cols[c0]);
-      const colAt = j => (fillVisible ? cols[c0 + j] : allCols[base + j]);
+      // whole columns from the anchor (hidden ones included), skipping read-only material values such as k
+      const seq = allCols.slice(allCols.indexOf(cols[c0])).filter((c, i) => i === 0 || !c.rangeSkip);
+      const colAt = j => (fillVisible ? cols[c0 + j] : seq[j]);
       let hiddenHit = 0;
       const patches = [], newRows = [];
       const anchorItem = visible[r0] || visible[visible.length - 1];
@@ -372,8 +375,9 @@
       setRange({ r0, c0, r1: r0 + matrix.length - 1, c1: seen.length ? cols.indexOf(seen[seen.length - 1]) : c0 });
     }
 
-    /** Columns from visible c0 to c1 including the hidden ones between them (copy / paste keep the Excel column order). */
-    const spanCols = (c0, c1) => allCols.slice(allCols.indexOf(cols[c0]), allCols.indexOf(cols[c1]) + 1);
+    /** Columns from visible c0 to c1 including the hidden ones between them (copy / paste keep the Excel column order;
+     *  read-only material values such as k are left out of a multi-column range). */
+    const spanCols = (c0, c1) => allCols.slice(allCols.indexOf(cols[c0]), allCols.indexOf(cols[c1]) + 1).filter((c, i, a) => a.length === 1 || !c.rangeSkip);
     function rangeTsv(b) {
       const rows = [];
       const span = spanCols(b.c0, b.c1);
@@ -804,7 +808,7 @@
           </table>
           ${!p.items.length ? html`<div class="empty" style="margin:18px;border-style:dashed">
             <h3>這個專案還沒有 TIM Item</h3>
-            <p>可以直接從 Excel 複製整列貼上（含 Location 欄），或點「新增 Item」逐列建立。Size 可直接打 <span class="mono">51.5*9*3</span>，Note 可打 <span class="mono">LDO-A*2, BUCK-B*4</span>，2nd source 可打 <span class="mono">Vendor-A only source</span>。</p>
+            <p>可以直接從 Excel 複製整列貼上（含 Location 欄），或點「新增 Item」逐列建立。Size 可直接打 <span class="mono">51.5*9*3</span>，覆蓋元件可打 <span class="mono">LDO-A*2, BUCK-B*4</span>，2nd source 可打 <span class="mono">Vendor-A only source</span>。</p>
             <div class="actions rw-only">
               <button class="btn btn-primary" onClick=${() => openModal(close => html`<${PasteRowsModal} p=${p} close=${close} />`)}><${Icon} name="paste" /> 從 Excel 貼上多列</button>
               <button class="btn btn-secondary" onClick=${() => addRow(p.locations[0] && p.locations[0].id)}><${Icon} name="plus" /> 新增 Item</button>
@@ -820,22 +824,35 @@
     `;
   }
 
+  const readPref = (k, d) => { try { const v = localStorage.getItem('tim_pref_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+  /** The TIM 清單's columns for the 欄位 groups shown in this browser (bom_groups). */
+  const shownColumns = () => buildColumns(readPref('bom_groups', null) || {});
+
   /**
    * What the TIM 清單 hides for project p in this browser (its 顯示 / 隱藏 preferences), as the Excel / PDF exports
-   * use it: { rows:[item ids], cols:[TIM List column keys], rowNos:[Item numbers], colLabels:[TIM List headers] }.
+   * use it: { rows:[item ids], cols:[hidden Excel TIM List column keys], gridCols:[hidden grid column keys among the
+   * shown groups], rowNos:[Item numbers], colLabels:[their labels] }.
    */
   function hiddenForExport(p) {
-    const read = (k, d) => { try { const v = localStorage.getItem('tim_pref_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
-    const cols = read('bom_hidden_cols', []);
-    const rowsAll = read('bom_hidden_rows', {});
+    const cols = readPref('bom_hidden_cols', []);
+    const rowsAll = readPref('bom_hidden_rows', {});
     const ids = new Set(rowsAll && Array.isArray(rowsAll[p.id]) ? rowsAll[p.id] : []);
     const items = calc.orderedItems(p).filter(it => ids.has(it.id));
     const X = TIM.xlsxExport;
-    const keys = X.TIM_LIST_KEYS.filter(k => k && Array.isArray(cols) && cols.includes(k));
-    return { rows: items.map(i => i.id), cols: keys, rowNos: items.map(i => i.item_no || '(未編號)'), colLabels: keys.map(k => X.TIM_LIST_HEADERS[X.TIM_LIST_KEYS.indexOf(k)]) };
+    const off = Array.isArray(cols) ? cols : [];
+    const keys = X.TIM_LIST_KEYS.filter(k => k && off.includes(k));
+    const grid = shownColumns().filter(c => c.key !== 'item_no' && off.includes(c.key));
+    return { rows: items.map(i => i.id), cols: keys, gridCols: grid.map(c => c.key), rowNos: items.map(i => i.item_no || '(未編號)'), colLabels: grid.map(c => c.label) };
+  }
+
+  /** Columns the PDF TIM 清單 prints: what the TIM 清單 shows (its groups, in its order), minus hide.gridCols. */
+  function exportColumns(hide) {
+    const off = (hide && hide.gridCols) || [];
+    return shownColumns().filter(c => c.key === 'item_no' || !off.includes(c.key));
   }
 
   TIM.ui.Bom = Bom;
   TIM.ui.bomHiddenForExport = hiddenForExport;
-  TIM.ui.bomInternals = { buildColumns, cellText, cellPatch, sizeParse, secondParse };
+  TIM.ui.bomExportColumns = exportColumns;
+  TIM.ui.bomInternals = { buildColumns, cellText, cellPatch, sizeParse, secondParse, rowCtx };
 })();

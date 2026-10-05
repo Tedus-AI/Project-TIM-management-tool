@@ -63,7 +63,7 @@ module.exports = [
       await page.click('.proj-head-actions button:has-text("匯出 PDF")');
       await page.waitForSelector('.modal:has-text("匯出 PDF")');
       const labels = (await page.locator('.modal label.check').allInnerTexts()).map(t => t.trim());
-      assert.deepEqual(labels, ['總覽：專案資訊與狀態', 'TIM 清單：與 Excel「TIM List」相同欄位與底色', '位置標註圖：每張視圖一頁，含圖例', '材料用量彙總', '壓縮率與壓力檢核']);
+      assert.deepEqual(labels, ['總覽：專案資訊與狀態', 'TIM 清單：與畫面上的 TIM 清單相同欄位（含展開的欄位群組）與底色', '位置標註圖：每張視圖一頁，旁邊附 Item 與覆蓋元件對照表', '材料用量彙總', '壓縮率與壓力檢核']);
       await page.click('.modal-foot button:has-text("取消")');
       // an earlier saved choice with the combined "checks" turns into both
       await page.evaluate(() => localStorage.setItem('tim_pref_pdf_sections', JSON.stringify(['overview', 'checks'])));
@@ -104,6 +104,80 @@ module.exports = [
       await page.click('.modal-foot button:has-text("取消")');
       r = await exportPdf(page, [1]);
       assert.equal(r.pages, 1, 'hidden rows are not exported');
+    },
+  },
+  {
+    name: 'PDF TIM 清單 = the columns the TIM 清單 shows (k after Model, 覆蓋元件, expanded groups, hidden left out), no legend; map pages list Item / 覆蓋元件; section titles on one line',
+    async run(env) {
+      const { page } = env;
+      await openWithDemo(env);
+      await page.click('.proj-name');
+      await page.click('.tab:has-text("TIM 清單")');
+      await page.waitForSelector('table.grid');
+      // the grid: k right after Model in 基本, the Note column is called 覆蓋元件
+      const heads = await page.locator('table.grid thead th[data-col]').evaluateAll(els => els.map(e => e.dataset.col));
+      assert.deepEqual(heads.slice(0, 6), ['item_no', 'used_on', 'vendor', 'model', 'k', 'size']);
+      assert.match(await page.locator('table.grid thead th[data-col="covered"]').innerText(), /^覆蓋元件/);
+      assert.ok(!/Note/.test(await page.locator('table.grid thead').innerText()));
+      // 熱 group shown, Delta P/N hidden → the PDF list has exactly those columns, in the grid order
+      await page.evaluate(() => {
+        localStorage.setItem('tim_pref_bom_groups', JSON.stringify({ mech: false, thermal: true, supply: false, trace: false }));
+        localStorage.setItem('tim_pref_bom_hidden_cols', JSON.stringify(['delta_pn']));
+      });
+      const list = await page.evaluate(() => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        const h = TIM.ui.bomHiddenForExport(p);
+        const html = TIM.pdfExport.internals.listPages(p, TIM.store.db, { rows: h.rows, cols: h.cols, gridCols: h.gridCols }).map(x => x.html).join('');
+        const d = document.createElement('div'); d.innerHTML = html;
+        const rowOf = no => Array.from(d.querySelectorAll('tbody tr')).find(tr => Array.from(tr.children).some(td => td.textContent === no));
+        return { heads: Array.from(d.querySelectorAll('thead th')).map(th => th.firstChild.textContent), html,
+          a5: Array.from(rowOf('A5').children).map(td => td.textContent), gridCols: h.gridCols, labels: h.colLabels,
+          a5covered: TIM.parse.formatCovered(p.items.find(i => i.item_no === 'A5').covered) };
+      });
+      assert.deepEqual(list.heads, ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k', 'Size', "Q'ty", '覆蓋元件', '2nd source', '型態', '狀態', '面積', 'P_TIM', 'R_TIM', 'ΔT max']);
+      assert.deepEqual([list.gridCols, list.labels], [['delta_pn'], ['Delta P/N']]);
+      assert.ok(list.a5covered && list.a5.includes(list.a5covered), 'covered components printed: ' + list.a5.join(' | '));
+      assert.ok(list.a5.includes('7.5'), 'k of the linked material: ' + list.a5.join(' | '));
+      assert.ok(!/單一來源（無第二來源）|第二來源尚未承認/.test(list.html), 'no colour legend under the list');
+      assert.match(list.html, /#F9CBF0/i, 'single-source 2nd source cells still pink');
+      // the export dialog counts the hidden grid column
+      await page.click('.proj-head-actions button:has-text("匯出 PDF")');
+      assert.match(await page.locator('.modal label.hidden-follow').innerText(), /不匯出隱藏的 1 欄（Delta P\/N）/);
+      await page.click('.modal-foot button:has-text("取消")');
+      // placement pages: the drawing and a table of the Items on it with their 覆蓋元件 and piece count
+      const maps = await page.evaluate(async () => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        const pages = await TIM.pdfExport.internals.mapPages(p, TIM.store.db);
+        return pages.map((pg, i) => {
+          const d = document.createElement('div'); d.innerHTML = pg.html;
+          const v = p.views.filter(x => x.image_id)[i];
+          const placed = TIM.calc.orderedItems(p).filter(it => v.shapes.some(s => s.item_id === it.id));
+          return { img: !!d.querySelector('img'), heads: Array.from(d.querySelectorAll('thead th')).map(th => th.textContent),
+            rows: Array.from(d.querySelectorAll('tbody tr')).map(tr => Array.from(tr.children).map(td => td.textContent.trim())),
+            want: placed.map(it => [it.item_no, TIM.parse.formatCovered(it.covered) || '—', String(v.shapes.filter(s => s.item_id === it.id).length)]) };
+        });
+      });
+      assert.ok(maps.length >= 1);
+      maps.forEach(m => {
+        assert.ok(m.img);
+        assert.deepEqual(m.heads, ['Item', '覆蓋元件', '片數']);
+        assert.deepEqual(m.rows.map(r => [r[0], r[1], r[2].replace(/Q'ty.*/, '')]), m.want);
+      });
+      // section titles stay on one line even with a long sub-title beside them
+      const titleH = await page.evaluate(() => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        const pg = TIM.pdfExport.internals.checkPages(p, TIM.store.db, { usage: false, compression: true })[0];
+        const box = document.createElement('div');
+        box.style.cssText = 'position:fixed;left:0;top:0;width:774px;font-size:10px;line-height:1.45';
+        box.innerHTML = pg.html;
+        document.body.appendChild(box);
+        const span = box.querySelector('span');
+        const r = { text: span.textContent, h: span.getBoundingClientRect().height };
+        box.remove();
+        return r;
+      });
+      assert.equal(titleH.text, '壓縮率與壓力檢核');
+      assert.ok(titleH.h < 22, 'one line: ' + titleH.h + ' px');
     },
   },
 ];

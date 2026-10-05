@@ -14,7 +14,7 @@ async function openBom(page) {
 }
 // Cell coordinates: row index in the visible order, column index in the grid model.
 const cell = (page, r, c) => page.locator('[data-cell="' + r + ',' + c + '"]');
-const COL = { item_no: 0, used_on: 1, vendor: 2, model: 3, size: 4, qty: 5, delta_pn: 6, covered: 7, second: 8, tim_type: 9, status: 10 };
+const COL = { item_no: 0, used_on: 1, vendor: 2, model: 3, k: 4, size: 5, qty: 6, delta_pn: 7, covered: 8, second: 9, tim_type: 10, status: 11 };
 
 /** Row index (visible order) whose Item cell shows `no`. */
 const rowOf = (page, no) => page.evaluate(n => {
@@ -46,7 +46,7 @@ module.exports = [
       await page.keyboard.press('Enter');
       assert.equal((await item(page, 'A2')).delta_pn, 'PN-NEW-9');
       // Enter moved focus one row down (A3, same column)
-      assert.equal(await page.evaluate(() => document.activeElement.dataset.cell), '3,' + 6);
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.cell), '3,' + COL.delta_pn);
       const log = await state(page, () => Object.values(TIM.store.db.projects)[0].changelog.slice(-1)[0]);
       assert.equal(log.item_no, 'A2'); assert.equal(log.field, 'Delta P/N'); assert.equal(log.from, 'DEMO-0003'); assert.equal(log.to, 'PN-NEW-9'); assert.equal(log.user, 'Alice');
       await page.locator('body').click({ position: { x: 5, y: 900 } });

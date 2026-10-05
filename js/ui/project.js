@@ -21,13 +21,13 @@
   function useHiddenExport(pid) {
     const h = useMemo(() => TIM.ui.bomHiddenForExport(TIM.store.db.projects[pid]), [pid]);
     const [follow, setFollow] = usePref('export_follow_hidden', true);
-    if (!h.rows.length && !h.cols.length) return [null, null];
+    if (!h.rows.length && !h.gridCols.length) return [null, null];
     const short = list => (list.length > 6 ? list.slice(0, 6).join('、') + '…' : list.join('、'));
-    const what = [h.rows.length ? h.rows.length + ' 列（' + short(h.rowNos) + '）' : '', h.cols.length ? h.cols.length + ' 欄（' + short(h.colLabels) + '）' : ''].filter(Boolean).join('、');
+    const what = [h.rows.length ? h.rows.length + ' 列（' + short(h.rowNos) + '）' : '', h.gridCols.length ? h.gridCols.length + ' 欄（' + short(h.colLabels) + '）' : ''].filter(Boolean).join('、');
     const node = html`<div class="divider"></div>
       <label class="check hidden-follow"><input type="checkbox" checked=${follow} onChange=${e => setFollow(e.target.checked)} /> 依 TIM 清單的「顯示 / 隱藏」：不匯出隱藏的 ${what}</label>
       <div class="muted" style="font-size:11.5px;margin:4px 0 0 22px;line-height:1.55">隱藏的 Item 不出現在任何表格與統計（位置標註圖維持原圖）；隱藏的欄只影響 TIM 清單表格。取消勾選就匯出全部。</div>`;
-    return [node, follow ? { rows: h.rows, cols: h.cols } : null];
+    return [node, follow ? { rows: h.rows, cols: h.cols, gridCols: h.gridCols } : null];
   }
 
   function ExportModal(props) {
