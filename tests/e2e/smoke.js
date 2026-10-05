@@ -39,7 +39,7 @@ const OUT = process.env.SHOT_DIR || path.resolve(__dirname, '../../test-results/
     await page.click('.view-item:has-text("Top case")');
     await page.waitForTimeout(400);
     await shot('08-map-top');
-    await page.click('.tab:has-text("間隙與熱檢核")');
+    await page.click('.tab:has-text("間隙與壓力檢核")');
     await page.waitForSelector('.an-table');
     await shot('09-analysis');
     await page.click('.tab:has-text("變更紀錄")');

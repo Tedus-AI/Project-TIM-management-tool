@@ -293,7 +293,6 @@
       return () => { window.removeEventListener('mousedown', down, true); window.removeEventListener('keydown', key, true); };
     }, [showPanel]);
     const vendors = useMemo(() => Array.from(new Set(Object.values(db.materials).map(m => m.vendor).concat(p.items.map(i => i.vendor)).filter(Boolean))).sort(), [st.version]);
-    const models = useMemo(() => Array.from(new Set(Object.values(db.materials).map(m => m.model).concat(p.items.map(i => i.model)).filter(Boolean))).sort(), [st.version]);
 
     // focus a cell after the next render (new rows etc.)
     useEffect(() => {
@@ -684,9 +683,9 @@
               ${col.field === 'vendor' ? html`<span class="linkmark"><${Icon} name="link" /></span>` : null}<span class="ellipsis">${ctx.eff[col.field]}</span>
             </div></td>`;
         }
-        const sug = col.field === 'model' && (it.vendor || it.model) ? A().findMaterial(it.vendor, it.model) : null;
+        const sug = col.field === 'model' ? calc.libraryMatch(db, it) : null;
         return html`<td class=${cls}>
-          <${TextField} class="cell-inp" value=${it[col.field]} disabled=${ro} dataCell=${dc} list=${col.field === 'vendor' ? 'dl-vendors' : 'dl-models'}
+          <${TIM.ui.MaterialCombo} grid=${true} class="cell-inp" pid=${p.id} itemId=${it.id} field=${col.field} value=${it[col.field]} disabled=${ro} dataCell=${dc}
             onChange=${v => A().updateItem(p.id, it.id, col.field, v)} />
           ${sug && !ro ? html`<button class="icon-btn" style="position:absolute;right:2px;top:3px;color:var(--d-500)" title=${'材料庫有相同材料，點擊連結：' + sug.vendor + ' ' + sug.model}
             onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /></button>` : null}
@@ -709,6 +708,7 @@
     const colsKey = cols.map(c => c.key).join(',');
     const setSig = JSON.stringify([db.settings.generic_comp || null, db.settings.pressure_warn_pct]);
     const libSig = Object.keys(db.materials).length + ':' + Object.values(db.materials).reduce((m, x) => (String(x.updated_at) > m ? String(x.updated_at) : m), '');
+    const twins = p.items.filter(it => calc.libraryMatch(db, it));   // named like a library material, not linked
     const totalPcs = visible.reduce((s, it) => s + (it.status !== 'obsolete' && Number.isFinite(it.qty) ? it.qty : 0), 0);
 
     return html`
@@ -740,9 +740,11 @@
           <span class="mono">${visible.length} items · ${totalPcs} pcs</span>
         </div>
       </div>
+      ${twins.length && !ro ? html`<div class="unlinked-banner"><${Icon} name="warn" size=${14} />
+        <span><b>${twins.length}</b> 個 Item（${twins.slice(0, 8).map(i => i.item_no || '(未編號)').join('、')}${twins.length > 8 ? '…' : ''}）的 Vendor / Model 與材料庫相同，但尚未連結：k 值與壓力曲線都沒有帶入。</span>
+        <button class="btn btn-primary btn-sm" onClick=${() => { const n = A().linkMatchingMaterials(p.id); if (n) toast('已連結 ' + n + ' 個 Item 到材料庫', 'ok'); }}><${Icon} name="link" /> 全部連結</button></div>` : null}
       <div class="bom-wrap">
         <datalist id="dl-vendors">${vendors.map(v => html`<option value=${v} />`)}</datalist>
-        <datalist id="dl-models">${models.map(v => html`<option value=${v} />`)}</datalist>
         <div class="grid-scroll" ref=${tableRef} onKeyDown=${onKeyDown} onfocusin=${onFocusIn} onCopy=${onCopy} onPaste=${onPaste}
           onMouseDown=${onMouseDown} onMouseOver=${onMouseOver} onDrop=${onDrop} onDragEnd=${onDragEnd}>
           <table class="grid" style=${{ minWidth: totalW + 'px' }}>

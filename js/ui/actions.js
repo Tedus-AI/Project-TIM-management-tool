@@ -340,7 +340,8 @@
       coalesce: 'cov:' + covId + ':' + field,
       changes: ['part', 'qty'].includes(field)
         ? [{ kind: 'edit', target: 'item', target_id: itemId, item_no: it.item_no, field: '覆蓋元件', from: before, to: parse.formatCovered(it.covered.map(x => (x.id === covId ? Object.assign({}, x, { [field]: value }) : x))) }]
-        : [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + (c.part || '') + ' ' + ({ refdes: 'RefDes', power_w: '功耗', top_pct: '頂面 %', pkg_l: '封裝 L', pkg_w: '封裝 W', cat: '類別', note: '備註', h_min: '高度 min', h_nom: '高度 nom', h_max: '高度 max', p_allow: '耐壓', p_unit: '耐壓單位' }[field] || field), from: c[field], to: value }],
+        : [{ kind: 'edit', target: 'item', target_id: itemId + ':' + covId, item_no: it.item_no, field: '覆蓋元件 ' + (c.part || '') + ' ' + ({ refdes: 'RefDes', power_w: '功耗', top_pct: '頂面 %', pkg_l: '封裝 L', pkg_w: '封裝 W', cat: '類別', note: '備註', h_min: '高度 min', h_nom: '高度 nom', h_max: '高度 max', p_allow: '耐壓', p_unit: '耐壓單位', load_type: '受壓類型' }[field] || field),
+          from: field === 'load_type' ? loadText(c[field]) : c[field], to: field === 'load_type' ? loadText(value) : value }],
     });
   }
   /**
@@ -363,6 +364,7 @@
     return true;
   }
 
+  const loadText = v => { const t = schema.loadType(v); return t ? t.label : '未指定'; };
   function addCovered(pid, itemId, fields) {
     const c = schema.newCovered(fields);
     st().mutateProject(pid, pp => { itemOf(pp, itemId).covered.push(c); });
@@ -411,6 +413,21 @@
       const x = itemOf(pp, itemId);
       x.material_id = matId; x.vendor = m.vendor; x.model = m.model; x.tim_type = m.tim_type;
     }, { changes: [{ kind: 'edit', target: 'item', target_id: itemId, item_no: it.item_no, field: '材料', from: [it.vendor, it.model].filter(Boolean).join(' '), to: m.vendor + ' ' + m.model + '（連結材料庫）' }] });
+  }
+  /**
+   * Link the items whose Vendor + Model name a library material exactly but are not linked (calc.libraryMatch) —
+   * one undo step. itemIds: only these (default all in the project). → number linked
+   */
+  function linkMatchingMaterials(pid, itemIds) {
+    const p = project(pid);
+    if (!p) return 0;
+    const db = st().db;
+    const pairs = p.items.filter(it => !itemIds || itemIds.includes(it.id)).map(it => ({ it, m: calc.libraryMatch(db, it) })).filter(x => x.m);
+    if (!pairs.length) return 0;
+    st().mutateProject(pid, pp => {
+      pairs.forEach(({ it, m }) => { const x = itemOf(pp, it.id); x.material_id = m.id; x.vendor = m.vendor; x.model = m.model; x.tim_type = m.tim_type; });
+    }, { changes: pairs.map(({ it, m }) => ({ kind: 'edit', target: 'item', target_id: it.id, item_no: it.item_no, field: '材料', from: [it.vendor, it.model].filter(Boolean).join(' '), to: m.vendor + ' ' + m.model + '（連結材料庫）' })) });
+    return pairs.length;
   }
   function unlinkMaterial(pid, itemId) {
     const p = project(pid);
@@ -567,7 +584,7 @@
     addItem, updateItem, patchItems, pasteIntoItems, insertItems, duplicateItem, deleteItems, moveItem, sortItems,
     setCovered, updateCovered, addCovered, removeCovered, applyKnownComponent,
     addSource, updateSource, removeSource,
-    linkMaterial, unlinkMaterial, findMaterial,
+    linkMaterial, linkMatchingMaterials, unlinkMaterial, findMaterial,
     createMaterial, updateMaterial, setDatasheets, importMaterials, deleteMaterial, duplicateMaterial,
     addView, updateView, updateViewStyle, deleteView, moveView, editView,
     addLogEntry, deleteLogEntry, createBaseline, deleteBaseline,

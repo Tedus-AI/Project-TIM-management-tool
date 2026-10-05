@@ -212,8 +212,9 @@
     const locName = it => { const l = calc.locationOf(p, it); return l ? l.name : ''; };
     // Components
     const comp = [];
-    items.forEach(it => it.covered.forEach(c => comp.push([it.item_no, locName(it), c.part, c.refdes, c.qty, c.cat, c.power_w, c.top_pct == null ? 100 : c.top_pct, calc.timPower(c), c.pkg_l != null && c.pkg_w != null ? c.pkg_l + '*' + c.pkg_w : '', c.note])));
-    addSheet(wb, 'Components', ['Item', 'Location', 'Part', 'RefDes', 'Qty', 'Category', 'Power (W/pc)', 'Top-side %', 'P_TIM (W/pc)', 'Pkg L*W (mm)', 'Note'], comp, [8, 13, 20, 18, 6, 9, 11, 10, 11, 12, 30]);
+    const loadLabel = v => { const t = schema.loadType(v); return t ? t.label : '未指定'; };
+    items.forEach(it => it.covered.forEach(c => comp.push([it.item_no, locName(it), c.part, c.refdes, c.qty, c.cat, loadLabel(c.load_type), c.power_w, c.top_pct == null ? 100 : c.top_pct, calc.timPower(c), c.pkg_l != null && c.pkg_w != null ? c.pkg_l + '*' + c.pkg_w : '', c.note])));
+    addSheet(wb, 'Components', ['Item', 'Location', 'Part', 'RefDes', 'Qty', 'Category', 'Load type', 'Power (W/pc)', 'Top-side %', 'P_TIM (W/pc)', 'Pkg L*W (mm)', 'Note'], comp, [8, 13, 20, 18, 6, 9, 18, 11, 10, 11, 12, 30]);
 
     // 2nd source
     const src = [];
@@ -240,15 +241,15 @@
         g.min, g.nom, g.max, r1(cc.min), r1(cc.nom), r1(cc.max),
         cc.rec ? cc.rec.min + ' (' + { item: '手動', generic: '預設' }[cc.rec.source] + ')' : '', psi(cc.pressure),
         JUDGE[cc.status], th.k, r1(th.area), th.R_pad == null ? null : util.round(th.R_pad, 3), th.dt_max == null ? null : util.round(th.dt_max, 2), cc.msgs.concat(cc.notes).join('；')]);
-      cc.comps.forEach(r => prs.push([it.item_no, r.part, r.refdes, r.h ? r.h.min : null, r.h ? r.h.nom : null, r.h ? r.h.max : null,
+      cc.comps.forEach(r => prs.push([it.item_no, r.part, r.refdes, loadLabel(r.loadType), r.h ? r.h.min : null, r.h ? r.h.nom : null, r.h ? r.h.max : null,
         r.gap.min, r.gap.nom, r.gap.max, r1(r.cMin), r1(r.cMax), psi(r.pMin), psi(r.pMax), r1(r.force),
-        r.allow ? r.allow.value + ' ' + r.allow.unit : '', r.allow && r.allow.psi != null ? r1(r.allow.psi) : null, r.ratio == null ? null : util.round(r.ratio, 0), JUDGE[r.status], r.msg]));
+        r.exempt ? '不需' : r.allow ? r.allow.value + ' ' + r.allow.unit : '', r.allow && r.allow.psi != null ? r1(r.allow.psi) : null, r.ratio == null ? null : util.round(r.ratio, 0), r.exempt ? '不檢核' : JUDGE[r.status], r.msg]));
     });
     addSheet(wb, 'Gap & Thermal', ['Item', 'T (mm)', 'Design gap', 'Gap tol +', 'Gap tol −', 'Gap source', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp nom %', 'Comp max %', 'Min comp %', 'Pressure max (psi)', 'Judge', 'k', 'Area (mm²)', 'R_TIM (°C/W)', 'ΔT max (°C)', 'Remarks'],
       gt, [8, 7, 9, 7, 7, 10, 8, 8, 8, 10, 10, 10, 13, 14, 9, 7, 10, 11, 11, 50]);
     if (prs.length) {
-      addSheet(wb, 'Pressure', ['Item', 'Component', 'RefDes', 'H min', 'H nom', 'H max', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp max %', 'Pressure min (psi)', 'Pressure max (psi)', 'Force max (N)', 'Allowable', 'Allowable (psi)', 'Ratio %', 'Judge', 'Remarks'],
-        prs, [8, 16, 12, 7, 7, 7, 8, 8, 8, 10, 10, 13, 13, 11, 12, 12, 8, 9, 50]);
+      addSheet(wb, 'Pressure', ['Item', 'Component', 'RefDes', 'Load type', 'H min', 'H nom', 'H max', 'Gap min', 'Gap nom', 'Gap max', 'Comp min %', 'Comp max %', 'Pressure min (psi)', 'Pressure max (psi)', 'Force max (N)', 'Allowable', 'Allowable (psi)', 'Ratio %', 'Judge', 'Remarks'],
+        prs, [8, 16, 12, 18, 7, 7, 7, 8, 8, 8, 10, 10, 13, 13, 11, 12, 12, 8, 9, 50]);
     }
 
     // Changelog

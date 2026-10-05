@@ -115,6 +115,19 @@
     { v: 'lbf', kind: 'force', toN: 4.448222 },
   ];
 
+  /**
+   * 受壓類型 of a covered component: whether its allowable load (耐壓) is checked. Solder balls creep under a
+   * sustained load, a bare die cracks, a cavity / lid / shield deforms → checked; E-PAD / QFN / LGA / leaded parts
+   * spread the load over a low, wide joint → the pressure is shown but not judged. '' (未指定) = checked when 耐壓 is filled.
+   */
+  const LOAD_TYPES = [
+    { v: 'bga', label: 'BGA / CSP（錫球）', short: 'BGA', check: true, why: '錫球長時間受壓會潛變（creep），加上溫度循環易疲勞' },
+    { v: 'bare_die', label: '裸晶 / 無蓋 flip-chip', short: '裸晶', check: true, why: 'die 直接受壓，可能裂開或崩角' },
+    { v: 'cavity', label: '空腔 / 有蓋 / 遮蔽罩', short: '空腔/有蓋', check: true, why: 'air-cavity、SAW / BAW、晶振、遮蔽罩模組的蓋子可能被壓變形' },
+    { v: 'epad', label: 'E-PAD / QFN / LGA / 引腳', short: 'E-PAD', check: false, why: '焊點低而寬，負載由本體與大面積焊墊分散；壓力只顯示、不判定' },
+  ];
+  const loadType = v => LOAD_TYPES.find(x => x.v === v) || null;
+
   const K_METHODS = ['ASTM D5470', 'ISO 22007-2 (Hot Disk)', 'ASTM E1461 (Laser Flash)', 'Other / 未註明'];
   const HARDNESS_SCALES = ['Shore 00', 'Shore A', 'Shore C', 'Asker C'];
   const SILICONE = [
@@ -260,6 +273,7 @@
     return Object.assign({ id: util.uid('cov'), part: '', refdes: '', qty: 1, cat: '', power_w: null, top_pct: null, pkg_l: null, pkg_w: null,
       h_min: null, h_nom: null, h_max: null,   // component height (package drawing min / nom / max), mm
       p_allow: null, p_unit: 'psi',            // allowable load on the component top (pressure or force, see P_UNITS)
+      load_type: '',                           // 受壓類型 (LOAD_TYPES): '' = 未指定 → checked when p_allow is filled
       note: '' }, fields || {});
   }
 
@@ -340,6 +354,7 @@
       n.h_min = numOrNull(n.h_min); n.h_nom = numOrNull(n.h_nom); n.h_max = numOrNull(n.h_max);
       n.p_allow = numOrNull(n.p_allow);
       if (!P_UNITS.some(u => u.v === n.p_unit)) n.p_unit = 'psi';
+      if (!loadType(n.load_type)) n.load_type = '';
       n.part = str(n.part); n.refdes = str(n.refdes);
       return n;
     });
@@ -460,7 +475,7 @@
 
   return {
     SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
-    SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
+    SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, LOAD_TYPES, loadType, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,

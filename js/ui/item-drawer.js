@@ -166,7 +166,8 @@
     const idx = ordered.findIndex(x => x.id === it.id);
     const u = (path, v) => A().updateItem(p.id, it.id, path, v);
     const loc = calc.locationOf(p, it);
-    const sug = !mat && (it.vendor || it.model) ? A().findMaterial(it.vendor, it.model) : null;
+    const sug = calc.libraryMatch(db, it);   // same Vendor + Model as a library material, not linked
+    const exemptOf = c => { const t = schema.loadType(c.load_type); return !!(t && !t.check); };
     const history = (p.changelog || []).filter(c => c.target_id && String(c.target_id).startsWith(it.id)).slice(-30).reverse();
     const covQty = calc.coveredQty(it);
     const totalPower = util.sum(it.covered, c => { const pt = calc.timPower(c); return pt === null ? NaN : pt * (Number.isFinite(c.qty) ? c.qty : 1); });
@@ -253,15 +254,15 @@
               <button class="btn btn-ghost btn-sm" onClick=${() => go('library/' + mat.id)}><${Icon} name="book" /> 開啟材料資料</button>
               <button class="btn btn-ghost btn-sm rw-only" onClick=${() => pickMaterial(p.id, it.id)}>改連結其他材料…</button>
             </div>` : html`<div class="form-grid">
-              <${Field} label="Vendor"><${TextField} value=${it.vendor} list="dl-vendors" disabled=${ro} onChange=${v => u('vendor', v)} /></${Field}>
-              <${Field} label="Model"><${TextField} value=${it.model} list="dl-models" disabled=${ro} onChange=${v => u('model', v)} /></${Field}>
+              <${Field} label="Vendor"><${TIM.ui.MaterialCombo} pid=${p.id} itemId=${it.id} field="vendor" value=${it.vendor} disabled=${ro} onChange=${v => u('vendor', v)} /></${Field}>
+              <${Field} label="Model"><${TIM.ui.MaterialCombo} pid=${p.id} itemId=${it.id} field="model" value=${it.model} disabled=${ro} onChange=${v => u('model', v)} /></${Field}>
               <${Field} label="型態"><${SelectField} value=${it.tim_type} allowEmpty=${false} disabled=${ro} options=${schema.TIM_TYPES.map(t => ({ v: t.v, label: t.label + '｜' + t.zh }))} onChange=${v => u('tim_type', v)} /></${Field}>
             </div>
             <div class="row mt8 wrap rw-only" style="gap:8px">
-              ${sug ? html`<button class="btn btn-secondary btn-sm" onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /> 連結材料庫的「${sug.vendor} ${sug.model}」</button>` : null}
+              ${sug ? html`<button class="btn btn-primary btn-sm" onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /> 連結材料庫的「${sug.vendor} ${sug.model}」</button>` : null}
               <button class="btn btn-ghost btn-sm" onClick=${() => pickMaterial(p.id, it.id)}><${Icon} name="book" /> 從材料庫選擇…</button>
               ${!sug ? html`<button class="btn btn-ghost btn-sm" onClick=${addToLibrary}><${Icon} name="plus" /> 加入材料庫並連結</button>` : null}
-              <span class="muted" style="font-size:11.5px">未連結材料庫時無法自動帶入 k 值與壓力–壓縮曲線</span>
+              <span class="muted" style="font-size:11.5px">Vendor / Model 點開會列出整個材料庫，選了就連結；未連結時無法帶入 k 值與壓力–壓縮曲線</span>
             </div>`}
           <div class="divider"></div>
           <div class="form-grid">
@@ -331,17 +332,23 @@
             <${Field} label="間距公差 −" info="− 讓間距變小（壓得多）"><${NumField} value=${it.gap_design.minus} unit="mm" placeholder="0" disabled=${ro} onChange=${v => u('gap_design.minus', v)} /></${Field}>
           </div>
           ${it.covered.length ? html`<table class="subtbl mt12 h-table">
-            <thead><tr><th style="width:26%">元件（覆蓋元件）</th><th class="r">高度 min mm</th><th class="r">高度 nom mm</th><th class="r">高度 max mm</th>
+            <thead><tr><th style="width:18%">元件（覆蓋元件）</th>
+              <th style="width:22%">受壓類型 <${InfoDot}><div style="max-width:340px;line-height:1.6">決定要不要檢核耐壓：<br/>${schema.LOAD_TYPES.map(t => html`<b>${t.label}</b>${t.check ? '：檢核' : '：不檢核'} — ${t.why}<br/>`)}<b>未指定</b>：有填耐壓就檢核。<br/>不檢核時壓力照算，只顯示供參考。</div></${InfoDot}></th>
+              <th class="r">高度 min mm</th><th class="r">高度 nom mm</th><th class="r">高度 max mm</th>
               <th class="r">耐壓 <${InfoDot}><div style="max-width:300px;line-height:1.6">元件頂面可承受的壓力或力（元件規格書的 max static load / compressive force）。<br/>填力（N / kgf / lbf）時以 min(pad 面積, 封裝 L × W) 換算成壓力。</div></${InfoDot}></th><th style="width:13%">單位</th></tr></thead>
             <tbody>${it.covered.map(c => html`<tr key=${c.id}>
               <td class="mono">${c.part || c.refdes || html`<span class="muted">（未命名）</span>`}${c.part && c.refdes ? html` <span class="muted">${c.refdes}</span>` : null}</td>
+              <td><${SelectField} class="sel" value=${c.load_type} emptyLabel="未指定" disabled=${ro} title=${schema.loadType(c.load_type) ? schema.loadType(c.load_type).why : '未指定：有填耐壓就檢核'}
+                options=${schema.LOAD_TYPES.map(t => ({ v: t.v, label: t.label }))} onChange=${v => uc(c, 'load_type', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.h_min} disabled=${ro} onChange=${v => uc(c, 'h_min', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.h_nom} disabled=${ro} onChange=${v => uc(c, 'h_nom', v)} /></td>
               <td><${NumField} class="inp" right=${true} value=${c.h_max} disabled=${ro} onChange=${v => uc(c, 'h_max', v)} /></td>
-              <td><${NumField} class="inp" right=${true} value=${c.p_allow} disabled=${ro} onChange=${v => uc(c, 'p_allow', v)} /></td>
-              <td><${SelectField} class="sel" value=${c.p_unit} allowEmpty=${false} disabled=${ro} options=${schema.P_UNITS.map(x => x.v)} onChange=${v => uc(c, 'p_unit', v)} /></td>
+              ${exemptOf(c) ? html`<td colspan="2" class="r muted" title=${schema.loadType(c.load_type).why}>不需（${schema.loadType(c.load_type).short} 不檢核）</td>`
+                : html`<td><${NumField} class="inp" right=${true} value=${c.p_allow} disabled=${ro} onChange=${v => uc(c, 'p_allow', v)} /></td>
+              <td><${SelectField} class="sel" value=${c.p_unit} allowEmpty=${false} disabled=${ro} options=${schema.P_UNITS.map(x => x.v)} onChange=${v => uc(c, 'p_unit', v)} /></td>`}
             </tr>`)}</tbody>
-            <tfoot><tr><td colspan="6">元件高度照封裝圖的上 / 中 / 下限填（例如 1.10 / 1.20 / 1.30），用來加上元件高度公差；沒填就只算間距公差。耐壓沒填就只顯示壓力、不判定。</td></tr></tfoot>
+            <tfoot><tr><td colspan="7">元件高度照封裝圖的上 / 中 / 下限填（例如 1.10 / 1.20 / 1.30），用來加上元件高度公差；沒填就只算間距公差。
+              受壓類型選 BGA / 裸晶 / 空腔有蓋 → 檢核耐壓；E-PAD / QFN / LGA / 引腳 → 壓力只顯示、不判定；未指定 → 有填耐壓才判定。</td></tr></tfoot>
           </table>` : !dispense ? html`<div class="muted mt8" style="font-size:12px">在「覆蓋元件」新增元件後，可填元件高度（自動算間隙）與耐壓（判定過壓）。</div>` : null}
           <div class="form-grid mt12">
             <${Field} label="間隙 min / nom / max" class="span-2">
@@ -374,10 +381,12 @@
               <div title=${lowC ? '低於最小壓縮率 ' + cc.rec.min + '%：接觸可能不足' : ''}><div class="k">壓縮率 min</div><div class=${cx('v', lowC && 'text-err')}>${cc.min == null ? '—' : util.fmt(cc.min, 1) + '%'}${lowC ? html`<span class="low-c">＜ ${cc.rec.min}%</span>` : null}</div></div>
               <div><div class="k">壓縮率 nom</div><div class="v">${cc.nom == null ? '—' : util.fmt(cc.nom, 1) + '%'}</div></div>
               <div><div class="k">壓縮率 max</div><div class="v">${cc.max == null ? '—' : util.fmt(cc.max, 1) + '%'}</div></div>
-              <div title=${basisTxt(cc.pressure)}><div class="k">壓力 max</div><div class="v">${cc.pressure ? psiTxt(cc.pressure) + ' psi' : html`<span class="muted" style="font-size:12px">${mat ? '材料無曲線' : '未連結材料'}</span>`}</div></div>
+              <div title=${basisTxt(cc.pressure)}><div class="k">壓力 max</div><div class="v">${cc.pressure ? psiTxt(cc.pressure) + ' psi' : html`<span class=${sug ? 'text-warn' : 'muted'} style="font-size:12px">${mat ? '材料無曲線' : '未連結材料'}</span>`}</div></div>
               <div><div class="k">判定</div><div class="v">${tag(cc.status)}</div></div>
             </div>
             <${RangeBar} cc=${cc} />
+            ${sug && !ro ? html`<div class="link-hint mt8"><${Icon} name="warn" size=${14} /><span>Vendor / Model 與材料庫的「${sug.vendor} ${sug.model}」相同，但這個 Item 還沒連結，壓力曲線與 k 值都沒有帶入。</span>
+              <button class="btn btn-secondary btn-xs" onClick=${() => A().linkMaterial(p.id, it.id, sug.id)}><${Icon} name="link" /> 連結</button></div>` : null}
             ${cc.comps.length ? html`<table class="subtbl mt12 p-table">
               <thead><tr><th>元件</th><th class="r">間隙 min / nom / max mm</th><th class="r">壓縮率 %</th><th class="r">壓力 psi</th><th class="r">受力 N</th><th class="r">耐壓</th><th>判定</th></tr></thead>
               <tbody>${cc.comps.map(r => html`<tr key=${r.id}>
@@ -386,8 +395,8 @@
                 <td class="r mono">${r.cMin == null ? '—' : util.fmt(r.cMin, 1)} ~ ${r.cMax == null ? '—' : util.fmt(r.cMax, 1)}</td>
                 <td class="r mono" title=${basisTxt(r.pMax)}>${r.pMax ? (r.pMin ? psiTxt(r.pMin) + ' ~ ' : '') + psiTxt(r.pMax) : '—'}</td>
                 <td class="r mono">${r.force == null ? '—' : util.fmt(r.force, 1)}</td>
-                <td class="r mono" title=${r.allow && r.allow.unit !== 'psi' && r.allow.psi != null ? '= ' + util.fmt(r.allow.psi, 1) + ' psi' : ''}>${r.allow ? util.fmt(r.allow.value) + ' ' + r.allow.unit : html`<span class="muted">未填</span>`}${r.ratio != null ? html`<div class="muted" style="font-size:10.5px">${util.fmt(r.ratio, 0)}%</div>` : null}</td>
-                <td>${tag(r.status)}</td>
+                <td class="r mono" title=${r.allow && r.allow.unit !== 'psi' && r.allow.psi != null ? '= ' + util.fmt(r.allow.psi, 1) + ' psi' : ''}>${r.exempt ? html`<span class="muted">不需</span>` : r.allow ? util.fmt(r.allow.value) + ' ' + r.allow.unit : html`<span class="muted">未填</span>`}${r.ratio != null ? html`<div class="muted" style="font-size:10.5px">${util.fmt(r.ratio, 0)}%</div>` : null}</td>
+                <td>${r.exempt ? html`<span class="tag tag-mute" title=${schema.loadType(r.loadType).why}>不檢核</span>` : tag(r.status)}</td>
               </tr>`)}</tbody>
             </table>` : null}
             ${cc.msgs.length ? html`<ul style="margin:8px 0 0 18px;font-size:12px">${cc.msgs.map((m, i) => html`<li class=${cc.levels[i] === 'error' ? 'text-err' : 'text-warn'}>${m}</li>`)}</ul>` : null}

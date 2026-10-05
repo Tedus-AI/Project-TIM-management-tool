@@ -105,3 +105,45 @@ test('schema: new fields normalised; old {min,max} settings still give a minimum
   const m = schema.normalizeMaterial({ pressure_curves: [{ t: 1, points: [[20, 38], [10, 13]] }, { t: null, points: [[1, 1]] }] });
   assert.deepEqual(m.pressure_curves, [{ t: 1, points: [[10, 13], [20, 38]] }]);
 });
+
+test('受壓類型: E-PAD / QFN shows the pressure but is not judged; BGA without an allowable load asks for it', () => {
+  const comp = (f) => schema.newCovered(Object.assign({ refdes: 'IC1', pkg_l: 10, pkg_w: 10, h_min: 1.1, h_nom: 1.2, h_max: 1.3 }, f));
+  const item = c => schema.newItem({ size: { l: 20, w: 20, t: 1 }, gap_design: { nom: 0.5, plus: 0, minus: 0 }, covered: [c] });
+  // 50 % compression of the 1 mm pad → ~ 28 psi, far above a 5 psi allowable
+  const bga = calc.compressionCheck(item(comp({ load_type: 'bga', p_allow: 5 })), mat, settings);
+  assert.equal(bga.status, 'error');
+  assert.equal(bga.comps[0].exempt, false);
+  const epad = calc.compressionCheck(item(comp({ load_type: 'epad', p_allow: 5 })), mat, settings);
+  assert.equal(epad.status, 'ok', 'not judged');
+  assert.equal(epad.comps[0].exempt, true);
+  assert.equal(epad.comps[0].allow, null);
+  assert.ok(epad.comps[0].pMax && epad.comps[0].pMax.psi > 20, 'pressure still computed');
+  assert.deepEqual(epad.notes, []);
+  // unspecified: judged only when the allowable load is filled (as before)
+  assert.equal(calc.compressionCheck(item(comp({ p_allow: 5 })), mat, settings).status, 'error');
+  assert.equal(calc.compressionCheck(item(comp({})), mat, settings).status, 'ok');
+  // BGA / bare die / cavity without an allowable load: a note asks for it
+  const ask = calc.compressionCheck(item(comp({ load_type: 'bare_die' })), mat, settings);
+  assert.equal(ask.status, 'ok');
+  assert.match(ask.notes.join(), /裸晶 需檢核耐壓/);
+  // normalisation and the quick-select carry the type
+  assert.equal(schema.normalizeItem({ covered: [{ load_type: 'nonsense' }] }).covered[0].load_type, '');
+  assert.ok(calc.COMP_GROUPS.some(g => g.fields.includes('load_type')));
+  assert.equal(calc.componentSummary({ cat: 'DIGI', load_type: 'epad' }), 'DIGI · E-PAD');
+});
+
+test('library match: an unlinked item named exactly like one library material is flagged', () => {
+  const db = schema.newDb();
+  const m = schema.newMaterial({ vendor: 'Vendor-B', model: 'GF-750' });
+  db.materials[m.id] = m;
+  const p = schema.newProject({ name: 'P' });
+  const it = schema.newItem({ item_no: 'A1', vendor: ' vendor-b', model: 'GF-750 ', location_id: p.locations[0].id });
+  p.items.push(it); db.projects[p.id] = p;
+  assert.equal(calc.libraryMatch(db, it), m);
+  assert.ok(calc.projectChecks(p, db).some(c => c.code === 'unlinked_material' && /GF-750 相同但未連結/.test(c.msg)));
+  assert.equal(calc.libraryMatch(db, Object.assign({}, it, { material_id: m.id })), null, 'linked');
+  assert.equal(calc.libraryMatch(db, Object.assign({}, it, { model: 'GF-75' })), null, 'not exact');
+  const twin = schema.newMaterial({ vendor: 'Vendor-B', model: 'GF-750' });
+  db.materials[twin.id] = twin;
+  assert.equal(calc.libraryMatch(db, it), null, 'ambiguous');
+});
