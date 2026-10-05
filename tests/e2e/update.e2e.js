@@ -56,7 +56,7 @@ module.exports = [
       await page.click('.proj-name');
       await page.click('.tab:has-text("TIM 清單")');
       await page.waitForSelector('table.grid');
-      await page.locator('[data-cell="0,4"]').fill('51.5*9*4');     // Size cell: parsed on blur, still focused
+      await page.locator('[data-cell="0,5"]').fill('51.5*9*4');     // Size cell (after Model, k): parsed on blur, still focused
       site.served = site.online = 'b2';
       await page.evaluate(() => TIM.app.checkVersion());
       await page.waitForSelector('.update-box:has-text("b1 → b2")');

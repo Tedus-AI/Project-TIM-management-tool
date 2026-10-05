@@ -148,7 +148,8 @@ module.exports = [
       await page.click('.bom-toolbar .seg button:has-text("機構")');
       const a2row = page.locator('tr[data-id] >> nth=2');
       await a2row.locator('.cell-ro.r.mono').first().waitFor();
-      assert.deepEqual((await a2row.locator('.cell-ro.r.mono').allInnerTexts()).slice(0, 3), ['1.5', '1.6', '1.75']);
+      // read-only numeric cells: k (after Model, AbsorbPad AX 1.6 W/m·K), then the derived gaps
+      assert.deepEqual((await a2row.locator('.cell-ro.r.mono').allInnerTexts()).slice(0, 4), ['1.6', '1.5', '1.6', '1.75']);
       assert.match(await a2row.innerText(), /12\.5~25[\s\S]*20/);
       // 間隙與壓力檢核: one line per component — its own range bar with the numbers next to it (no hover needed),
       // design pressure / spec with the ratio, and separate compression / pressure judgements

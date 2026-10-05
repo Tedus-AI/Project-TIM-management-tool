@@ -77,7 +77,7 @@ module.exports = [
         await page.click('.proj-head-actions button:has-text("匯出 Excel")');
         await page.waitForSelector('.modal:has-text("匯出 Excel")');
         const note = page.locator('.modal label.hidden-follow');
-        assert.match(await note.innerText(), /不匯出隱藏的 1 列（A2）、2 欄（Q'ty、Delta Part No\.）/);
+        assert.match(await note.innerText(), /不匯出隱藏的 1 列（A2）、2 欄（Q'ty、Delta P\/N）/);
         if ((await note.locator('input').isChecked()) !== follow) await note.locator('input').click();
         const dl = page.waitForEvent('download', { timeout: 60000 });
         await page.click('.modal-foot button:has-text("匯出")');
