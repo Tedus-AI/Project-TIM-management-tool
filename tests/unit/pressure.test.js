@@ -187,3 +187,21 @@ test('per component: compression judgement (cStatus) apart from the pressure; wh
   assert.deepEqual(loose.comps.map(r => r.cStatus), ['error', 'error', 'error', 'error']);
   assert.equal(loose.comps[0].status, 'ok');
 });
+
+test('projectStats: compression / pressure Fail and Warning counted apart, one per Item', () => {
+  const db = schema.newDb();
+  db.materials[mat.id] = mat;
+  const p = schema.newProject({ name: 'X' }, 'u', db.settings);
+  const loc = p.locations[0].id;
+  const pad = extra => schema.newItem(Object.assign({ location_id: loc, material_id: mat.id, size: { l: 12, w: 12, t: 1 } }, extra));
+  p.items = [
+    // Fail twice over (C min below 10 % on two components) → one Item
+    pad({ item_no: 'F1', gap_design: { nom: 0.95 }, covered: [schema.newCovered({ h_nom: 1 }), schema.newCovered({ h_nom: 1 })] }),
+    // Warning: 27 psi at 50 % against 30 psi (90 %)
+    pad({ item_no: 'W1', gap_design: { nom: 0.5 }, covered: [schema.newCovered({ h_nom: 1, p_allow: 30, p_unit: 'psi' })] }),
+    pad({ item_no: 'OK', gap_design: { nom: 0.5 }, covered: [schema.newCovered({ h_nom: 1, p_allow: 100, p_unit: 'psi' })] }),
+    pad({ item_no: 'OLD', status: 'obsolete', gap_design: { nom: 0.95 } }),   // obsolete: not counted
+  ];
+  const s = calc.projectStats(p, db);
+  assert.deepEqual([s.comp_fail, s.comp_warn, s.comp_issues], [1, 1, 2]);
+});

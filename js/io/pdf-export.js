@@ -145,7 +145,8 @@
       tile('每台 TIM 成本', costKeys.length ? util.fmt(s.cost[costKeys[0]], 2) : '—', costKeys[0] || '', s.cost_missing ? s.cost_missing + ' 項未填單價' : ''),
       tile('單一來源', s.single, '', '沒有任何第二來源', warn(s.single)),
       tile('第二來源未承認', s.unverified, '', '有列出但尚未承認', warn(s.unverified)),
-      tile('壓縮 / 壓力異常', s.comp_issues, '', '壓縮不足、未接觸或超過元件耐壓', warn(s.comp_issues)),
+      tile('壓縮 / 壓力 Fail', s.comp_fail, 'Item', '壓縮不足、未接觸或壓力超過元件耐壓', s.comp_fail ? '#C0392B' : '#1E8E4E'),
+      tile('壓縮 / 壓力 Warning', s.comp_warn, 'Item', '壓力達耐壓 ' + (db.settings.pressure_warn_pct || 80) + '% 以上或超出材料曲線', warn(s.comp_warn)),
       tile('位置圖放置', p.views.length ? s.placed + '/' + s.qty_total : '—', p.views.length ? 'pcs' : '', p.views.length ? p.views.length + ' 張位置圖' : '尚未建立位置圖'),
     ].join('');
     return `<div style="display:flex;gap:22px;height:100%">
@@ -264,12 +265,12 @@
     const cHead = '<tr>' + ['Item', 'Location', '覆蓋元件', '材料', 'T (mm)', '間隙 min / nom / max', '壓縮率 %', '壓力 max / 規格 psi', '壓縮判定', '壓力判定'].map(t => th(t)).join('') + '</tr>';
     const f = v => (v == null ? '—' : util.fmt(v, 3));
     const f1 = v => (v == null ? '—' : util.fmt(v, 1));
-    // one row per covered component (gaps, compression and pressure differ per component); the item cells on its
-    // first row, the item number repeated in grey on the others so a page break never loses it
+    // one row per covered component (gaps, compression and pressure differ per component); every row carries the
+    // full Item / Location / 材料 / T, so each row reads on its own (and a page break loses nothing)
     const cRows = [];
     comp.forEach(r => {
       const comps = r.cc.comps.length ? r.cc.comps : [null];
-      comps.forEach((c, i) => {
+      comps.forEach(c => {
         const g = c ? c.gap : r.cc.gap;
         const min = c ? c.cMin : r.cc.min, max = c ? c.cMax : r.cc.max;
         const cst = c ? c.cStatus : r.cc.cStatus;
@@ -283,10 +284,10 @@
         } else if (c) pr = '—' + (c.pNote ? `<span style="color:${INK3}">（${esc(c.pNote)}）</span>` : '');
         else pr = r.cc.pressure ? (r.cc.pressure.beyond ? '> ' : '') + util.fmt(r.cc.pressure.psi, 1) : '—';
         const pj = !c ? muted('未判定') : c.exempt ? td('不檢核', `text-align:center;color:${INK3};background:#F1F3F6`) : c.status === 'na' ? muted('未判定') : judge(c.status);
-        cRows.push('<tr>' + (i ? td(esc(r.it.item_no), `text-align:center;color:${INK3}`) + td('') : td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : ''))) +
+        cRows.push('<tr>' + td(esc(r.it.item_no), 'font-weight:700;text-align:center') + td(esc(r.loc ? r.loc.name : '')) +
           td(name, 'font-family:' + MONO) +
-          (i ? td('') + td('') : td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right')) +
-          td([g.min, g.nom, g.max].map(f).join(' / ') + (r.cc.gap.source === 'stack' ? ' ⧉' : ''), 'text-align:center') +
+          td(esc([r.eff.vendor, r.eff.model].filter(Boolean).join(' '))) + td(f(r.it.size.t), 'text-align:right') +
+          td([g.min, g.nom, g.max].map(f).join(' / '), 'text-align:center') +
           td(`<span style="${low ? 'color:#C0392B;font-weight:700' : ''}">${f1(min)}</span> ~ ${f1(max)}`, 'text-align:center') +
           td(pr, 'text-align:right') +
           (cst === 'na' ? muted('—') : judge(cst)) + pj + '</tr>');
@@ -294,7 +295,7 @@
     });
     const blocks = [
       want.usage ? { title: '材料用量彙總', sub: "每台用量（不含停用 Item）：片狀 = Σ Q'ty（pcs）；點膠類 = Σ Q'ty × 點膠量（g / cc）", widths: uW, head: uHead, rows: uRows, empty: '尚無 Item。' } : null,
-      want.compression ? { title: '壓縮率與壓力檢核', sub: '每顆覆蓋元件一列。C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；⧉ = 設計間距 ± 公差 + 元件高度公差。壓縮判定：C min 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足）。壓力 = 材料壓力–壓縮曲線在 C max 的值 / 元件規格（耐壓）（比例）；壓力判定：> 100% → Fail、≥ ' + (db.settings.pressure_warn_pct || 80) + '% → Warning；受壓類型 E-PAD / QFN / LGA / 引腳 → 不檢核（壓力只顯示）；未判定 = 缺規格或材料曲線', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' } : null,
+      want.compression ? { title: '壓縮率與壓力檢核', sub: '每顆覆蓋元件一列。C = (T − g) / T × 100%；C min 用最大間隙、C max 用最小間隙；間隙 = 設計間距 ± 公差 + 元件高度公差（或手動輸入）。壓縮判定：C min 低於最小壓縮率（預設 10%）→ Fail（接觸可能不足）。壓力 = 材料壓力–壓縮曲線在 C max 的值 / 元件規格（耐壓）（比例）；壓力判定：> 100% → Fail、≥ ' + (db.settings.pressure_warn_pct || 80) + '% → Warning；受壓類型 E-PAD / QFN / LGA / 引腳 → 不檢核（壓力只顯示）；未判定 = 缺規格或材料曲線', widths: cW, head: cHead, rows: cRows, empty: '尚無填寫設計間隙的 Item。' } : null,
     ].filter(Boolean);
     const pages = [];
     let cur = '', room = BODY_H;
