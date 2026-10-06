@@ -317,10 +317,10 @@ mark { background: #FFE58A; color: inherit; padding: 0 1px; border-radius: 2px; 
 /* ━━━ Overview ━━━ */
 .ov-grid { display: grid; grid-template-columns: minmax(420px, 1.05fr) minmax(380px, 1fr); gap: 22px; align-items: start; }
 @media (max-width: 1180px) { .ov-grid { grid-template-columns: 1fr; } }
-.readouts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--surface); }
 .readout { padding: 12px 14px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-width: 0; }
-.readout:nth-child(4n) { border-right: none; }
-.readout:nth-last-child(-n+4) { border-bottom: none; }
+.readout:nth-child(3n) { border-right: none; }
+.readout:nth-last-child(-n+3) { border-bottom: none; }
 .readout .k { font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .readout .v { font-family: var(--font-heading); font-size: 22px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .readout .v small { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 3px; }

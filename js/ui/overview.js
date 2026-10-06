@@ -108,7 +108,10 @@
                 d=${s.cost_missing ? s.cost_missing + ' 項未填單價' : '全部已填單價'} info="每台成本 = Σ(Q'ty × 單價)。未填單價的 Item 不計入。" />
               <${Readout} k="單一來源" v=${s.single} tone=${s.single ? 'warn' : 'ok'} d="沒有任何第二來源" />
               <${Readout} k="第二來源未承認" v=${s.unverified} tone=${s.unverified ? 'warn' : 'ok'} d="有列出但尚未承認" />
-              <${Readout} k="壓縮 / 壓力異常" v=${s.comp_issues} tone=${s.comp_issues ? 'warn' : 'ok'} d="壓縮不足、未接觸或超過元件耐壓" />
+              <${Readout} k="壓縮 / 壓力 Fail" v=${s.comp_fail} unit="Item" tone=${s.comp_fail ? 'err' : 'ok'} d="壓縮不足、未接觸或壓力超過元件耐壓"
+                info="間隙與壓力檢核判定 Fail 的 Item 數（一個 Item 只算一次）。" />
+              <${Readout} k="壓縮 / 壓力 Warning" v=${s.comp_warn} unit="Item" tone=${s.comp_warn ? 'warn' : 'ok'} d=${'壓力達耐壓 ' + (st.db.settings.pressure_warn_pct || 80) + '% 以上或超出材料曲線'}
+                info="間隙與壓力檢核判定 Warning 的 Item 數（沒有 Fail，但需要注意）。" />
               <${Readout} k="位置圖放置" v=${p.views.length ? s.placed + '/' + s.qty_total : '—'} unit=${p.views.length ? 'pcs' : ''}
                 tone=${p.views.length && s.placed !== s.qty_total ? 'warn' : null} d=${p.views.length ? p.views.length + ' 張位置圖' : '尚未建立位置圖'} />
             </div>

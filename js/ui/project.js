@@ -120,7 +120,7 @@
       overview: stats.errors ? { n: stats.errors, cls: 'err' } : stats.warns ? { n: stats.warns, cls: 'warn' } : null,
       bom: { n: p.items.length },
       map: { n: p.views.length },
-      analysis: stats.comp_issues ? { n: stats.comp_issues, cls: 'warn' } : null,
+      analysis: stats.comp_fail ? { n: stats.comp_fail, cls: 'err' } : stats.comp_warn ? { n: stats.comp_warn, cls: 'warn' } : null,
       log: { n: p.changelog.length },
     };
     const more = e => TIM.ui.openMenu(e, [

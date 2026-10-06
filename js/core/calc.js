@@ -483,11 +483,15 @@
     const items = (project.items || []).filter(it => it.status !== 'obsolete');
     const placed = placedCounts(project);
     const mats = new Set();
-    let pcs = 0, single = 0, unverified = 0, placedPcs = 0, qtyWithMap = 0;
+    let pcs = 0, single = 0, unverified = 0, placedPcs = 0, qtyWithMap = 0, compFail = 0, compWarn = 0;
     const costByCur = {};
     let costMissing = 0;
     items.forEach(it => {
-      const eff = effective(it, materialOf(db, it));
+      const mat = materialOf(db, it);
+      const eff = effective(it, mat);
+      // compression / pressure judgement per Item: Fail (worst = error) and Warning counted apart
+      const cs = compressionCheck(it, mat, db && db.settings).status;
+      if (cs === 'error') compFail++; else if (cs === 'warn') compWarn++;
       if (eff.vendor || eff.model) mats.add((eff.vendor + '|' + eff.model).toUpperCase());
       if (fin(it.qty)) pcs += it.qty;
       const r = sourceRisk(it);
@@ -508,7 +512,8 @@
       errors: checks.filter(c => c.level === 'error').length,
       warns: checks.filter(c => c.level === 'warn').length,
       infos: checks.filter(c => c.level === 'info').length,
-      comp_issues: checks.filter(c => c.code === 'comp_warn' || c.code === 'comp_error').length,
+      comp_fail: compFail, comp_warn: compWarn,   // Items whose compression / pressure check is Fail / Warning
+      comp_issues: compFail + compWarn,
     };
   }
 

@@ -178,6 +178,31 @@ module.exports = [
       });
       assert.equal(titleH.text, '壓縮率與壓力檢核');
       assert.ok(titleH.h < 22, 'one line: ' + titleH.h + ' px');
+      // the check table: every row carries Item / Location / 材料 / T (no blank or grey continuation rows), no ⧉ mark
+      const rows = await page.evaluate(() => {
+        const p = Object.values(TIM.store.db.projects)[0];
+        const d = document.createElement('div');
+        d.innerHTML = TIM.pdfExport.internals.checkPages(p, TIM.store.db, { usage: false, compression: true }).map(x => x.html).join('');
+        return { html: d.innerHTML, rows: Array.from(d.querySelectorAll('tbody tr')).map(tr => Array.from(tr.children).slice(0, 6).map(td => ({ t: td.textContent.trim(), grey: /color:\s*(#6B7A90|rgb\(107, 122, 144\))/i.test(td.getAttribute('style') || '') }))) };
+      });
+      assert.ok(rows.rows.length > 9, 'one row per component');
+      rows.rows.forEach(r => {
+        assert.ok(r[0].t && r[1].t && r[3].t && r[4].t, 'Item / Location / 材料 / T filled: ' + r.map(c => c.t).join(' | '));
+        assert.ok(!r[0].grey, 'Item number not grey');
+      });
+      const a5 = rows.rows.filter(r => r[0].t === 'A5');
+      assert.ok(a5.length >= 2 && new Set(a5.map(r => r[1].t + '/' + r[3].t)).size === 1, 'repeated rows show the same Location / 材料');
+      assert.ok(!/⧉/.test(rows.html), 'no ⧉ mark in the gap column');
+      // overview: Fail and Warning counted apart (by Item), same numbers as the 間隙與壓力檢核 tab
+      await page.click('.tab:has-text("總覽")');
+      await page.waitForSelector('.readouts');
+      const tiles = await page.locator('.readout').evaluateAll(els => els.map(e => [e.querySelector('.k').textContent.trim(), e.querySelector('.v').textContent.trim(), e.className]));
+      const fail = tiles.find(t => /^壓縮 \/ 壓力 Fail/.test(t[0])), warn = tiles.find(t => /^壓縮 \/ 壓力 Warning/.test(t[0]));
+      assert.ok(fail && warn && !tiles.some(t => /異常/.test(t[0])), tiles.map(t => t[0]).join(', '));
+      const st = await page.evaluate(() => { const p = Object.values(TIM.store.db.projects)[0]; const s = TIM.calc.projectStats(p, TIM.store.db); return [s.comp_fail, s.comp_warn]; });
+      assert.deepEqual([fail[1], warn[1]], [st[0] + 'Item', st[1] + 'Item']);
+      assert.ok(st[0] > 0 && /is-err/.test(fail[2]), 'Fail count in red');
+      assert.equal(tiles.length, 9);
     },
   },
 ];
