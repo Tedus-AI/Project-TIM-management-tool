@@ -143,6 +143,9 @@
 
     async forget() { handle = null; dirHandle = null; await idbDel(HANDLE_KEY); await idbDel(DIR_KEY); },
 
+    /** The remembered database folder + file name ({ dir, name }) or null — SharePoint mode writes its local copy there by default. */
+    async remembered() { const rec = await idbGet(DIR_KEY); return rec && rec.dir && rec.name ? { dir: rec.dir, name: rec.name } : null; },
+
     /** Directory hint for other pickers (start next to the database). */
     startIn() { return dirHandle || handle || undefined; },
 

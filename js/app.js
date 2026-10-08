@@ -226,7 +226,7 @@
     if (sync.__disableForTest) return;
     if (backend.kind === 'sharepoint') { sync.onSharePointOpened(); backend.members().catch(() => { /* list optional */ }); return; }
     if (backend.kind !== 'file') return;
-    sync.push.start(backend.startIn ? backend.startIn() : null, backend.location ? backend.location() : backend.label(), db);
+    sync.push.start(backend.startIn ? backend.startIn() : null, backend.location ? backend.location() : backend.label(), db, backend.label());
     remindedAt = 0;
     setTimeout(() => remindLocal(), 0);
   }
@@ -267,7 +267,8 @@
       wasFailing = failing;
     }
     if (sync.mirror.leftovers) { toast('已把本機副本中 ' + sync.mirror.leftovers + ' 筆尚未同步的修改合併到 SharePoint', 'ok', { timeout: 6000 }); sync.mirror.leftovers = 0; }
-    if (sync.mirror.kept) { toast('本機副本在其他地方被修改過，已另存為 ' + sync.mirror.kept + '，沒有覆蓋', 'info', { timeout: 8000 }); sync.mirror.kept = ''; }
+    if (sync.mirror.adopted && sync.mirror.at) { toast('SharePoint 的最新內容已同步寫入本機資料庫 ' + sync.mirror.adopted + '（之後每次存檔都會更新）', 'ok', { timeout: 8000 }); sync.mirror.adopted = ''; }
+    if (sync.mirror.kept) { toast('本機的 ' + sync.mirror.file + ' 和工具上次寫入的不同（可能在其他地方改過）：原本的內容已另存為 ' + sync.mirror.kept + '，再寫入最新內容', 'info', { timeout: 8000 }); sync.mirror.kept = ''; }
     TIM.store.emit();
   });
 
@@ -539,6 +540,24 @@
       <${Icon} name="user" size=${13} /><span>${acc ? (acc.email || acc.name) + '（需重新登入）' : '未登入 Microsoft'}</span></button>`;
   }
 
+  /** SharePoint mode: the local copy (where, up to date?). Needs permission / failed → a click grants / retries. */
+  function CopyChip() {
+    const st = TIM.store, mr = sync.mirror;
+    if (!st.backend || st.backend.kind !== 'sharepoint' || !mr.dir) return null;
+    const where = '本機副本：' + mr.name() + (mr.auto ? '（上次開啟的本機資料庫）' : '');
+    if (mr.state === 'needs-permission') {
+      return html`<button class="copy-chip warn" title=${where + '\n需要授權才能寫入：點擊授權'} onClick=${() => mr.grant()}>
+        <${Icon} name="folder" size=${13} /><span>本機副本：點擊授權</span></button>`;
+    }
+    if (mr.state === 'error') {
+      return html`<button class="copy-chip err" title=${where + '\n沒有寫入：' + mr.error + '\n點擊重試'} onClick=${() => mr.write()}>
+        <${Icon} name="warn" size=${13} /><span>本機副本未寫入</span></button>`;
+    }
+    const t = mr.state === 'writing' ? '寫入中…' : mr.at ? util.fmtDateTime(mr.at).slice(11) : '';
+    return html`<div class="copy-chip" title=${where + (mr.at ? '\n最近寫入 ' + util.fmtDateTime(mr.at) : '') + (mr.filesCopied ? '\n已複製 ' + mr.filesCopied + ' 份規格書' : '')}>
+      <${Icon} name="folder" size=${13} /><span>本機副本 ${t}</span></div>`;
+  }
+
   function Toolbar(props) {
     const st = TIM.store;
     const r = props.route;
@@ -557,6 +576,7 @@
       <div class="toolbar-spacer"></div>
       <div class="toolbar-right">
         <${SaveState} />
+        <${CopyChip} />
         <${AccountChip} />
         <button class="db-chip" title=${'目前資料庫：' + (st.backend && st.backend.location ? st.backend.location() : st.backend ? st.backend.label() : '') + '\n點擊回到資料庫選擇畫面（會先存檔）'} onClick=${() => app.disconnect()}>
           <${Icon} name=${st.backend && st.backend.kind === 'sharepoint' ? 'cloud' : 'db'} size=${13} /><span>${st.backend ? st.backend.label() : ''}</span>
@@ -613,8 +633,10 @@
     }
     const mr = sync.mirror;
     if (st.backend && st.backend.kind === 'sharepoint' && mr.state === 'needs-permission') {
-      out.push(html`<div class="banner info"><${Icon} name="folder" /> 本機副本資料夾「${mr.name()}」需要重新授權，才能繼續寫入最新內容。
-        <button class="btn btn-secondary btn-sm" onClick=${() => mr.grant()}>授權</button></div>`);
+      out.push(html`<div class="banner warn"><${Icon} name="folder" /><div style="flex:1">${mr.auto ? '本機資料庫' : '本機副本'}「<b>${mr.name()}</b>」需要授權，才能同步寫入 SharePoint 的最新內容（重新開啟瀏覽器後會被收回）。
+          <div class="sync-state">按「授權」後，瀏覽器詢問時選「每次造訪時都允許」，之後就不用再按。</div></div>
+        <button class="btn btn-primary btn-sm" onClick=${() => mr.grant()}>授權</button>
+        <button class="btn btn-ghost btn-sm" title="不再寫入本機副本（可在設定重新指定資料夾）" onClick=${() => mr.disable()}>停用本機副本</button></div>`);
     } else if (st.backend && st.backend.kind === 'sharepoint' && mr.state === 'error') {
       out.push(html`<div class="banner err"><${Icon} name="warn" /> 本機副本沒有寫入：${mr.error}
         <button class="btn btn-secondary btn-sm" onClick=${() => mr.write()}>重試</button></div>`);
