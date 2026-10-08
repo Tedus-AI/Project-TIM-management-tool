@@ -85,6 +85,34 @@ module.exports = [
     },
   },
   {
+    name: 'start page: a folder holding only a backup → chooser; the backup is copied to tim_db.json and that is opened (the backup stays as it is)',
+    async run(env) {
+      const { page, base } = env;
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      const bk = tinyDb('From backup');
+      await fakeFolder(page, { 'tim_db_backup_2026-10-01_1830.json': bk });
+      await pickFolder(page);
+      await page.waitForSelector('.modal:has-text("選擇資料庫")');
+      const text = await page.locator('.modal').innerText();
+      assert.match(text, /沒有 tim_db\.json，有 1 個 TIM 資料庫/);
+      assert.match(text, /選擇備份會先複製成 tim_db\.json 再開啟/);
+      assert.ok(await page.locator('.db-pick-row:has-text("tim_db_backup_2026-10-01_1830.json") .tag:has-text("備份")').isVisible());
+      await page.click('.db-pick-row');
+      await page.waitForSelector('.proj-name:has-text("From backup")');
+      await page.waitForSelector('.toast:has-text("已用備份 tim_db_backup_2026-10-01_1830.json 建立 TIM-share / tim_db.json 並開啟")');
+      assert.deepEqual(await files(page), ['tim_db.json', 'tim_db_backup_2026-10-01_1830.json']);
+      assert.equal(await fileText(page, 'tim_db_backup_2026-10-01_1830.json'), bk, 'the backup is not changed');
+      assert.equal(await fileText(page, 'tim_db.json'), bk);
+      assert.match(await page.locator('.db-chip').innerText(), /tim_db\.json/);
+      // edits go to tim_db.json only
+      await page.evaluate(() => TIM.actions.updateProject('prj_x', 'customer', 'edited'));
+      await page.waitForFunction(() => TIM.store.status.state === 'saved' && !TIM.store.hasUnsaved());
+      assert.match(await fileText(page, 'tim_db.json'), /edited/);
+      assert.equal(await fileText(page, 'tim_db_backup_2026-10-01_1830.json'), bk);
+    },
+  },
+  {
     name: 'start page: several databases → chooser (non-TIM JSON ignored); cancel creates nothing',
     async run(env) {
       const { page, base } = env;

@@ -21,15 +21,16 @@
   function ChooseDbModal(props) {
     return html`<${Modal} title="選擇資料庫" onClose=${() => props.close(null)}
       footer=${html`<button class="btn btn-ghost" onClick=${() => props.close(null)}>取消</button>`}>
-      <p style="margin-bottom:10px">資料夾「<b>${props.folder}</b>」裡有 ${props.list.length} 個 TIM 資料庫，要開啟哪一個？</p>
+      <p style="margin-bottom:10px">資料夾「<b>${props.folder}</b>」裡${props.list.some(c => c.main) ? '' : '沒有 tim_db.json，'}有 ${props.list.length} 個 TIM 資料庫，要開啟哪一個？</p>
       <div class="db-pick">
         ${props.list.map(c => html`<button class="db-pick-row" key=${c.name} onClick=${() => props.close(c)}>
           <${Icon} name="db" />
           <span class="mono name">${c.name}</span>
-          ${c.backup ? html`<span class="tag tag-mute">每日備份</span>` : null}
+          ${c.backup ? html`<span class="tag tag-mute">備份</span>` : null}
           <span class="muted meta">${util.fmtDateTime(new Date(c.modified).toISOString())} · ${util.fmtBytes(c.size)}</span>
         </button>`)}
       </div>
+      ${props.list.some(c => c.backup) ? html`<p class="muted" style="margin-top:10px;font-size:12px">選擇備份會先複製成 tim_db.json 再開啟，備份檔本身不會被修改。</p>` : null}
     </${Modal}>`;
   }
 

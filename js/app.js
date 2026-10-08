@@ -90,7 +90,9 @@
 
   /**
    * Pick the database folder: an existing database opens directly (several → the user picks
-   * one); an empty folder asks whether to create tim_db.json and then opens it.
+   * one); an empty folder asks whether to create tim_db.json and then opens it. A backup is
+   * never edited in place: choosing one copies it to tim_db.json (like SharePoint, the database
+   * is always tim_db.json; backups live in Backup/).
    */
   app.openFolder = async function () {
     const fb = TIM.fileBackend;
@@ -101,13 +103,17 @@
     }
     let found;
     try { found = await fb.scanFolder(r.dir); } catch (e) { return fail('無法讀取資料夾：' + (e.message || e)); }
-    let pick = found.find(c => c.main) || (found.length === 1 ? found[0] : null);
+    let pick = found.find(c => c.main) || (found.length === 1 && !found[0].backup ? found[0] : null);
     if (!pick && found.length) {
       pick = await TIM.ui.chooseDatabase(r.dir.name, found);
       if (!pick) return false;
     }
-    let isNew = false;
-    if (pick) fb.useFolderFile(r.dir, pick.handle);
+    let isNew = false, restored = '';
+    if (pick && pick.backup) {
+      const c = await fb.restoreFromBackup(r.dir, pick.handle);
+      if (!c.ok) return fail('無法從備份建立 tim_db.json：' + (c.reason === 'exists' ? '資料夾裡已經有 tim_db.json' : c.error || c.reason));
+      restored = pick.name;
+    } else if (pick) fb.useFolderFile(r.dir, pick.handle);
     else {
       if (!await TIM.ui.askCreateDatabase(r.dir.name)) return false;
       const c = await fb.createInFolder(r.dir);
@@ -115,7 +121,10 @@
       isNew = true;
     }
     const ok = await app.attach(fb);
-    if (ok) { await fb.remember(); setDbMode('folder'); toast((isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok'); }
+    if (ok) {
+      await fb.remember(); setDbMode('folder');
+      toast(restored ? '已用備份 ' + restored + ' 建立 ' + fb.location() + ' 並開啟（備份檔不變）' : (isNew ? '已建立 ' : '已開啟 ') + fb.location(), 'ok', restored ? { timeout: 7000 } : undefined);
+    }
     return ok;
   };
 
@@ -324,7 +333,7 @@
   }
   app.downloadBackup = async function () {
     const text = await latestText();
-    TIM.ui.downloadBlob(new Blob([text], { type: 'application/json' }), 'tim_db_backup_' + util.todayStr() + '.json');
+    TIM.ui.downloadBlob(new Blob([text], { type: 'application/json' }), util.backupFileName(new Date()));
   };
   app.pickBackupDir = async function () {
     const r = await TIM.backup.pick(TIM.store.backend && TIM.store.backend.startIn ? TIM.store.backend.startIn() : undefined);
@@ -335,23 +344,25 @@
       TIM.store.emit();
     } else if (r.reason !== 'cancelled') toast('無法設定備份資料夾：' + (r.error || r.reason), 'err');
   };
+  /** Backups sit next to the database, the same way on SharePoint and in a local folder (backup.js). */
   async function initBackup() {
     const b = TIM.store.backend;
     if (b && b.kind === 'sharepoint') {
-      // shared database → backups go next to it (Database/Backup); no folder to pick
-      TIM.backup.useRemote({ name: b.backupName(), write: text => b.writeBackup(text) });
+      // Database/Backup on SharePoint, and Backup/ in the local copy folder once it is writable
+      TIM.backup.use([{ name: () => b.backupName(), ready: () => true, write: (text, file) => b.writeBackup(text, file) }, sync.mirror.backupTarget()]);
       app.backupState = 'ready';
-      TIM.backup.run(latestText, true).then(() => TIM.store.emit());
-      TIM.backup.schedule(latestText, () => TIM.store.emit());
-      return;
+    } else if (b && b.folder && b.folder()) {
+      TIM.backup.use([TIM.backup.folderTarget(() => b.folder())]);      // <database folder>/Backup, nothing to pick
+      app.backupState = 'ready';
+    } else {
+      // a database file picked directly (older versions): the backup folder the user picked
+      TIM.backup.use([TIM.backup.pickedTarget()]);
+      const r = TIM.backup.supported() ? await TIM.backup.tryRestore() : { ok: false };
+      app.backupState = r.ok ? 'ready' : r.needsPermission ? 'needs-permission' : 'none';
     }
-    TIM.backup.useRemote(null);
-    if (!TIM.backup.supported()) return;
-    const r = await TIM.backup.tryRestore();
-    if (r.ok) { app.backupState = 'ready'; TIM.backup.run(latestText, true); }
-    else if (r.needsPermission) app.backupState = 'needs-permission';
-    else app.backupState = 'none';
-    TIM.backup.schedule(latestText, res => { if (res && res.needsPermission) { app.backupState = 'needs-permission'; TIM.store.emit(); } });
+    TIM.backup.schedule(latestText, res => { if (res && res.needsPermission) app.backupState = 'needs-permission'; TIM.store.emit(); });
+    const done = () => TIM.store.emit();
+    TIM.backup.run(latestText, true).then(done, done);
     TIM.store.emit();
   }
 

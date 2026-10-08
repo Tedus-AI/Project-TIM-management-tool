@@ -8,7 +8,7 @@ const { DB, fakeDrive, setup, allowHttp, saved, openSp } = require('./fake-share
 
 module.exports = [
   {
-    name: 'SharePoint: sign in → create the database → autosave with If-Match → daily backup → silent restore after reload',
+    name: 'SharePoint: sign in → create the database → autosave with If-Match → backup (date + time) → silent restore after reload',
     async run(env) {
       const { page, base } = env;
       const g = fakeDrive();
@@ -34,11 +34,11 @@ module.exports = [
       assert.equal(p.updated_by, 'Tester A', 'change log user = Microsoft account');
       const puts = g.log.filter(l => l.method === 'PUT' && /\/items\//.test(l.p));
       assert.ok(puts.length >= 2 && puts.every(l => l.ifMatch), 'every database write carries If-Match');
-      // daily backup next to the database
+      // backup next to the database
       await page.waitForFunction(() => TIM.backup.lastAt() > 0);
       const backups = Array.from(g.files.keys()).filter(k => k.startsWith('TIM_Manager/Database/Backup/'));
       assert.equal(backups.length, 1);
-      assert.match(backups[0], /tim_db_backup_\d{4}-\d{2}-\d{2}\.json$/);
+      assert.match(backups[0], /\/tim_db_backup_\d{4}-\d{2}-\d{2}_\d{4}\.json$/);
       // reload: signed in already → opens straight away, no popup
       await page.reload();
       await page.waitForSelector('.crumb:has-text("SP-Alpha")');

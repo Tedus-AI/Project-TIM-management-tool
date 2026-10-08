@@ -90,7 +90,7 @@ module.exports = [
     },
   },
   {
-    name: 'SharePoint mode: the local database last opened is the default local copy — permission asked once, same file name, missing datasheets copied; can be turned off',
+    name: 'SharePoint mode: the local copy goes to tim_db.json in the folder of the local database last opened (even one opened from a backup file), with Backup/ and Datasheets/ like SharePoint; permission asked once; can be turned off',
     async run(env) {
       const { page, base } = env;
       const g = fakeDrive();
@@ -113,65 +113,74 @@ module.exports = [
           try { let d = await window.__opfs(); const parts = path.split('/'); const n = parts.pop(); for (const s of parts) d = await d.getDirectoryHandle(s);
             return await (await (await d.getFileHandle(n)).getFile()).text(); } catch (e) { return null; }
         };
-        window.__localNames = async () => { const out = []; for await (const [n] of (await window.__opfs()).entries()) out.push(n); return out.sort(); };
+        window.__localNames = async sub => {
+          const out = []; let d = await window.__opfs();
+          if (sub) { try { d = await d.getDirectoryHandle(sub); } catch (e) { return []; } }
+          for await (const [n] of d.entries()) out.push(n); return out.sort();
+        };
       });
       await page.goto(base);
       await page.waitForSelector('.gate');
       await page.evaluate(SIGNED_IN);
-      // this browser last opened the local database TIM-local / tim_db_rru.json (an older copy, edited locally back then)
+      // as on the user's PC: the folder once held only a daily backup, which was opened as the local database
+      const old = JSON.stringify(seed({ rev: 2, updated_at: '2026-09-01T00:00:00.000Z' }));
       await page.evaluate(async old => {
         const dir = await window.__opfs();
-        const fh = await dir.getFileHandle('tim_db_rru.json', { create: true });
+        const fh = await dir.getFileHandle('tim_db_backup_2026-10-01.json', { create: true });
         const w = await fh.createWritable(); await w.write(old); await w.close();
         TIM.fileBackend.useFolderFile(dir, fh);
         await TIM.fileBackend.remember();
-        TIM.sync.__disableForTest = false;
         window.__perm = 'prompt';                  // browser restarted: permission not granted yet
-      }, JSON.stringify(seed({ rev: 2, updated_at: '2026-09-01T00:00:00.000Z' })));
+      }, old);
       await page.click('button:has-text("SharePoint 共用資料庫")');
       await page.waitForSelector('.proj-name:has-text("Q")');
-      // nothing picked in settings → the local database is the copy; it asks for permission (banner + toolbar)
+      // nothing picked in settings → that folder gets the copy; it asks for permission (banner + toolbar)
       const banner = page.locator('.banner:has-text("需要授權")');
       await banner.waitFor();
-      assert.match(await banner.innerText(), /本機資料庫「TIM-local \/ tim_db_rru\.json」需要授權/);
+      assert.match(await banner.innerText(), /本機資料庫「TIM-local \/ tim_db\.json」需要授權/);
       assert.match(await banner.innerText(), /每次造訪時都允許/);
       assert.match(await page.locator('.toolbar .copy-chip').innerText(), /本機副本：點擊授權/);
-      assert.equal(await page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => JSON.parse(t).rev), 2, 'nothing written before permission');
+      assert.deepEqual(await page.evaluate(() => window.__localNames()), ['tim_db_backup_2026-10-01.json'], 'nothing written before permission');
       await banner.locator('button:has-text("授權")').first().click();
       await page.waitForFunction(() => TIM.sync.mirror.at);
       assert.equal(await page.evaluate(() => window.__asked), 1);
-      assert.equal(await page.evaluate(() => window.__readLocal('tim_db_rru.json')), g.text(DB), 'the local database = SharePoint');
-      await page.waitForSelector('.toast:has-text("已同步寫入本機資料庫 TIM-local / tim_db_rru.json")');
-      await page.waitForSelector('.toast:has-text("已另存為")');
-      const names = await page.evaluate(() => window.__localNames());
-      assert.ok(!names.includes('tim_db.json'), 'no second database file: ' + names.join(', '));
-      const kept = names.filter(n => /^tim_db_local_\d{8}-\d{6}\.json$/.test(n));
-      assert.equal(kept.length, 1, 'the old local version is kept aside: ' + names.join(', '));
-      assert.equal(JSON.parse(await page.evaluate(n => window.__readLocal(n), kept[0])).rev, 2);
+      assert.equal(await page.evaluate(() => window.__readLocal('tim_db.json')), g.text(DB), 'tim_db.json = SharePoint');
+      assert.equal(await page.evaluate(() => window.__readLocal('tim_db_backup_2026-10-01.json')), old, 'the old file is left as it was');
+      await page.waitForSelector('.toast:has-text("已同步寫入本機資料庫 TIM-local / tim_db.json")');
+      // backup next to it, named with date + time, same content
+      await until(() => page.evaluate(() => window.__localNames('Backup')).then(n => n.length === 1), 'local backup');
+      const [bk] = await page.evaluate(() => window.__localNames('Backup'));
+      assert.match(bk, /^tim_db_backup_\d{4}-\d{2}-\d{2}_\d{4}\.json$/);
+      assert.equal(await page.evaluate(n => window.__readLocal('Backup/' + n), bk), g.text(DB));
       // datasheets the folder lacks are copied (one missing on SharePoint is skipped)
       await until(() => page.evaluate(() => window.__readLocal('Datasheets/mat_1/spec.pdf')).then(t => t === '%PDF-1.4 demo datasheet'), 'datasheet copied');
       await page.waitForFunction(() => !TIM.sync.mirror.filesBusy);
       assert.equal(await page.evaluate(() => window.__readLocal('Datasheets/mat_2/gone.pdf')), null);
+      assert.deepEqual(await page.evaluate(() => window.__localNames()), ['Backup', 'Datasheets', 'tim_db.json', 'tim_db_backup_2026-10-01.json']);
       await page.waitForSelector('.toolbar .copy-chip:has-text("本機副本 ")');
       assert.equal(await page.locator('.banner:has-text("需要授權")').count(), 0);
-      assert.match(await page.locator('.toolbar .copy-chip').getAttribute('title'), /TIM-local \/ tim_db_rru\.json（上次開啟的本機資料庫）[\s\S]*已複製 1 份規格書/);
+      assert.match(await page.locator('.toolbar .copy-chip').getAttribute('title'), /TIM-local \/ tim_db\.json（上次開啟的本機資料庫）[\s\S]*已複製 1 份規格書/);
       // every save follows
       await page.evaluate(() => TIM.actions.updateProject('prj_p', 'customer', 'edited on SharePoint'));
       await saved(page);
-      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /edited on SharePoint/.test(t)), 'copy after our save');
-      // settings show where it goes
+      await until(() => page.evaluate(() => window.__readLocal('tim_db.json')).then(t => /edited on SharePoint/.test(t)), 'copy after our save');
+      // settings show where it goes, and both backup destinations
       await page.click('.toolbar button[title="設定"]');
-      assert.match(await page.locator('.modal dl.kv').innerText(), /本機副本\s+TIM-local \/ tim_db_rru\.json （上次開啟的本機資料庫） · 最近寫入/);
+      const kv = await page.locator('.modal dl.kv').innerText();
+      assert.match(kv, /本機副本\s+TIM-local \/ tim_db\.json （上次開啟的本機資料庫） · 最近寫入/);
+      assert.match(kv, /Thermal-Spec-DB \/ TIM_Manager \/ Database \/ Backup · 最近：tim_db_backup_\d{4}-\d{2}-\d{2}_\d{4}\.json/);
+      assert.match(kv, /TIM-local \/ Backup · 最近：tim_db_backup_\d{4}-\d{2}-\d{2}_\d{4}\.json/);
       await page.keyboard.press('Escape');
-      // reload (permission kept; SharePoint opens by itself): no new prompt, no new notice, still the copy
+      // reload (permission kept; SharePoint opens by itself): no new prompt, no new notice, nothing kept aside
       await page.reload();
       await page.waitForSelector('.proj-name:has-text("Q")');
       await page.waitForFunction(() => TIM.sync.mirror.state === 'ready');
       assert.equal(await page.evaluate(() => TIM.sync.mirror.adopted), '');
       await page.evaluate(() => TIM.actions.updateProject('prj_q', 'customer', 'after reload'));
       await saved(page);
-      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /after reload/.test(t)), 'copy after reload');
-      assert.equal((await page.evaluate(() => window.__localNames())).filter(n => /^tim_db_local_/.test(n)).length, 1, 'nothing more kept aside');
+      await until(() => page.evaluate(() => window.__readLocal('tim_db.json')).then(t => /after reload/.test(t)), 'copy after reload');
+      assert.equal((await page.evaluate(() => window.__localNames())).filter(n => /^tim_db_local_/.test(n)).length, 0, 'nothing kept aside');
+      assert.equal((await page.evaluate(() => window.__localNames('Backup'))).length, 1, 'still one backup today');
       // turned off → stays off (also after a reload) until a folder is picked again
       await page.click('.toolbar button[title="設定"]');
       await page.click('.modal button:has-text("停用本機副本")');
@@ -182,17 +191,67 @@ module.exports = [
       await page.evaluate(() => TIM.actions.updateProject('prj_q', 'customer', 'not copied'));
       await saved(page);
       await page.waitForTimeout(300);
-      assert.doesNotMatch(await page.evaluate(() => window.__readLocal('tim_db_rru.json')), /not copied/);
+      assert.doesNotMatch(await page.evaluate(() => window.__readLocal('tim_db.json')), /not copied/);
       await page.reload();
       await page.waitForSelector('.proj-name:has-text("Q")');
       await page.waitForTimeout(300);
       assert.equal(await page.evaluate(() => TIM.sync.mirror.state), 'none');
-      // picking the local database folder again → its file, not a new tim_db.json
+      // picking the folder again → tim_db.json there
       await page.evaluate(() => { window.showDirectoryPicker = () => window.__opfs(); });
       await page.click('.toolbar button[title="設定"]');
       await page.click('.modal button:has-text("設定本機副本資料夾")');
-      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /not copied/.test(t)), 'copy after picking the folder again');
-      assert.ok(!(await page.evaluate(() => window.__localNames())).includes('tim_db.json'));
+      await until(() => page.evaluate(() => window.__readLocal('tim_db.json')).then(t => /not copied/.test(t)), 'copy after picking the folder again');
+      await page.keyboard.press('Escape');
+      // opening that folder locally again uses tim_db.json, not the backup file it was first opened from
+      const r = await page.evaluate(() => TIM.fileBackend.tryRestore());
+      assert.deepEqual([r.ok, r.name], [true, 'TIM-local / tim_db.json']);
+      assert.equal((await page.evaluate(() => TIM.fileBackend.remembered())).name, 'tim_db.json');
+      allowHttp(env, [404]);
+    },
+  },
+  {
+    name: 'backups: SharePoint Database/Backup and the local copy\'s Backup keep only today\'s latest and the previous day\'s last (date + time in the name)',
+    async run(env) {
+      const { page, base } = env;
+      const g = fakeDrive();
+      g.put(DB, Buffer.from(JSON.stringify(seed())));
+      const p2 = n => (n < 10 ? '0' : '') + n;
+      const day = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+      const today = day(new Date()), yesterday = day(new Date(Date.now() - 86400000));
+      const BK = 'TIM_Manager/Database/Backup/';
+      const seeded = ['tim_db_backup_2026-09-01.json', 'tim_db_backup_2026-09-02.json', 'tim_db_backup_2026-09-03.json',
+        'tim_db_backup_' + yesterday + '_0900.json', 'tim_db_backup_' + yesterday + '_1802.json', 'tim_db_backup_' + today + '_0000.json'];
+      seeded.forEach(n => g.put(BK + n, Buffer.from('{"old":"' + n + '"}')));
+      g.put(BK + 'readme.txt', Buffer.from('not a backup'));
+      await setup(env, g);
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      await page.evaluate(() => { TIM.sync.__disableForTest = false; });
+      await page.evaluate(SIGNED_IN);
+      await installFakeFs(page);
+      await page.evaluate(([seeded]) => { window.__copy = __fs.dir('TIM-copy'); window.showDirectoryPicker = async () => window.__copy;
+        return Promise.all(seeded.map(n => __fs.write(window.__copy, 'Backup/' + n, '{"old":"' + n + '"}'))); }, [seeded]);
+      await page.click('button:has-text("SharePoint 共用資料庫")');
+      await page.waitForSelector('.proj-name:has-text("Q")');
+      // SharePoint: written on open; older ones deleted (other files left alone)
+      const spBackups = () => Array.from(g.files.keys()).filter(k => k.startsWith(BK)).map(k => k.slice(BK.length)).sort();
+      await until(async () => spBackups().length === 3, 'SharePoint backups pruned');
+      const sp = spBackups();
+      assert.equal(sp[0], 'readme.txt');
+      assert.equal(sp[1], 'tim_db_backup_' + yesterday + '_1802.json', "the previous day's last one stays");
+      assert.match(sp[2], new RegExp('^tim_db_backup_' + today + '_\\d{4}\\.json$'), "today's latest");
+      assert.equal(g.text(BK + sp[2]), g.text(DB), 'the backup = the database');
+      // the local copy folder: its Backup follows the same rule as soon as the copy is set up
+      await page.click('.toolbar button[title="設定"]');
+      await page.click('.modal button:has-text("設定本機副本資料夾")');
+      await page.waitForFunction(() => TIM.sync.mirror.at);
+      const localBackups = () => page.evaluate(() => __fs.names(window.__copy.children.get('Backup')));
+      await until(async () => (await localBackups()).length === 2, 'local backups pruned');
+      const lb = await localBackups();
+      assert.equal(lb[0], 'tim_db_backup_' + yesterday + '_1802.json');
+      assert.equal(lb[1], sp[2], 'same name as on SharePoint');
+      assert.equal(await page.evaluate(n => __fs.read(window.__copy, 'Backup/' + n), lb[1]), g.text(DB));
+      assert.equal(await page.evaluate(() => __fs.read(window.__copy, 'tim_db.json')), g.text(DB));
       allowHttp(env, [404]);
     },
   },
@@ -216,6 +275,12 @@ module.exports = [
       assert.equal(Object.keys(g.json(DB).projects).length, 2, 'no conflict copies');
       await page.waitForSelector('.sync-banner:has-text("已同步到 SharePoint")');
       assert.match(await page.evaluate(() => __fs.read(window.__local, 'tim_db.json')), /from local/, 'saved locally too');
+      // backups of a local folder database go to its Backup folder, named with date + time
+      await until(() => page.evaluate(() => !!window.__local.children.get('Backup')), 'local backup');
+      const lb = await page.evaluate(() => __fs.names(window.__local.children.get('Backup')));
+      assert.equal(lb.length, 1);
+      assert.match(lb[0], /^tim_db_backup_\d{4}-\d{2}-\d{2}_\d{4}\.json$/);
+      assert.equal(await page.locator('.toolbar .copy-chip').count(), 0, 'no local-copy chip in local folder mode');
       // a datasheet uploaded here goes to SharePoint with the material
       await page.evaluate(() => TIM.datasheets.upload('mat_1', [new File(['%PDF-1.4 local'], 'GF-750_TDS.pdf', { type: 'application/pdf' })]));
       await until(() => (g.json(DB).materials.mat_1.datasheets || []).length === 1, 'push of the material');

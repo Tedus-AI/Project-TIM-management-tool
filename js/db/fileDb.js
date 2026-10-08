@@ -11,7 +11,6 @@
   const TIM = window.TIM = window.TIM || {};
   const META_DB = 'tim-mgmt-meta', META_STORE = 'handles', HANDLE_KEY = 'db_file', DIR_KEY = 'db_dir';
   const DB_NAME = 'tim_db.json';
-  const BACKUP_RE = /^tim_db_backup_\d{4}-\d{2}-\d{2}\.json$/i;
   let handle = null;        // FileSystemFileHandle of the database
   let dirHandle = null;     // its folder, when opened through a folder
 
@@ -40,12 +39,21 @@
     const h = await loadHandle();
     return h ? { kind: 'file', file: h, label: h.name } : null;
   }
-  /** Permission granted on the remembered target → make it current. */
+  /**
+   * Permission granted on the remembered target → make it current. A folder's tim_db.json wins over
+   * the file remembered there (as when the folder is picked): e.g. a database first opened from a
+   * backup file, whose folder now holds tim_db.json written by the SharePoint local copy.
+   */
   async function useTarget(t) {
     if (t.kind === 'dir') {
-      try { handle = await t.dir.getFileHandle(t.name); } catch (e) { return { ok: false, reason: 'missing', name: t.label }; }
-      dirHandle = t.dir;
-    } else { handle = t.file; dirHandle = null; }
+      let h = null;
+      try { h = await t.dir.getFileHandle(DB_NAME); } catch (e) { h = null; }
+      if (!h) { try { h = await t.dir.getFileHandle(t.name); } catch (e) { return { ok: false, reason: 'missing', name: t.label }; } }
+      handle = h; dirHandle = t.dir;
+      if (h.name !== t.name) await idbPut(DIR_KEY, { dir: t.dir, name: h.name });   // remember the file actually used
+      return { ok: true, name: t.dir.name + ' / ' + h.name };
+    }
+    handle = t.file; dirHandle = null;
     return { ok: true, name: t.label };
   }
 
@@ -116,7 +124,7 @@
         const f = await h.getFile();
         const main = name.toLowerCase() === DB_NAME;
         const head = main ? '' : await f.slice(0, 512).text();
-        if (main || /"schema"\s*:\s*"tim-db"/.test(head)) out.push({ name, handle: h, modified: f.lastModified, size: f.size, main, backup: BACKUP_RE.test(name) });
+        if (main || /"schema"\s*:\s*"tim-db"/.test(head)) out.push({ name, handle: h, modified: f.lastModified, size: f.size, main, backup: TIM.util.BACKUP_RE.test(name) });
       }
       const rank = c => (c.main ? 0 : c.backup ? 2 : 1);
       return out.sort((a, b) => rank(a) - rank(b) || b.modified - a.modified);
@@ -124,6 +132,29 @@
 
     /** Use a database file found in a folder (call remember() once it opened successfully). */
     useFolderFile(dir, fileHandle) { dirHandle = dir; handle = fileHandle; return { ok: true, name: dir.name + ' / ' + fileHandle.name }; },
+
+    /**
+     * The folder has no tim_db.json and the user chose a backup: copy it to tim_db.json and use that,
+     * so the database is never a file named (and later pruned) as a backup. The backup stays as it is.
+     */
+    async restoreFromBackup(dir, backupHandle) {
+      let created = false;
+      try {
+        const text = await (await backupHandle.getFile()).text();
+        try { await dir.getFileHandle(DB_NAME); return { ok: false, reason: 'exists' }; }   // never overwrite a database
+        catch (e) { if (!(e && e.name === 'NotFoundError')) throw e; }
+        const fh = await dir.getFileHandle(DB_NAME, { create: true });
+        created = true;
+        const w = await fh.createWritable();
+        await w.write(text);
+        await w.close();
+        dirHandle = dir; handle = fh;
+        return { ok: true, name: dir.name + ' / ' + DB_NAME };
+      } catch (e) {
+        if (created) { try { await dir.removeEntry(DB_NAME); } catch (x) { /* leave it */ } }   // no empty tim_db.json left behind
+        return { ok: false, reason: 'error', error: errText(e) };
+      }
+    },
 
     /** Create tim_db.json in the folder (empty; attach() writes a new database into it). */
     async createInFolder(dir) {
@@ -148,6 +179,8 @@
 
     /** Directory hint for other pickers (start next to the database). */
     startIn() { return dirHandle || handle || undefined; },
+    /** The database folder (null for a database file picked directly) — backups go to its Backup folder. */
+    folder() { return dirHandle; },
 
     // ───────── datasheet files: <database folder>/Datasheets/<rel> ─────────
     files: {

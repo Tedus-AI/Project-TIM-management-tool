@@ -1,110 +1,144 @@
-/* Automatic daily backup into a user-chosen folder (same behaviour as the Thermal Test
- * Report Builder) or, for the SharePoint database, into its Database/Backup folder:
- * one file per day (overwritten with the latest state), newest 30 kept.
- * Web pages cannot run while closed, so "daily" = on open (catch-up) + every 3 h +
- * when the tab is hidden (throttled to 10 min).
+/* Automatic backups — the same layout for the SharePoint database and a local folder:
+ *
+ *   <database folder>/Backup/tim_db_backup_YYYY-MM-DD_HHmm.json
+ *
+ * Two are kept (util.backupsToPrune): today's — replaced by every backup, so its name shows the time
+ * of the latest one — and the last one of the previous day that has a backup. Older ones are deleted.
+ * Destinations ("targets", set by app.initBackup):
+ *   SharePoint database  → TIM_Manager/Database/Backup, and the local copy folder's Backup (sync.mirror)
+ *   local folder         → <that folder>/Backup
+ *   a database file picked directly (older versions) → a folder the user picks (no sub-folder)
+ * Web pages cannot run while closed, so backups happen on open, every 3 h and when the tab is hidden
+ * (each destination at most every 10 min); a destination that becomes writable later (the local copy
+ * after its permission is granted) gets its first backup right away (kick).
  */
 (function () {
   'use strict';
   const TIM = window.TIM = window.TIM || {};
   const META_DB = 'tim-mgmt-meta', META_STORE = 'handles', DIR_KEY = 'backup_dir';
-  const PREFIX = 'tim_db_backup_';
-  const KEEP = 30;
-  let dir = null;
-  let remote = null;          // SharePoint: { name, write(text) → file name }
-  let lastAt = 0;
-  let timer = null;
+  const FOLDER = 'Backup';
+  const MIN_GAP = 10 * 60 * 1000;
+  let targets = [];          // [{ name(), ready(), write(text, file), lastAt, file, error }]
+  let picked = null;         // folder picked for a directly opened database file
+  let getText = null;        // async () => database text (set by schedule)
+  let timer = null, hooked = false, busy = null;
+  const errText = e => String((e && e.message) || e);
 
-  /** Names to delete so only the newest `keep` backups remain (YYYY-MM-DD sorts by time). */
-  function toPrune(names, keep) {
-    const b = names.filter(n => n.startsWith(PREFIX) && n.endsWith('.json')).sort();
-    return b.length > keep ? b.slice(0, b.length - keep) : [];
+  /** Write a backup into `root` (or root/Backup when sub) and delete the ones no longer kept. */
+  async function writeToFolder(root, text, file, sub) {
+    const dir = sub ? await root.getDirectoryHandle(FOLDER, { create: true }) : root;
+    const w = await (await dir.getFileHandle(file, { create: true })).createWritable();
+    await w.write(text);
+    await w.close();
+    const names = [];
+    for await (const [n, h] of dir.entries()) if (h.kind === 'file') names.push(n);
+    for (const n of TIM.util.backupsToPrune(names)) { try { await dir.removeEntry(n); } catch (e) { /* next time */ } }
+  }
+
+  /** Destination: <dir()>/Backup of a database folder. dir: () => folder handle or null; label: shown name. */
+  function folderTarget(dir, label) {
+    return {
+      name: () => (label ? label() : dir() ? dir().name : '') + ' / ' + FOLDER,
+      ready: () => !!dir(),
+      write: (text, file) => writeToFolder(dir(), text, file, true),
+    };
   }
 
   const backup = {
     supported() { return typeof window.showDirectoryPicker === 'function'; },
-    name() { return remote ? remote.name : dir ? dir.name : ''; },
-    ready() { return !!(remote || dir); },
-    remote() { return !!remote; },
-    /** Back up through the database backend instead of a local folder (null = local folder again). */
-    useRemote(target) { remote = target || null; lastAt = 0; },
-    toPrune,
+    folderTarget,
+    /** Write a backup into <root>/Backup (and delete the ones no longer kept). */
+    writeFolder: (root, text, file) => writeToFolder(root, text, file, true),
+    /** Destinations for the open database (replaces the previous ones). */
+    use(list) {
+      targets = (list || []).filter(Boolean).map(t => Object.assign({ lastAt: 0, file: '', error: '' }, t));
+    },
+    targets() { return targets; },
+    name() { return targets.map(t => t.name()).filter(Boolean).join('、'); },
+    ready() { return targets.some(t => t.ready()); },
+    lastAt() { return targets.reduce((m, t) => Math.max(m, t.lastAt), 0); },
 
+    // ───── a database file picked directly (no folder): backups go to a folder the user picks ─────
+    /** That folder, as a destination (written into directly, as older versions did). */
+    pickedTarget() {
+      return {
+        name: () => (picked ? picked.name : ''),
+        ready: () => !!picked,
+        async write(text, file) {
+          if (await picked.queryPermission({ mode: 'readwrite' }) !== 'granted') throw Object.assign(new Error('備份資料夾需要重新授權'), { needsPermission: true });
+          await writeToFolder(picked, text, file, false);
+        },
+      };
+    },
     async tryRestore() {
       let h = null;
       try { h = await TIM.idb.get(META_DB, META_STORE, DIR_KEY); } catch (e) { /* none */ }
       if (!h) return { ok: false, reason: 'none' };
       try {
         const st = await h.queryPermission({ mode: 'readwrite' });
-        if (st === 'granted') { dir = h; return { ok: true, name: h.name }; }
+        if (st === 'granted') { picked = h; return { ok: true, name: h.name }; }
         return { ok: false, needsPermission: true, name: h.name };
       } catch (e) { return { ok: false, reason: 'error' }; }
     },
-
-    /** Pick (or re-grant) the backup folder — call from a click handler. */
+    /** Pick (or re-grant) that folder — call from a click handler. */
     async pick(startIn) {
       try {
         let h = null;
         try { h = await TIM.idb.get(META_DB, META_STORE, DIR_KEY); } catch (e) { /* none */ }
-        if (h && !dir) {
+        if (h && !picked) {
           const st = await h.requestPermission({ mode: 'readwrite' });
-          if (st === 'granted') { dir = h; return { ok: true, name: h.name }; }
+          if (st === 'granted') { picked = h; return { ok: true, name: h.name }; }
         }
         const opts = { mode: 'readwrite' };
         if (startIn) opts.startIn = startIn;
         h = await window.showDirectoryPicker(opts);
-        dir = h;
+        picked = h;
         try { await TIM.idb.put(META_DB, META_STORE, DIR_KEY, h); } catch (e) { /* ignore */ }
         return { ok: true, name: h.name };
       } catch (e) {
         if (e && e.name === 'AbortError') return { ok: false, reason: 'cancelled' };
-        return { ok: false, reason: 'error', error: String(e && e.message || e) };
+        return { ok: false, reason: 'error', error: errText(e) };
       }
     },
 
-    /** Write today's backup (text = full DB JSON) and prune old ones. */
-    async write(text) {
-      if (remote) {
-        try { const name = await remote.write(text); lastAt = Date.now(); return { ok: true, name }; }
-        catch (e) { return { ok: false, reason: 'error', error: String(e && e.message || e) }; }
-      }
-      if (!dir) return { ok: false, reason: 'no-dir' };
-      try {
-        const st = await dir.queryPermission({ mode: 'readwrite' });
-        if (st !== 'granted') return { ok: false, needsPermission: true };
-        const d = new Date();
-        const p = n => (n < 10 ? '0' : '') + n;
-        const name = PREFIX + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '.json';
-        const fh = await dir.getFileHandle(name, { create: true });
-        const w = await fh.createWritable();
-        await w.write(text);
-        await w.close();
-        const names = [];
-        for await (const [n, h] of dir.entries()) if (h.kind === 'file') names.push(n);
-        for (const n of toPrune(names, KEEP)) { try { await dir.removeEntry(n); } catch (e) { /* ignore */ } }
-        lastAt = Date.now();
-        return { ok: true, name };
-      } catch (e) { return { ok: false, reason: 'error', error: String(e && e.message || e) }; }
+    /**
+     * Back up to every destination that is writable and due (force: ignore the 10-min gap;
+     * only: a filter for the destinations to try). One file name (time) for all of them.
+     * → { ok, name, needsPermission, results: [{ target, ok, error }] }
+     */
+    async run(textFn, force, only) {
+      const fn = textFn || getText;
+      if (!fn) return { ok: false, reason: 'no-text' };
+      while (busy) await busy.catch(() => null);
+      const due = targets.filter(t => t.ready() && (!only || only(t)) && (force || Date.now() - t.lastAt >= MIN_GAP));
+      if (!due.length) return { ok: false, reason: targets.length ? 'throttled' : 'no-dir' };
+      busy = (async () => {
+        const text = await fn();
+        if (!text) return { ok: false, reason: 'empty' };
+        const file = TIM.util.backupFileName(new Date());
+        const results = [];
+        for (const t of due) {
+          try { await t.write(text, file); t.lastAt = Date.now(); t.file = file; t.error = ''; results.push({ target: t.name(), ok: true }); }
+          catch (e) { t.error = errText(e); results.push({ target: t.name(), ok: false, error: t.error, needsPermission: !!(e && e.needsPermission) }); console.warn('[backup] ' + t.name() + ':', t.error); }
+        }
+        return { ok: results.some(r => r.ok), name: file, results, needsPermission: results.some(r => r.needsPermission) };
+      })();
+      try { return await busy; } finally { busy = null; }
     },
 
-    /** Throttled backup using a text provider (async () => string). */
-    async run(getText, force) {
-      if (!backup.ready()) return { ok: false, reason: 'no-dir' };
-      if (!force && Date.now() - lastAt < 10 * 60 * 1000) return { ok: false, reason: 'throttled' };
-      const text = await getText();
-      if (!text) return { ok: false, reason: 'empty' };
-      return this.write(text);
-    },
+    /** A destination became writable (e.g. the local copy after its permission): back up there now if it has none yet. */
+    kick() { if (getText) backup.run(getText, true, t => !t.lastAt).then(r => { if (r && r.results && TIM.store && TIM.store.emit) TIM.store.emit(); }, () => null); },
 
-    /** Start the periodic schedule. */
-    schedule(getText, onResult) {
-      if (timer) return;
-      timer = setInterval(async () => { const r = await backup.run(getText, false); if (onResult) onResult(r); }, 3 * 60 * 60 * 1000);
-      document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'hidden') { const r = await backup.run(getText, false); if (onResult) onResult(r); }
-      });
+    /** Start the periodic schedule (once per page; textFn / onResult are for the database open now). */
+    schedule(textFn, onResult) {
+      getText = textFn;
+      backup.onResult = onResult || null;
+      if (hooked) return;
+      hooked = true;
+      const tick = async () => { const r = await backup.run(getText, false); if (backup.onResult) backup.onResult(r); };
+      timer = setInterval(tick, 3 * 60 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') tick(); });
     },
-    lastAt() { return lastAt; },
   };
 
   TIM.backup = backup;

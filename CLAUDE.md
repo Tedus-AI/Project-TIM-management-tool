@@ -12,11 +12,13 @@
 - **所有資料修改都走 `TIM.actions`（`js/ui/actions.js`）** → `TIM.store.mutateProject / mutateMaterials / mutateDb`，
   才會有 undo scope、變更紀錄、自動存檔。UI 不可直接改 `TIM.store.db`。
 - 儲存：`js/db/sharepoint.js`（SharePoint：Graph + MSAL，`auth.html` 為重新導向頁；寫入帶 If-Match eTag，412 → store 重讀合併再寫）、
-  `js/db/fileDb.js`（本機資料庫資料夾；IndexedDB 只用來記住資料夾 handle）、`js/db/backup.js`（每日備份，SharePoint 寫到 Database/Backup）。
+  `js/db/fileDb.js`（本機資料庫資料夾；IndexedDB 只用來記住資料夾 handle）、`js/db/backup.js`（備份一律寫在資料庫旁的 `Backup/`：SharePoint `Database/Backup`、本機資料夾與本機副本的 `Backup/`；
+  檔名 `util.backupFileName`＝日期＋時分，`util.backupsToPrune` 只留今天最新＋前一天最後 2 份）。主檔名稱固定 `tim_db.json`，不可帶時間戳。
   後端介面：`head / read / write / size`，規格書檔案走 `backend.files`（`put / blob / webUrl / del`，路徑相對 Datasheets 資料夾）。
   多人合併規則在 `js/core/merge.js`（以專案 / 材料為單位）；`store.js` 處理 412（`error.conflict`）與逾時未知結果（`error.uncertain`）。
   **SharePoint 是主資料**：`js/db/sync.js` — `mirror`（SharePoint 模式把最新內容寫到本機副本，只寫不讀，被別處改過的副本先另存；
-  沒指定資料夾時預設寫入上次開啟的本機資料庫（`fileBackend.remembered()`，同檔名），缺少的規格書一併複製到 `Datasheets/`；工具列 `CopyChip` 顯示狀態）、
+  寫在資料夾的 `tim_db.json`，沒指定資料夾時預設是上次開啟的本機資料庫所在的資料夾（`fileBackend.remembered()`），缺少的規格書一併複製到 `Datasheets/`；
+  工具列 `CopyChip` 顯示狀態）、
   `push`（本機資料夾模式每次存檔經 `store.onSaved` 取得寫入的紀錄，用 `merge.mergePush` 合併進 SharePoint；推不出去的記在 IndexedDB，
   之後補寫，含 SharePoint 模式開啟時的 `applyLeftovers`）。提醒 / 警告視窗與提醒列在 `app.js`。
   人員下拉 `PersonField`（`fields.js`）讀 SharePoint 清單 `Project_Members`（`sharepoint.js` 的 `members()`，欄位 Title / MemberName / MemberEmail / Function / IsActive）。

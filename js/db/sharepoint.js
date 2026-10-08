@@ -2,7 +2,7 @@
  * AI Thermal pad & stud tool). Layout in the site's 文件 (Shared Documents) library:
  *
  *   TIM_Manager/Database/tim_db.json            the shared database
- *   TIM_Manager/Database/Backup/tim_db_backup_YYYY-MM-DD.json   daily backups (newest 30)
+ *   TIM_Manager/Database/Backup/tim_db_backup_YYYY-MM-DD_HHmm.json   backups: today's latest + the previous day's last (backup.js)
  *   TIM_Manager/Datasheets/<Vendor>/<Model>/<file>              material datasheets
  *
  * Every database write carries If-Match: <eTag>. Two people saving at the same moment can
@@ -28,7 +28,6 @@
   const GRAPH = 'https://graph.microsoft.com/v1.0';
   const GET_MS = 30000, PUT_MS = 120000;
   const STALE_MS = 60000;          // SharePoint may serve the pre-write copy for a short while
-  const BACKUP_PREFIX = 'tim_db_backup_', BACKUP_KEEP = 30;
 
   let pca = null, initP = null, account = null;
   let siteId = null;
@@ -309,11 +308,11 @@
     /** Forget the open database (keeps the Microsoft sign-in). */
     close() { itemId = null; cache = null; wrote = null; trustDisk = false; },
 
-    // ───────── daily backup (Database/Backup) ─────────
+    // ───────── backups (Database/Backup; naming and what is kept: util.backupFileName / backupsToPrune) ─────────
     backupName() { return CONFIG.siteName + ' / ' + CONFIG.backupFolder.split('/').join(' / '); },
-    async writeBackup(text) {
+    async writeBackup(text, name) {
       await resolveSite(false);
-      const name = BACKUP_PREFIX + TIM.util.todayStr() + '.json';
+      name = name || TIM.util.backupFileName(new Date());
       await graph(byPath(CONFIG.backupFolder + '/' + name) + ':/content', { method: 'PUT', body: text, headers: { 'Content-Type': 'application/json' } });
       const names = [];
       let url = byPath(CONFIG.backupFolder) + ':/children?$select=name&$top=200';
@@ -323,7 +322,7 @@
         (j.value || []).forEach(x => names.push(x.name));
         url = j['@odata.nextLink'] || null;
       }
-      for (const n of TIM.backup.toPrune(names, BACKUP_KEEP)) {
+      for (const n of TIM.util.backupsToPrune(names)) {
         try { await graph(byPath(CONFIG.backupFolder + '/' + n), { method: 'DELETE', ok: s => s === 404 }); } catch (e) { /* next time */ }
       }
       return name;
