@@ -90,6 +90,113 @@ module.exports = [
     },
   },
   {
+    name: 'SharePoint mode: the local database last opened is the default local copy — permission asked once, same file name, missing datasheets copied; can be turned off',
+    async run(env) {
+      const { page, base } = env;
+      const g = fakeDrive();
+      const sheet = Buffer.from('%PDF-1.4 demo datasheet');
+      g.put(DB, Buffer.from(JSON.stringify(seed({ materials: {
+        mat_1: { id: 'mat_1', rev: 1, vendor: 'Vendor-A', model: 'GF-750', tim_type: 'pad', datasheets: [{ id: 'ds_1', name: 'spec.pdf', path: 'mat_1/spec.pdf', size: sheet.length }] },
+        mat_2: { id: 'mat_2', rev: 1, vendor: 'Vendor-B', model: 'GF-300', tim_type: 'pad', datasheets: [{ id: 'ds_2', name: 'gone.pdf', path: 'mat_2/gone.pdf', size: 1 }] },
+      } }))));
+      g.put('TIM_Manager/Datasheets/mat_1/spec.pdf', sheet);
+      await setup(env, g);
+      // real folder handles (origin private file system): they can be remembered in IndexedDB like the user's folder;
+      // window.__perm stands in for the browser's permission state after a restart
+      await env.context.addInitScript(() => {
+        window.__TIM_TEST_SYNC_OFF = false;        // this scenario reloads: sync on from the start of every load
+        const P = FileSystemHandle.prototype;
+        P.queryPermission = async function () { return window.__perm || 'granted'; };
+        P.requestPermission = async function () { window.__asked = (window.__asked || 0) + 1; window.__perm = 'granted'; return 'granted'; };
+        window.__opfs = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('TIM-local', { create: true });
+        window.__readLocal = async path => {
+          try { let d = await window.__opfs(); const parts = path.split('/'); const n = parts.pop(); for (const s of parts) d = await d.getDirectoryHandle(s);
+            return await (await (await d.getFileHandle(n)).getFile()).text(); } catch (e) { return null; }
+        };
+        window.__localNames = async () => { const out = []; for await (const [n] of (await window.__opfs()).entries()) out.push(n); return out.sort(); };
+      });
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      await page.evaluate(SIGNED_IN);
+      // this browser last opened the local database TIM-local / tim_db_rru.json (an older copy, edited locally back then)
+      await page.evaluate(async old => {
+        const dir = await window.__opfs();
+        const fh = await dir.getFileHandle('tim_db_rru.json', { create: true });
+        const w = await fh.createWritable(); await w.write(old); await w.close();
+        TIM.fileBackend.useFolderFile(dir, fh);
+        await TIM.fileBackend.remember();
+        TIM.sync.__disableForTest = false;
+        window.__perm = 'prompt';                  // browser restarted: permission not granted yet
+      }, JSON.stringify(seed({ rev: 2, updated_at: '2026-09-01T00:00:00.000Z' })));
+      await page.click('button:has-text("SharePoint 共用資料庫")');
+      await page.waitForSelector('.proj-name:has-text("Q")');
+      // nothing picked in settings → the local database is the copy; it asks for permission (banner + toolbar)
+      const banner = page.locator('.banner:has-text("需要授權")');
+      await banner.waitFor();
+      assert.match(await banner.innerText(), /本機資料庫「TIM-local \/ tim_db_rru\.json」需要授權/);
+      assert.match(await banner.innerText(), /每次造訪時都允許/);
+      assert.match(await page.locator('.toolbar .copy-chip').innerText(), /本機副本：點擊授權/);
+      assert.equal(await page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => JSON.parse(t).rev), 2, 'nothing written before permission');
+      await banner.locator('button:has-text("授權")').first().click();
+      await page.waitForFunction(() => TIM.sync.mirror.at);
+      assert.equal(await page.evaluate(() => window.__asked), 1);
+      assert.equal(await page.evaluate(() => window.__readLocal('tim_db_rru.json')), g.text(DB), 'the local database = SharePoint');
+      await page.waitForSelector('.toast:has-text("已同步寫入本機資料庫 TIM-local / tim_db_rru.json")');
+      await page.waitForSelector('.toast:has-text("已另存為")');
+      const names = await page.evaluate(() => window.__localNames());
+      assert.ok(!names.includes('tim_db.json'), 'no second database file: ' + names.join(', '));
+      const kept = names.filter(n => /^tim_db_local_\d{8}-\d{6}\.json$/.test(n));
+      assert.equal(kept.length, 1, 'the old local version is kept aside: ' + names.join(', '));
+      assert.equal(JSON.parse(await page.evaluate(n => window.__readLocal(n), kept[0])).rev, 2);
+      // datasheets the folder lacks are copied (one missing on SharePoint is skipped)
+      await until(() => page.evaluate(() => window.__readLocal('Datasheets/mat_1/spec.pdf')).then(t => t === '%PDF-1.4 demo datasheet'), 'datasheet copied');
+      await page.waitForFunction(() => !TIM.sync.mirror.filesBusy);
+      assert.equal(await page.evaluate(() => window.__readLocal('Datasheets/mat_2/gone.pdf')), null);
+      await page.waitForSelector('.toolbar .copy-chip:has-text("本機副本 ")');
+      assert.equal(await page.locator('.banner:has-text("需要授權")').count(), 0);
+      assert.match(await page.locator('.toolbar .copy-chip').getAttribute('title'), /TIM-local \/ tim_db_rru\.json（上次開啟的本機資料庫）[\s\S]*已複製 1 份規格書/);
+      // every save follows
+      await page.evaluate(() => TIM.actions.updateProject('prj_p', 'customer', 'edited on SharePoint'));
+      await saved(page);
+      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /edited on SharePoint/.test(t)), 'copy after our save');
+      // settings show where it goes
+      await page.click('.toolbar button[title="設定"]');
+      assert.match(await page.locator('.modal dl.kv').innerText(), /本機副本\s+TIM-local \/ tim_db_rru\.json （上次開啟的本機資料庫） · 最近寫入/);
+      await page.keyboard.press('Escape');
+      // reload (permission kept; SharePoint opens by itself): no new prompt, no new notice, still the copy
+      await page.reload();
+      await page.waitForSelector('.proj-name:has-text("Q")');
+      await page.waitForFunction(() => TIM.sync.mirror.state === 'ready');
+      assert.equal(await page.evaluate(() => TIM.sync.mirror.adopted), '');
+      await page.evaluate(() => TIM.actions.updateProject('prj_q', 'customer', 'after reload'));
+      await saved(page);
+      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /after reload/.test(t)), 'copy after reload');
+      assert.equal((await page.evaluate(() => window.__localNames())).filter(n => /^tim_db_local_/.test(n)).length, 1, 'nothing more kept aside');
+      // turned off → stays off (also after a reload) until a folder is picked again
+      await page.click('.toolbar button[title="設定"]');
+      await page.click('.modal button:has-text("停用本機副本")');
+      await page.waitForSelector('.modal dl.kv:has-text("已停用")');
+      assert.match(await page.locator('.modal dl.kv').innerText(), /本機副本\s+已停用/);
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('.toolbar .copy-chip').count(), 0);
+      await page.evaluate(() => TIM.actions.updateProject('prj_q', 'customer', 'not copied'));
+      await saved(page);
+      await page.waitForTimeout(300);
+      assert.doesNotMatch(await page.evaluate(() => window.__readLocal('tim_db_rru.json')), /not copied/);
+      await page.reload();
+      await page.waitForSelector('.proj-name:has-text("Q")');
+      await page.waitForTimeout(300);
+      assert.equal(await page.evaluate(() => TIM.sync.mirror.state), 'none');
+      // picking the local database folder again → its file, not a new tim_db.json
+      await page.evaluate(() => { window.showDirectoryPicker = () => window.__opfs(); });
+      await page.click('.toolbar button[title="設定"]');
+      await page.click('.modal button:has-text("設定本機副本資料夾")');
+      await until(() => page.evaluate(() => window.__readLocal('tim_db_rru.json')).then(t => /not copied/.test(t)), 'copy after picking the folder again');
+      assert.ok(!(await page.evaluate(() => window.__localNames())).includes('tim_db.json'));
+      allowHttp(env, [404]);
+    },
+  },
+  {
     name: 'local folder opened by mistake: reminder, every save merged into SharePoint (colleague edits kept, datasheets uploaded), switch back',
     async run(env) {
       const { page } = env;

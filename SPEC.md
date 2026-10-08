@@ -418,7 +418,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 項目 | 規格 |
 |------|------|
 | SharePoint（主要） | MSAL.js 登入（彈出視窗，重新導向頁 `auth.html`）＋ Microsoft Graph；網站 `Thermal-Spec-DB` 的「文件」：`TIM_Manager/Database/tim_db.json`、`TIM_Manager/Database/Backup/`、`TIM_Manager/Datasheets/<Vendor>/<Model>/`。與 AI Thermal 工具共用 Azure 應用程式與網站；登入過一次後自動開啟，登入過期時畫面提示重新登入（存檔時不彈視窗） |
-| 本機副本（SharePoint 模式） | 設定的資料夾裡寫入 `tim_db.json` = SharePoint 最新內容（每次存檔、每次同步到別人的修改），只寫不讀。該檔在別處被改過（`updated_at` 不是工具最後寫的）→ 先另存 `tim_db_local_<日期時間>.json`；不是 TIM 資料庫 → 不寫 |
+| 本機副本（SharePoint 模式） | 預設 = 這個瀏覽器上次開啟的本機資料庫（`fileBackend.remembered()`：資料夾＋檔名），也可在設定指定其他資料夾（寫 `tim_db.json`；選到本機資料庫的資料夾則寫它的檔名）或停用（`{ off: true }`，之後不再預設）。寫入 SharePoint 最新內容（每次存檔、每次同步到別人的修改），只寫不讀。該檔在別處被改過（`updated_at` 不是工具最後寫的）→ 先另存 `tim_db_local_<日期時間>.json`；不是 TIM 資料庫 → 不寫。缺少的規格書從 SharePoint 複製到 `Datasheets/`（只新增不刪除；SharePoint 上也沒有的略過）。權限被瀏覽器收回 → 提示列＋工具列「本機副本：點擊授權」；狀態與最近寫入時間顯示在工具列 |
 | 本機資料夾 → SharePoint | 本機模式每次存檔後，把這次寫入的專案 / 材料 / 刪除 / 設定以 `merge.mergePush` 合併進 SharePoint（以 SharePoint 的 rev 為基準、If-Match；兩邊都改 → 衝突副本，之後的推送更新同一份副本）；材料的規格書檔案一併上傳。推不出去的記在 IndexedDB（依資料夾），下次存檔、重新開這個資料夾、或改開 SharePoint 時補寫。畫面：常駐提醒列＋「切換到 SharePoint」；開啟時與相隔 10 分鐘以上的存檔跳提醒視窗；寫入失敗（含未登入）立即跳警告，之後最多 10 分鐘一次 |
 | 本機資料夾 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續；規格書存 `Datasheets/`。可在設定「搬到 SharePoint」（不覆蓋已存在的資料庫） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |

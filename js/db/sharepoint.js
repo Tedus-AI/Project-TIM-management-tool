@@ -343,10 +343,11 @@
         const m = await res.json().catch(() => ({}));
         return { size: m.size != null ? m.size : blob.size };
       },
-      /** File content as a Blob (for the viewer / download). */
-      async blob(rel) {
-        await resolveSite(true);
-        const res = await graph(byPath(CONFIG.datasheetFolder + '/' + rel) + ':/content', { interactive: true, ok: s => s === 404 });
+      /** File content as a Blob (for the viewer / download). o.quiet: background use, never opens a sign-in popup. */
+      async blob(rel, o) {
+        const interactive = !(o && o.quiet);
+        await resolveSite(interactive);
+        const res = await graph(byPath(CONFIG.datasheetFolder + '/' + rel) + ':/content', { interactive, ok: s => s === 404 });
         if (res.status === 404) throw mkErr('SharePoint 上找不到這份規格書（可能已被移動或刪除）', { status: 404 });
         return res.blob();
       },

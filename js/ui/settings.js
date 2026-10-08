@@ -52,8 +52,8 @@
         <dt>內容</dt><dd>${counts.p} 個專案 · ${counts.m} 種材料 · ${counts.i} 張圖片 · ${counts.d} 份規格書 · rev ${db.rev}</dd>
         <dt>規格書</dt><dd class="mono">${files && files.supported() ? files.where() : html`<span class="muted" style="font-family:var(--font-body)">需以資料夾或 SharePoint 開啟資料庫</span>`}</dd>
         <dt>自動備份</dt><dd>${TIM.backup.ready() ? TIM.backup.name() + (TIM.backup.lastAt() ? '（最近 ' + util.fmtDateTime(new Date(TIM.backup.lastAt()).toISOString()) + '）' : '') : '未設定'}</dd>
-        ${isSp ? html`<dt>本機副本</dt><dd>${mr.dir ? html`<span class="mono">${mr.name()} / tim_db.json</span> <span class=${mr.state === 'error' ? 'text-err' : 'muted'}>· ${mirrorText}</span>`
-          : html`<span class="muted">未設定 — 每次存檔把 SharePoint 的最新內容寫一份到本機資料夾（只寫不讀）</span>`}</dd>`
+        ${isSp ? html`<dt>本機副本</dt><dd>${mr.dir ? html`<span class="mono">${mr.name()}</span>${mr.auto ? html` <span class="muted">（上次開啟的本機資料庫）</span>` : null} <span class=${mr.state === 'error' ? 'text-err' : 'muted'}>· ${mirrorText}</span>`
+          : html`<span class="muted">${mr.off ? '已停用' : '未設定'} — 每次存檔把 SharePoint 的最新內容寫一份到本機資料夾（只寫不讀）</span>`}</dd>`
         : html`<dt>同步到 SharePoint</dt><dd class=${push.state === 'error' || push.state === 'login' ? 'text-err' : ''}>${pushText}</dd>`}
       </dl>
       <div class="row wrap mt12" style="gap:8px">
@@ -67,7 +67,7 @@
       </div>
       <p class="muted" style="font-size:11.5px;margin-top:12px;line-height:1.6">自動備份：開啟工具時、每 3 小時、切換分頁時寫入「tim_db_backup_YYYY-MM-DD.json」${isSp ? '（SharePoint 的 Database / Backup 資料夾）' : ''}，每天一份、保留最近 30 份。<br/>
         ${isSp ? html`多人同時編輯：每次存檔都會比對 SharePoint 上的版本，有人剛存過就先合併再寫入，不會互相覆蓋。<br/>
-          本機副本：每次存檔（與同步到別人的修改後）寫入資料夾裡的 tim_db.json；那個檔案若在別處被改過，會先另存為 tim_db_local_日期時間.json，不覆蓋。<br/>`
+          本機副本：預設寫入這台電腦上次開啟的本機資料庫，也可指定其他資料夾。每次存檔（與同步到別人的修改後）寫入 SharePoint 的最新內容，本機缺少的規格書也會複製到它的 Datasheets 資料夾；那個檔案若在別處被改過，會先另存為 tim_db_local_日期時間.json，不覆蓋。<br/>`
           : html`本機資料夾模式：每次存檔也會合併寫入 SharePoint（不覆蓋別人的修改）；寫不進去的修改會記住，下次有機會再補寫。<br/>`}
         沒有被任何專案使用的圖片會在存檔時自動清除（可復原範圍內的圖片會保留）。</p>
       <p class="muted mono" style="font-size:10.5px;margin-top:8px">版本 ${TIM.app.version}</p>

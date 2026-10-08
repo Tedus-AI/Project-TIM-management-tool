@@ -120,6 +120,12 @@ a { color: var(--d-500); }
 .acct-chip.off { color: #F2C14E; cursor: pointer; }
 .acct-chip.off svg { color: #F2C14E; }
 .acct-chip.off:hover { color: #fff; }
+.copy-chip { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 4px 4px; font-size: 11px; color: var(--d-200); font-family: var(--font-mono); white-space: nowrap; background: transparent; border: none; }
+.copy-chip svg { color: #4CC38A; flex-shrink: 0; }
+.copy-chip.warn, .copy-chip.warn svg { color: #F2C14E; }
+.copy-chip.err, .copy-chip.err svg { color: #FF6B5E; }
+button.copy-chip { cursor: pointer; }
+button.copy-chip:hover { color: #fff; }
 
 .main { position: relative; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
 .main > .page, .main > .proj { flex: 1; min-height: 0; }
