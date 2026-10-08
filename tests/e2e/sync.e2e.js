@@ -252,6 +252,14 @@ module.exports = [
       assert.equal(lb[1], sp[2], 'same name as on SharePoint');
       assert.equal(await page.evaluate(n => __fs.read(window.__copy, 'Backup/' + n), lb[1]), g.text(DB));
       assert.equal(await page.evaluate(() => __fs.read(window.__copy, 'tim_db.json')), g.text(DB));
+      // another local copy folder → its Backup gets a backup right away too (not after the 3-hour timer)
+      await page.evaluate(() => { window.__copy2 = __fs.dir('TIM-copy-2'); window.showDirectoryPicker = async () => window.__copy2; });
+      await page.click('.modal button:has-text("變更本機副本資料夾")');
+      await until(() => page.evaluate(() => !!window.__copy2.children.get('Backup')), 'backup in the new folder', 8000);
+      const lb2 = await page.evaluate(() => __fs.names(window.__copy2.children.get('Backup')));
+      assert.equal(lb2.length, 1);
+      assert.match(lb2[0], new RegExp('^tim_db_backup_' + today + '_\\d{4}\\.json$'));
+      assert.match(await page.locator('.modal dl.kv').innerText(), new RegExp('TIM-copy-2 / Backup · 最近：' + lb2[0].replace(/\./g, '\\.')));
       allowHttp(env, [404]);
     },
   },

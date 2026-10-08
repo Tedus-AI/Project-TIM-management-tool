@@ -35,9 +35,17 @@
     for (const n of TIM.util.backupsToPrune(names)) { try { await dir.removeEntry(n); } catch (e) { /* next time */ } }
   }
 
+  /** A destination's state belongs to the folder it writes to (id): another folder starts with no backup yet. */
+  function current(t) {
+    const id = t.id ? t.id() : null;
+    if (id !== t.lastId) { t.lastId = id; t.lastAt = 0; t.file = ''; t.error = ''; }
+    return t;
+  }
+
   /** Destination: <dir()>/Backup of a database folder. dir: () => folder handle or null; label: shown name. */
   function folderTarget(dir, label) {
     return {
+      id: dir,
       name: () => (label ? label() : dir() ? dir().name : '') + ' / ' + FOLDER,
       ready: () => !!dir(),
       write: (text, file) => writeToFolder(dir(), text, file, true),
@@ -51,17 +59,18 @@
     writeFolder: (root, text, file) => writeToFolder(root, text, file, true),
     /** Destinations for the open database (replaces the previous ones). */
     use(list) {
-      targets = (list || []).filter(Boolean).map(t => Object.assign({ lastAt: 0, file: '', error: '' }, t));
+      targets = (list || []).filter(Boolean).map(t => current(Object.assign({ lastAt: 0, file: '', error: '', lastId: undefined }, t)));
     },
-    targets() { return targets; },
+    targets() { return targets.map(current); },
     name() { return targets.map(t => t.name()).filter(Boolean).join('、'); },
     ready() { return targets.some(t => t.ready()); },
-    lastAt() { return targets.reduce((m, t) => Math.max(m, t.lastAt), 0); },
+    lastAt() { return targets.map(current).reduce((m, t) => Math.max(m, t.lastAt), 0); },
 
     // ───── a database file picked directly (no folder): backups go to a folder the user picks ─────
     /** That folder, as a destination (written into directly, as older versions did). */
     pickedTarget() {
       return {
+        id: () => picked,
         name: () => (picked ? picked.name : ''),
         ready: () => !!picked,
         async write(text, file) {
@@ -110,7 +119,7 @@
       const fn = textFn || getText;
       if (!fn) return { ok: false, reason: 'no-text' };
       while (busy) await busy.catch(() => null);
-      const due = targets.filter(t => t.ready() && (!only || only(t)) && (force || Date.now() - t.lastAt >= MIN_GAP));
+      const due = targets.map(current).filter(t => t.ready() && (!only || only(t)) && (force || Date.now() - t.lastAt >= MIN_GAP));
       if (!due.length) return { ok: false, reason: targets.length ? 'throttled' : 'no-dir' };
       busy = (async () => {
         const text = await fn();

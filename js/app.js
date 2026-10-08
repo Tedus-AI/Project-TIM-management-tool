@@ -110,6 +110,12 @@
     }
     let isNew = false, restored = '';
     if (pick && pick.backup) {
+      // check it first (same rules as opening a database): a damaged backup never becomes tim_db.json,
+      // which would then always be opened first and hide the other backups
+      let bad = '';
+      try { const v = schema.validateDb(JSON.parse(await (await pick.handle.getFile()).text())); if (!v.ok) bad = v.error; }
+      catch (e) { bad = '檔案不是有效的 JSON（可能已損毀）'; }
+      if (bad) return fail(pick.name + ' 無法使用：' + bad + '。沒有建立 tim_db.json，請改選其他備份');
       const c = await fb.restoreFromBackup(r.dir, pick.handle);
       if (!c.ok) return fail('無法從備份建立 tim_db.json：' + (c.reason === 'exists' ? '資料夾裡已經有 tim_db.json' : c.error || c.reason));
       restored = pick.name;

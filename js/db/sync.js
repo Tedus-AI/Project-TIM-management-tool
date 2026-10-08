@@ -337,6 +337,7 @@
     /** Backup destination: <copy folder>/Backup, once the folder is writable (backup.js decides when and what is kept). */
     backupTarget() {
       return {
+        id: () => mirror.dir,                // another folder → its own first backup right away
         name: () => (mirror.dir ? mirror.dir.name + ' / Backup' : ''),
         ready: () => !!mirror.dir && (mirror.state === 'ready' || mirror.state === 'writing'),
         write: (text, file) => TIM.backup.writeFolder(mirror.dir, text, file),
