@@ -407,7 +407,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - 區段標題一行，說明文字在旁邊換行（量測高度後再分頁）。
 
 ### 9.4 其他
-- 資料庫 JSON 備份、自動備份資料夾（每日一份、保留 30 份）。
+- 資料庫 JSON 備份（下載）；自動備份到資料庫旁的 `Backup/`（日期＋時分命名，只留今天最新＋前一天最後 2 份）。
 - 單一專案分享檔（含其圖片與用到的材料）匯出 / 匯入。
 - 位置圖 PNG 下載。
 
@@ -418,14 +418,14 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 | 項目 | 規格 |
 |------|------|
 | SharePoint（主要） | MSAL.js 登入（彈出視窗，重新導向頁 `auth.html`）＋ Microsoft Graph；網站 `Thermal-Spec-DB` 的「文件」：`TIM_Manager/Database/tim_db.json`、`TIM_Manager/Database/Backup/`、`TIM_Manager/Datasheets/<Vendor>/<Model>/`。與 AI Thermal 工具共用 Azure 應用程式與網站；登入過一次後自動開啟，登入過期時畫面提示重新登入（存檔時不彈視窗） |
-| 本機副本（SharePoint 模式） | 預設 = 這個瀏覽器上次開啟的本機資料庫（`fileBackend.remembered()`：資料夾＋檔名），也可在設定指定其他資料夾（寫 `tim_db.json`；選到本機資料庫的資料夾則寫它的檔名）或停用（`{ off: true }`，之後不再預設）。寫入 SharePoint 最新內容（每次存檔、每次同步到別人的修改），只寫不讀。該檔在別處被改過（`updated_at` 不是工具最後寫的）→ 先另存 `tim_db_local_<日期時間>.json`；不是 TIM 資料庫 → 不寫。缺少的規格書從 SharePoint 複製到 `Datasheets/`（只新增不刪除；SharePoint 上也沒有的略過）。權限被瀏覽器收回 → 提示列＋工具列「本機副本：點擊授權」；狀態與最近寫入時間顯示在工具列 |
+| 本機副本（SharePoint 模式） | 寫入資料夾裡的 `tim_db.json`（固定檔名，與 SharePoint 相同）＋ `Backup/` ＋ `Datasheets/`。資料夾預設 = 這個瀏覽器上次開啟的本機資料庫所在的資料夾（`fileBackend.remembered()`；當初開的是備份檔也一樣寫 `tim_db.json`，舊檔不動），也可在設定指定其他資料夾或停用（`{ off: true }`，之後不再預設）。本機資料夾模式「繼續使用」時，資料夾裡有 `tim_db.json` 就開它（與選資料夾的規則相同）。寫入 SharePoint 最新內容（每次存檔、每次同步到別人的修改），只寫不讀。該檔在別處被改過（`updated_at` 不是工具最後寫的）→ 先另存 `tim_db_local_<日期時間>.json`；不是 TIM 資料庫 → 不寫。缺少的規格書從 SharePoint 複製到 `Datasheets/`（只新增不刪除；SharePoint 上也沒有的略過）。權限被瀏覽器收回 → 提示列＋工具列「本機副本：點擊授權」；狀態與最近寫入時間顯示在工具列 |
 | 本機資料夾 → SharePoint | 本機模式每次存檔後，把這次寫入的專案 / 材料 / 刪除 / 設定以 `merge.mergePush` 合併進 SharePoint（以 SharePoint 的 rev 為基準、If-Match；兩邊都改 → 衝突副本，之後的推送更新同一份副本）；材料的規格書檔案一併上傳。推不出去的記在 IndexedDB（依資料夾），下次存檔、重新開這個資料夾、或改開 SharePoint 時補寫。畫面：常駐提醒列＋「切換到 SharePoint」；開啟時與相隔 10 分鐘以上的存檔跳提醒視窗；寫入失敗（含未登入）立即跳警告，之後最多 10 分鐘一次 |
-| 本機資料夾 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個時讓使用者選），沒有就詢問後建立；記住資料夾，下次一鍵繼續；規格書存 `Datasheets/`。可在設定「搬到 SharePoint」（不覆蓋已存在的資料庫） |
+| 本機資料夾 | 使用者選「資料庫資料夾」（本機 / 網路磁碟，File System Access API，Chrome / Edge）：有 `tim_db.json` 或其他 TIM 資料庫就直接開啟（多個、或只有備份時讓使用者選；選備份 → 複製成 `tim_db.json` 再開，備份檔不動），沒有就詢問後建立；記住資料夾，下次一鍵繼續；規格書存 `Datasheets/`。可在設定「搬到 SharePoint」（不覆蓋已存在的資料庫） |
 | 自動存檔 | 變更後 debounce 0.8 s；狀態列顯示「儲存中 / 已儲存 / 錯誤」 |
 | 多人共用同一檔 | 寫入前重讀檔案比對 `rev`：別人沒動 → 直接寫；別人動過 → 以專案為單位合併，同一專案兩邊都改 → 保留對方版本並另存「衝突副本」，不覆蓋任何人的資料。SharePoint 寫入帶 `If-Match: eTag`（eTag 先於內容取得）：讀寫之間有人寫入 → 412 → 重讀、合併、再寫（連續最多 4 次）；寫入逾時但其實已寫入（下次讀到同一 `updated_at` + `rev`）→ 以那次寫入為基準，不會跟自己衝突；剛寫入後讀到較舊的版本（SharePoint 延遲）→ 60 秒內忽略 |
 | 壞檔保護 | JSON 解析失敗或不是 TIM 資料庫 → 進入唯讀並提示，**絕不以空白資料覆寫** |
 | 刪除保護 | 確認對話框；刪除專案連帶清理其圖片 |
-| 自動備份 | SharePoint：`Database/Backup/`；本機：指定資料夾。開啟時補備份、每 3 小時、切換分頁時；每日一檔、保留 30 份 |
+| 自動備份 | 一律寫在資料庫旁的 `Backup/`：SharePoint `Database/Backup/`；本機資料夾 `<資料夾>/Backup/`；SharePoint 模式另寫本機副本資料夾的 `Backup/`（`mirror.backupTarget`，可寫入後立即補一份）。只有直接選檔開啟的舊資料庫才用使用者指定的備份資料夾。開啟時、每 3 小時、切換分頁時（每個位置至少隔 10 分鐘）寫 `tim_db_backup_YYYY-MM-DD_HHmm.json`（`util.backupFileName`）；只留 2 份（`util.backupsToPrune`）：今天最新的一份＋前一個有備份的日子的最後一份，其餘刪除（SharePoint → 資源回收筒）。主檔名稱固定 `tim_db.json`（多人共用與 eTag 都綁在固定檔名） |
 | 規格書檔案 | 刪除：存檔成功且沒有材料再引用時才刪實體檔（SharePoint 進資源回收筒）；紀錄在但檔案不見時，檢視視窗提示並可移除紀錄 |
 | XSS | 所有自由文字逸出，事件以屬性 / 委派綁定，不拼接 inline handler |
 | 機密 | GitHub repo 為公開，**資料庫檔與機殼圖面不可 commit**（`.gitignore` 已排除） |
@@ -462,7 +462,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 |------|------|------|
 | 前端 | 原生 JS（classic script）＋ Preact 10 + htm（CDN，SRI 鎖定版本，jsDelivr → unpkg 備援） | 無 build 工具、可 `file://` 直接開、宣告式 UI 減少 DOM 狀態錯誤 |
 | Excel | ExcelJS 4.4（使用時才載入，timeout＋重試＋備援 CDN） | 支援樣式、合併儲存格、嵌入圖片的讀寫 |
-| 資料庫 | `js/db/sharepoint.js`（Graph + MSAL 2.38，eTag）、`js/db/fileDb.js`（資料庫資料夾 / JSON 檔）、`js/db/backup.js`（每日備份） | 與 AI Thermal 工具相同的 SharePoint 做法；本機模式沿用報告產生器 |
+| 資料庫 | `js/db/sharepoint.js`（Graph + MSAL 2.38，eTag）、`js/db/fileDb.js`（資料庫資料夾 / JSON 檔）、`js/db/backup.js`（備份：Backup/、日期＋時分、留 2 份） | 與 AI Thermal 工具相同的 SharePoint 做法；本機模式沿用報告產生器 |
 | 純邏輯模組 | `js/core/*.js`（UMD） | 瀏覽器與 Node 共用，可單元測試 |
 | 測試 | `node --test`（單元）＋ Playwright（E2E） | 每次交付前 headless 驗證 |
 | CI | GitHub Actions：語法檢查＋單元測試＋E2E；Pages 部署時自動戳版本號 | 版本號不手改 |

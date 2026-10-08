@@ -1,12 +1,13 @@
 /* SharePoint is the master copy of the database. Two helpers keep a local folder in step:
  *
  *  mirror  (SharePoint mode): after every save — and whenever other people's changes are pulled
- *          in — the latest SharePoint content is written to a local folder (write-only; never read
- *          back in this mode). By default that is the local database last opened in this browser
- *          (its folder and file name); the user may pick another folder or turn it off. A file
- *          there that was changed elsewhere since our last write is kept as
- *          tim_db_local_<time>.json first. Datasheet files the folder lacks are copied into its
- *          Datasheets folder (added only, never deleted), so the copy also works offline.
+ *          in — the latest SharePoint content is written to tim_db.json in a local folder
+ *          (write-only; never read back in this mode), laid out like SharePoint's Database folder:
+ *          tim_db.json + Backup/ (backup.js; mirror.backupTarget) + Datasheets/. By default the
+ *          folder is the one of the local database last opened in this browser; the user may pick
+ *          another folder or turn it off. A tim_db.json there that was changed elsewhere since our
+ *          last write is kept as tim_db_local_<time>.json first. Datasheet files the folder lacks
+ *          are copied into Datasheets (added only, never deleted), so the copy also works offline.
  *
  *  push    (local folder mode, i.e. someone opened the local copy): every local save is also
  *          merged into SharePoint (merge.mergePush: per project / material, If-Match; work changed
@@ -21,7 +22,7 @@
   'use strict';
   const TIM = window.TIM = window.TIM || {};
   const META_DB = 'tim-mgmt-meta', META_STORE = 'handles';
-  const MIRROR_KEY = 'mirror_dir';        // { dir, file, stamp, auto } | { off: true } — stamp: updated_at of the copy we last wrote
+  const MIRROR_KEY = 'mirror_dir';        // { dir, file, stamp, auto } | { off: true } — stamp: updated_at of the tim_db.json we last wrote
   const PENDING_KEY = 'sp_pending';       // [{ handle, name, base, taken, copies, at }]
   const DB_NAME = 'tim_db.json';
   const FILES_DIR = 'Datasheets';
@@ -236,8 +237,8 @@
 
   const mirror = {
     dir: null,
-    file: DB_NAME,           // database file name written in that folder
-    auto: false,             // true: the local database last opened (not a folder the user picked)
+    file: DB_NAME,           // the copy is always tim_db.json (the same name as on SharePoint)
+    auto: false,             // true: the folder of the local database last opened (not a folder the user picked)
     off: false,              // the user turned the local copy off
     stamp: null,
     state: 'none',           // none | needs-permission | ready | writing | error
@@ -245,7 +246,7 @@
     at: null,
     lastRev: null,
     kept: '',                // name of the last locally changed copy we kept aside
-    adopted: '',             // set once when the local database becomes the copy (for a notice)
+    adopted: '',             // set when the copy starts in a folder (or moves to tim_db.json there) — for a notice
     busy: false,
     again: false,
     filesBusy: false,
@@ -260,22 +261,22 @@
       const rec = await idbGet(MIRROR_KEY);
       mirror.off = !!(rec && rec.off);
       mirror.dir = !mirror.off && rec && rec.dir ? rec.dir : null;
-      mirror.file = (rec && rec.file) || DB_NAME;
+      mirror.file = DB_NAME;
       mirror.auto = !!(rec && rec.auto);
-      mirror.stamp = rec ? rec.stamp || null : null;
+      // the stamp belongs to the file it was taken from (older versions wrote the local database's own file name)
+      const sameFile = !(rec && rec.file) || rec.file === DB_NAME;
+      mirror.stamp = rec && sameFile ? rec.stamp || null : null;
       mirror.lastRev = null; mirror.error = ''; mirror.kept = ''; mirror.adopted = '';
       copied.clear();
       if (!mirror.off && (!mirror.dir || mirror.auto)) {
-        // nothing picked → the local database follows SharePoint
+        // nothing picked → the folder of the local database follows SharePoint
         const loc = await localDb();
         if (loc) {
-          if (!(mirror.dir && await same(mirror.dir, loc.dir) && mirror.file === loc.name)) {
-            if (!rec || !rec.dir) mirror.adopted = loc.dir.name + ' / ' + loc.name;
-            mirror.stamp = null;
-          }
-          mirror.dir = loc.dir; mirror.file = loc.name; mirror.auto = true;
+          if (!(mirror.dir && await same(mirror.dir, loc.dir))) mirror.stamp = null;
+          mirror.dir = loc.dir; mirror.auto = true;
         } else if (mirror.auto) mirror.dir = null;
       }
+      if (mirror.dir && (!rec || !rec.dir || !sameFile)) mirror.adopted = mirror.name();
       if (!mirror.dir) { mirror.state = 'none'; emit(); return; }
       let st = 'prompt';
       try { st = await mirror.dir.queryPermission({ mode: 'readwrite' }); } catch (e) { st = 'denied'; }
@@ -294,9 +295,7 @@
         if (e && e.name === 'AbortError') return { ok: false, reason: 'cancelled' };
         return { ok: false, reason: 'error', error: errText(e) };
       }
-      // the local database folder → write its database file
-      const loc = await localDb();
-      const file = loc && await same(loc.dir, dir) ? loc.name : DB_NAME;
+      const file = DB_NAME;
       // a file there that is not a TIM database is never overwritten
       try {
         const head = await (await (await dir.getFileHandle(file)).getFile()).slice(0, 600).text();
@@ -325,14 +324,23 @@
 
     /** Our local push left this folder in step with SharePoint at `stamp`. */
     async markSynced(handle, file, stamp) {
-      if (!handle || handle.kind !== 'directory' || !stamp) return;
+      if (!handle || handle.kind !== 'directory' || !stamp || String(file || DB_NAME).toLowerCase() !== DB_NAME) return;
       const rec = await idbGet(MIRROR_KEY);
       if (rec && rec.off) return;
       if (rec && rec.dir && !rec.auto) {
-        if (await same(rec.dir, handle) && (rec.file || DB_NAME) === file) await idbPut(MIRROR_KEY, Object.assign({}, rec, { stamp }));
+        if (await same(rec.dir, handle)) await idbPut(MIRROR_KEY, Object.assign({}, rec, { file: DB_NAME, stamp }));
         return;
       }
-      await idbPut(MIRROR_KEY, { dir: handle, file: file || DB_NAME, stamp, auto: true });   // the default copy is this database
+      await idbPut(MIRROR_KEY, { dir: handle, file: DB_NAME, stamp, auto: true });   // the default copy is this folder
+    },
+
+    /** Backup destination: <copy folder>/Backup, once the folder is writable (backup.js decides when and what is kept). */
+    backupTarget() {
+      return {
+        name: () => (mirror.dir ? mirror.dir.name + ' / Backup' : ''),
+        ready: () => !!mirror.dir && (mirror.state === 'ready' || mirror.state === 'writing'),
+        write: (text, file) => TIM.backup.writeFolder(mirror.dir, text, file),
+      };
     },
 
     /** Write the latest SharePoint content soon (coalesced). */
@@ -385,7 +393,7 @@
       } finally {
         mirror.busy = false;
         emit();
-        if (wrote) copyDatasheets();
+        if (wrote) { copyDatasheets(); if (TIM.backup && TIM.backup.kick) TIM.backup.kick(); }   // first backup of this folder right away
         if (mirror.again) { mirror.again = false; setTimeout(() => mirror.write(), 0); }
       }
     },

@@ -94,6 +94,26 @@
 
   function todayStr() { return fmtDate(new Date().toISOString()); }
 
+  // ───── backups: <database folder>/Backup/tim_db_backup_YYYY-MM-DD_HHmm.json (SharePoint and local alike) ─────
+  const BACKUP_RE = /^tim_db_backup_(\d{4}-\d{2}-\d{2})(?:_(\d{4}))?\.json$/i;
+  /** Backup file name for a moment (local time), e.g. "tim_db_backup_2026-10-08_1530.json". */
+  function backupFileName(d) {
+    d = d || new Date();
+    return 'tim_db_backup_' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '_' + pad2(d.getHours()) + pad2(d.getMinutes()) + '.json';
+  }
+  /**
+   * Backups to delete: only the newest backup of each of the last `keepDays` days that have one
+   * stays — today's latest and the previous day's last. Names that are not backups are never listed
+   * (older "tim_db_backup_YYYY-MM-DD.json" files count as that day's earliest backup).
+   */
+  function backupsToPrune(names, keepDays) {
+    const list = (names || []).filter(n => BACKUP_RE.test(n)).sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0);
+    const last = {};
+    list.forEach(n => { last[BACKUP_RE.exec(n)[1]] = n; });
+    const keep = new Set(Object.keys(last).sort().slice(-(keepDays || 2)).map(d => last[d]));
+    return list.filter(n => !keep.has(n));
+  }
+
   /** "3 分鐘前" style relative time (falls back to the date). */
   function fmtAgo(iso, now) {
     if (!iso) return '';
@@ -256,6 +276,7 @@
   return {
     uid, toHalfWidth, num, round, fmt, fmtFixed, clamp, clone, escapeHtml, nowIso,
     fmtDateTime, fmtDate, todayStr, fmtAgo, normalizeKey, naturalCompare, nextItemNo,
+    BACKUP_RE, backupFileName, backupsToPrune,
     nextVariantNo, debounce, displayValue, sum, byteLength, fmtBytes, fileSafe, storageName,
     tint, shade, hexToRgb, rgbToHex, textOn,
   };

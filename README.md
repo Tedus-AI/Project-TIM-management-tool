@@ -69,21 +69,31 @@ Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案�
 | 資料夾內容 | 結果 |
 |---|---|
 | 有 `tim_db.json` | 直接開啟並進入工具 |
-| 沒有 `tim_db.json`，但有一個 TIM 資料庫 JSON | 直接開啟它 |
-| 有好幾個 TIM 資料庫（例如每日備份） | 列出來讓你選一個 |
+| 沒有 `tim_db.json`，但有一個（不是備份的）TIM 資料庫 JSON | 直接開啟它 |
+| 有好幾個 TIM 資料庫，或只有備份檔 | 列出來讓你選一個；選備份檔時會先**複製成 `tim_db.json`** 再開啟（備份檔本身不動） |
 | 沒有任何 TIM 資料庫 | 詢問是否建立 `tim_db.json`，建立後直接進入 |
 
-資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫；規格書存在資料夾內的 `Datasheets/`。
+本機資料夾的排列跟 SharePoint 的 `Database` 資料夾一樣：
+
+```
+<資料庫資料夾>/
+├── tim_db.json      主檔（固定檔名）
+├── Backup/          tim_db_backup_日期_時分.json，最多 2 份（自動建立）
+└── Datasheets/      規格書
+```
+
+資料夾裡其他不是 TIM 資料庫的 JSON 檔不會被讀寫。
 下次開啟會顯示「上次使用」，按「繼續使用」即可。工具內右上角的資料庫按鈕（「切換」）會先存檔，再回到這個選擇畫面。
 
 ### SharePoint 為主、本機副本只寫不讀
 
 | 你在用的 | 每次存檔（自動：修改後約 0.8 秒；或 Ctrl+S） |
 |---|---|
-| **SharePoint**（平常） | 寫入 SharePoint，再把 SharePoint 的最新內容寫一份到「本機副本」（預設是這台電腦上次開啟的本機資料庫，只寫不讀）。別人的修改每 15 秒同步進來時，本機副本也跟著更新 |
+| **SharePoint**（平常） | 寫入 SharePoint，再把 SharePoint 的最新內容寫到「本機副本」資料夾的 `tim_db.json`（預設是這台電腦上次開啟的本機資料庫所在的資料夾，只寫不讀）。別人的修改每 15 秒同步進來時，本機副本也跟著更新 |
 | **本機資料夾**（不小心開到） | 寫入本機資料夾，**同時合併寫入 SharePoint**（以專案 / 材料為單位，不覆蓋別人的修改；兩邊都改了同一個專案時，SharePoint 的版本保留、你的另存「衝突副本」）；本機新上傳的規格書也一起上傳 |
 
-- **本機副本**：不用另外設定——預設就是這台電腦上次用「本機資料夾…」開啟的資料庫（同一個資料夾、同一個檔名）。
+- **本機副本**：不用另外設定——預設寫入這台電腦上次用「本機資料夾…」開啟的資料庫所在的資料夾，主檔一律是 `tim_db.json`
+  （即使當初開的是備份檔，也不會再寫進那個備份檔），備份寫在同一個資料夾的 `Backup/`，排列與 SharePoint 相同。
   要改寫到別的資料夾：「設定 → 變更本機副本資料夾…」；不需要：「停用本機副本」。工具列的「本機副本 時間」顯示最近一次寫入。
   重新開瀏覽器後，瀏覽器會收回資料夾權限：頂端出現「需要授權」提示（工具列也會顯示「本機副本：點擊授權」），
   按「授權」並在瀏覽器詢問時選「每次造訪時都允許」，之後就不用再按。
@@ -102,7 +112,7 @@ Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案�
 1. 在 `Thermal-Spec-DB` 網站的「文件」底下建立資料夾（資料夾不存在時工具也會自動建立）：
    ```
    TIM_Manager/
-   ├── Database/      tim_db.json（資料庫）＋ Backup/（每日備份，自動建立）
+   ├── Database/      tim_db.json（資料庫）＋ Backup/（備份，自動建立）
    └── Datasheets/    <Vendor>/<Model>/<規格書檔案>（上傳時自動建立）
    ```
 2. Azure 應用程式（與 AI Thermal pad & stud 工具共用同一個）：**Microsoft Entra ID → 應用程式註冊 → 驗證 →
@@ -283,8 +293,11 @@ Vendor / Model；把新版規格書交給 AI，貼回它的輸出。預設**覆�
   SharePoint 上每次寫入都帶 eTag（If-Match）：在「讀取 → 寫入」之間有人剛存過，SharePoint 會拒絕（412），工具重新讀取、合併後再寫，
   連線逾時但其實已寫入的情況也不會被當成衝突。
 - **壞檔 / 非本工具的檔案**：進入唯讀，絕不覆寫。
-- **每日自動備份**：SharePoint 自動存到 `TIM_Manager/Database/Backup/`；本機資料夾則在「設定」指定備份資料夾。
-  開啟時、每 3 小時與切換視窗時檢查，每天存一份 `tim_db_backup_YYYY-MM-DD.json`，保留 30 份。
+- **自動備份**（不用設定）：寫在資料庫旁的 `Backup/` 資料夾——SharePoint 是 `TIM_Manager/Database/Backup/`；
+  本機資料夾是 `<資料庫資料夾>/Backup/`；SharePoint 作業時，本機副本資料夾的 `Backup/` 也會同時寫一份。
+  開啟工具時、每 3 小時與切換分頁時寫入 `tim_db_backup_YYYY-MM-DD_HHmm.json`（日期＋時分）。
+  每邊**只保留 2 份**：今天最新的一份（每次備份取代今天較早的那份，檔名時間跟著更新）和前一天最後的一份，更舊的自動刪除。
+  更早的版本可以從 SharePoint 上 `tim_db.json` 的「版本歷程記錄」找回（文件庫預設有開啟版本控制）。
 - **規格書刪除**：從清單刪除後，存檔成功且沒有任何材料再引用時才刪實體檔（SharePoint 會進資源回收筒，可還原）；
   同檔名上傳會取代那一份（SharePoint 保留版本歷程）。
 - 圖片只存在資料庫內；刪除視圖或 Item 時會一併清掉不再使用的圖片。
@@ -322,7 +335,7 @@ index.html            進入點（載入順序即相依順序）
 css/app.css           設計 token 與元件樣式
 js/core/              schema、parse（Excel 文字解析）、calc（壓縮 / 熱 / 檢核）、geom（標註幾何）、merge、store（undo / 存檔 / 合併）、
                       matimport（材料匯入格式、AI 指令、解析）
-js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、每日備份、
+js/db/                SharePoint（Microsoft Graph + MSAL，eTag）、本機資料夾（File System Access API）、備份（Backup/，留 2 份）、
                       sync.js（SharePoint → 本機副本；本機資料夾 → 合併寫入 SharePoint）
 js/io/                Excel 匯出 / 匯入、圖片處理、視圖繪製、分享檔
 js/ui/                各頁面與共用元件
