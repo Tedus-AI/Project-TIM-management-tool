@@ -113,6 +113,30 @@ module.exports = [
     },
   },
   {
+    name: 'start page: a damaged backup is refused before tim_db.json is created, so the other backups can still be chosen',
+    async run(env) {
+      const { page, base } = env;
+      await page.goto(base);
+      await page.waitForSelector('.gate');
+      const good = tinyDb('Good backup');
+      const cut = '{"schema":"tim-db","schema_version":1,"rev":3,"projects":{"prj_x":{"id":"prj_x","name":"Cut';   // truncated mid-file
+      await fakeFolder(page, { 'tim_db_backup_2026-09-30_1200.json': good, 'tim_db_backup_2026-10-01_1830.json': cut });
+      await pickFolder(page);
+      await page.waitForSelector('.modal:has-text("選擇資料庫")');
+      await page.click('.db-pick-row:has-text("tim_db_backup_2026-10-01_1830.json")');
+      await page.waitForSelector('.gate-restore:has-text("無法開啟資料庫")');
+      assert.match(await page.locator('.gate-restore').first().innerText(), /tim_db_backup_2026-10-01_1830\.json 無法使用：檔案不是有效的 JSON/);
+      assert.deepEqual(await files(page), ['tim_db_backup_2026-09-30_1200.json', 'tim_db_backup_2026-10-01_1830.json'], 'no tim_db.json created');
+      // the other backup can still be chosen
+      await pickFolder(page);
+      await page.waitForSelector('.modal:has-text("選擇資料庫")');
+      await page.click('.db-pick-row:has-text("tim_db_backup_2026-09-30_1200.json")');
+      await page.waitForSelector('.proj-name:has-text("Good backup")');
+      assert.equal(await fileText(page, 'tim_db.json'), good);
+      assert.equal(await fileText(page, 'tim_db_backup_2026-10-01_1830.json'), cut, 'the damaged backup is left as it is');
+    },
+  },
+  {
     name: 'start page: several databases → chooser (non-TIM JSON ignored); cancel creates nothing',
     async run(env) {
       const { page, base } = env;
