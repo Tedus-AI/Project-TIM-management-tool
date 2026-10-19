@@ -331,6 +331,11 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
   唯讀時仍可檢視 / 下載 / 清單。刪除後存檔成功、且沒有材料再引用時才刪實體檔。
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
+### 5.3b 已發行 TIM（`js/core/released.js`、`js/ui/released.js`）
+- 由各專案的 Item 自動產生，不另存資料（與元件快選相同）：`delta_pn` 正規化（全形轉半形、去空白、不分大小寫）後一個料號一列；N/A、TBD、無、`-` 等不算料號。
+- 屬性取最近更新的專案的 Item；規格（Vendor · Model · 尺寸或點膠量）不同時標「規格不一致」並列出各規格與 Item 數。展開列出使用的專案 / Item / Location / Q'ty / 狀態，點擊跳到該 Item。
+- TIM 清單「從已發行 TIM 新增」：多選料號＋Location → `actions.insertItems`（一個 undo 步驟、變更紀錄）。帶入 `released.itemFields`：delta_pn、material_id（材料仍存在時）、Vendor / Model、型態、尺寸、點膠、形狀備註、Vendor P/N、加工廠、裁切圖號、2nd source（新 id）、單價 / MOQ / 交期；不帶 Location 以外的專案資料（Q'ty、Used On、覆蓋元件、間隙、狀態、驗證、備註）。
+
 ### 5.3a 聯絡人（`js/ui/contacts.js`）
 - 工廠 / 供應商兩個表格（收件者 / 副本 / PM）；抽屜編輯：類型、名稱、預設工廠（唯一）、代理廠牌（從材料庫與 TIM 清單出現過的 Vendor 點選，或輸入）、聯絡人（姓名 / 職稱 / Email / 電話 / 角色：收件者、副本、PM）、備註。
 - 所有專案共用；undo 範圍 `ct`；多人同時編輯時與專案、材料相同的單筆合併規則（同一單位兩人都改 → 衝突副本，副本不會是預設工廠）。
@@ -534,6 +539,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [x] 聯絡人（工廠 / 供應商，所有專案共用）與 TIM 備料：一鍵產生 Outlook 郵件（.eml：表格＋Excel 附件，不需 Azure）
+- [x] 已發行 TIM：各專案的 Delta 料號彙整，新 TIM 清單快選新增
 - [ ] 送樣追蹤
 - [ ] 跨專案比較（衍生機種差異）、料號合併建議
 - [x] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核（設計間距 ± 公差 + 元件高度公差 → 間隙）

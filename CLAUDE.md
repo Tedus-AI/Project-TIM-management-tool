@@ -42,6 +42,8 @@
   備料單在 `project.preps`（走 `mutateProject`，跟專案 undo）。邏輯全部在 `js/core/prep.js`（數量、來源 / 對象分組 `groups`、收件者 `recipients`、用語 `compose`、`.eml` 的 `buildEml`、`mailtoUrl`），
   UI（`js/ui/prep.js`）只提供 TIM 清單欄的儲存格文字（`bomInternals.cellText`）；Excel 與下載在 `js/io/prep-export.js`。郵件表格、Excel 與 `prep.mailed`（凍結內容，重新下載用）都來自同一個 `compose` 結果。
   **Outlook 郵件不用 Graph / Azure**：.eml 帶 `X-Unsent: 1`（傳統版 Outlook 開成新郵件），標頭 RFC 2047、CRLF、base64；mailto 只是備援（無附件）。
+- 已發行 TIM（`js/core/released.js`、`js/ui/released.js`，路由 `#/released`）：由各專案 Item 的 `delta_pn` 推導（`released.pnKey` 正規化並排除 N/A、TBD…），**沒有獨立資料**；
+  新增到 TIM 清單只走 `released.itemFields`（料號本身的屬性）＋ `actions.insertItems`，不帶 Q'ty / Used On / 覆蓋元件 / 間隙等專案資料。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。
 - TIM 清單「顯示 / 隱藏」（`bom.js` 的 `HidePanel`）：`usePref('bom_hidden_cols')`（欄 key，全部專案共用）、`usePref('bom_hidden_rows')`（{ 專案 id: [item id] }），

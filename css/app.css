@@ -959,3 +959,9 @@ td > .ds-btn { width: 28px; height: 24px; }
 .people-tbl td:nth-child(3) { width: 30%; }
 .people-tbl td:nth-child(4) { width: 18%; }
 .people-tbl .seg button { padding: 0 8px; }
+/* 已發行 TIM */
+.rel-tbl tr.rel-detail > td { background: var(--surface-2); padding: 10px 16px 14px; }
+.rel-tbl tr.rel-detail .subtbl td { padding: 4px 6px; }
+.rel-pick { max-height: 52vh; }
+.rel-pick th { position: sticky; top: 0; z-index: 1; }
+.modal-foot .left .sel-sm { margin-left: 4px; }
