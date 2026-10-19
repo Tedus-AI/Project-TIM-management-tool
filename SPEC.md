@@ -227,14 +227,14 @@ ContactOrg {                    // 聯絡單位（工廠 / 供應商）
   id, rev, created_at, updated_at, kind: "factory"|"supplier", name,
   brands: [ ],                  // 供應商代理的廠牌（對應 Item 的 Vendor，不分大小寫）
   is_default,                   // 預設工廠（只有一個）
-  people: [ { id, name, title, email, role: "to"|"cc" } ], note
+  people: [ { id, name, title, email, phone, role: "to"|"cc"|"pm" } ], note   // pm：列在郵件人名中、預設不寄
 }
 
 Prep {                          // 備料單（core/prep.js）
   id, no /* PR-01 */, created_at, created_by, updated_at, status: "draft"|"mailed",
   sets, purpose, need: { mode: "date"|"days"|"asap"|"proc", days, date },
   cols: [ key ] | null,         // 'loc' / 'no' + TIM 清單欄 key；null = 設定的預設（settings.prep_cols）或內建預設
-  lines:  { [item id]: { off, src: "factory"|"supplier" } },   // 只記與預設不同的
+  lines:  { [item id]: { off, src: "factory"|"supplier", org: org id } },   // 只記與預設不同的；org = 這列指定的單位
   route:  { "factory" | "s:<BRAND>": org id },                  // 改寄給非預設的單位
   pick:   { [org id]: { to: [email], cc: [email] } },           // 手動改過的收件者
   mailed: [ { id, at, by, key, org, to, cc, subject, head, rows, info, file, … } ]   // 產生郵件當時的內容（凍結）
@@ -303,9 +303,9 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 **備料**（`js/core/prep.js` 邏輯、`js/io/prep-export.js` 檔案、`js/ui/prep.js` 畫面）
 - 備料單紀錄（左側，新的在前；草稿 / 已產生郵件）。品項從 TIM 清單帶入（作廢除外，TIM 清單順序），1 套 = 1 台設備的用量：
   片狀 = Q'ty（pcs），點膠類 = 點膠量 × Q'ty（g / cc）；總數量 = 每套 × 套數，片數無條件進位、g / cc 進位到 0.1。
-- 來源：有 Delta 料號 → 工廠，否則 → 供應商（可逐列改）。對象：工廠 = 預設工廠（可改選）；供應商 = 代理廠牌含該 Vendor（或名稱相同）的單位，多家時可改選；
+- 對象（每列下拉）：預設有 Delta 料號 → 工廠，否則 → 代理該 Vendor 的供應商；可逐列指定任何工廠 / 供應商（有料號但工廠沒庫存、同廠牌分給不同供應商），`lines[id].org`。對象：工廠 = 預設工廠（可改選）；供應商 = 代理廠牌含該 Vendor（或名稱相同）的單位，多家時可改選；
   沒有對應單位 → 標黃「未設定」，可直接新增聯絡人（對話框）或把廠牌加到既有供應商。**每個單位一封郵件**。
-- 收件者：單位聯絡人依角色預選；專案熱流 / 機構負責人（Project_Members 的 Email）預設副本，寄件者本人除外；點人名切換 收件者 → 副本 → 不寄。
+- 收件者：單位聯絡人依角色預選（PM 列出但不寄）；專案熱流負責人（Project_Members 的 Email）預設副本，寄件者本人除外，機構負責人不預設；點人名切換 收件者 → 副本 → 不寄。整封改寄（`prep.rerouteGroup`）：自動的列改 `route`、指定的列改 `lines[id].org`。
 - 郵件：**.eml（`X-Unsent: 1`）**——傳統版 Outlook 開啟即為可編輯的新郵件（To / Cc / 主旨 / HTML 表格 / Excel 附件），不需 Azure / Graph 設定；
   MIME：multipart/mixed（multipart/alternative 純文字＋HTML、xlsx 附件），標頭 RFC 2047、CRLF、base64 76 字元換行。
   備援：mailto（純文字，連結過長時省略表格，無附件）、複製郵件內容（HTML）、下載 Excel。
@@ -332,7 +332,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
 ### 5.3a 聯絡人（`js/ui/contacts.js`）
-- 工廠 / 供應商兩個表格；抽屜編輯：類型、名稱、預設工廠（唯一）、代理廠牌（從材料庫與 TIM 清單出現過的 Vendor 點選，或輸入）、聯絡人（姓名 / 職稱 / Email / 預設角色）、備註。
+- 工廠 / 供應商兩個表格（收件者 / 副本 / PM）；抽屜編輯：類型、名稱、預設工廠（唯一）、代理廠牌（從材料庫與 TIM 清單出現過的 Vendor 點選，或輸入）、聯絡人（姓名 / 職稱 / Email / 電話 / 角色：收件者、副本、PM）、備註。
 - 所有專案共用；undo 範圍 `ct`；多人同時編輯時與專案、材料相同的單筆合併規則（同一單位兩人都改 → 衝突副本，副本不會是預設工廠）。
 
 ### 5.4 共通

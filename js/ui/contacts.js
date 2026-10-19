@@ -61,14 +61,15 @@
           ${!o.brands.length ? html`<div class="field-hint">還沒有廠牌：名稱與 Vendor 相同時也會自動對應。</div>` : null}
         </div>` : null}
       </section>
-      <section class="dsec"><div class="dsec-head"><h3>聯絡人</h3><span class="muted" style="font-size:11.5px">角色是備料郵件的預設：收件者 / 副本（寄信前可再改）</span></div>
+      <section class="dsec"><div class="dsec-head"><h3>聯絡人</h3><span class="muted" style="font-size:11.5px">角色是備料郵件的預設：收件者 / 副本；PM 列出但預設不寄（寄信前都可再改）</span></div>
         ${o.people.length ? html`<table class="subtbl people-tbl">
-          <thead><tr><th>姓名</th><th>職稱</th><th>Email</th><th>角色</th><th></th></tr></thead>
+          <thead><tr><th>姓名</th><th>職稱</th><th>Email</th><th>電話</th><th>角色</th><th></th></tr></thead>
           <tbody>${o.people.map(p => html`<tr key=${p.id}>
             <td><${TextField} value=${p.name} placeholder="姓名" disabled=${ro} onChange=${v => A().updateContactPerson(o.id, p.id, 'name', v)} /></td>
             <td><${TextField} value=${p.title} placeholder="物料課 / 業務" disabled=${ro} onChange=${v => A().updateContactPerson(o.id, p.id, 'title', v)} /></td>
             <td><${TextField} value=${p.email} placeholder="name@example.com" mono=${true} invalid=${!isMail(p.email)} disabled=${ro} onChange=${v => A().updateContactPerson(o.id, p.id, 'email', v.trim())} /></td>
-            <td><div class="seg seg-sm">${[['to', '收件者'], ['cc', '副本']].map(([v, l]) => html`<button type="button" class=${p.role === v ? 'on' : ''} disabled=${ro} onClick=${() => A().updateContactPerson(o.id, p.id, 'role', v)}>${l}</button>`)}</div></td>
+            <td><${TextField} value=${p.phone} placeholder="市話 / 分機 / 手機" disabled=${ro} onChange=${v => A().updateContactPerson(o.id, p.id, 'phone', v)} /></td>
+            <td><div class="seg seg-sm">${schema.CONTACT_ROLES.map(r => html`<button type="button" class=${p.role === r.v ? 'on' : ''} disabled=${ro} onClick=${() => A().updateContactPerson(o.id, p.id, 'role', r.v)}>${r.label}</button>`)}</div></td>
             <td class="r">${!ro ? html`<button class="icon-btn danger" title="移除聯絡人" onClick=${() => A().removeContactPerson(o.id, p.id)}><${Icon} name="trash" /></button>` : null}</td>
           </tr>`)}</tbody>
         </table>` : html`<div class="muted" style="font-size:12px;margin-bottom:8px">還沒有聯絡人：沒有 Email 的對象無法產生郵件。</div>`}
@@ -131,7 +132,7 @@
     if (!list.length) return html`<div class="empty compact"><p>${kind === 'factory' ? '還沒有工廠：有 Delta 料號的品項備料時寄給工廠。' : '還沒有供應商：沒有料號的品項依廠牌寄給供應商。'}</p></div>`;
     const names = (o, role) => o.people.filter(p => p.role === role).map(p => p.name || p.email).filter(Boolean).join('、');
     return html`<div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>${kind === 'factory' ? '工廠' : '供應商'}</th>${kind === 'supplier' ? html`<th>代理廠牌</th>` : null}<th>收件者</th><th>副本</th><th class="r">Email 數</th></tr></thead>
+      <thead><tr><th>${kind === 'factory' ? '工廠' : '供應商'}</th>${kind === 'supplier' ? html`<th>代理廠牌</th>` : null}<th>收件者</th><th>副本</th><th>PM</th><th class="r">Email 數</th></tr></thead>
       <tbody>${list.map(o => {
         const noMail = !o.people.some(p => /@/.test(p.email || ''));
         return html`<tr key=${o.id} class=${cx('clickable', sel === o.id && 'sel')} onClick=${() => go('contacts/' + o.id)}>
@@ -139,6 +140,7 @@
           ${kind === 'supplier' ? html`<td>${o.brands.length ? o.brands.join('、') : html`<span class="muted">—</span>`}</td>` : null}
           <td>${names(o, 'to') || html`<span class="muted">—</span>`}</td>
           <td>${names(o, 'cc') || html`<span class="muted">—</span>`}</td>
+          <td>${names(o, 'pm') || html`<span class="muted">—</span>`}</td>
           <td class="r">${noMail ? html`<span class="tag tag-warn">沒有 Email</span>` : o.people.filter(p => /@/.test(p.email || '')).length}</td>
         </tr>`;
       })}</tbody>

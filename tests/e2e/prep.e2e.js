@@ -51,11 +51,19 @@ module.exports = [
       assert.equal(await people.nth(1).locator('input.invalid').count(), 1, 'a wrong e-mail is flagged');
       await people.nth(1).locator('input').nth(2).fill('lin@factory.example');
       assert.equal(await people.nth(1).locator('.seg button.on').innerText(), '副本', 'the second person defaults to 副本');
+      // a PM with a phone number
+      await page.click('.drawer button:has-text("新增聯絡人")');
+      await people.nth(2).locator('input').nth(0).fill('陳PM');
+      await people.nth(2).locator('input').nth(2).fill('pm@factory.example');
+      await people.nth(2).locator('input').nth(3).fill('02-1234-5678 #12');
+      await people.nth(2).locator('.seg button:text-is("PM")').click();
       let orgs = await page.evaluate(() => Object.values(TIM.store.db.contacts));
       assert.equal(orgs.length, 1);
       assert.deepEqual([orgs[0].kind, orgs[0].name, orgs[0].is_default], ['factory', '甲廠 物料課', true]);
-      assert.deepEqual(orgs[0].people.map(p => [p.name, p.email, p.role]), [['王小明', 'wang@factory.example', 'to'], ['林佳慧', 'lin@factory.example', 'cc']]);
+      assert.deepEqual(orgs[0].people.map(p => [p.name, p.email, p.role, p.phone]),
+        [['王小明', 'wang@factory.example', 'to', ''], ['林佳慧', 'lin@factory.example', 'cc', ''], ['陳PM', 'pm@factory.example', 'pm', '02-1234-5678 #12']]);
       await page.click('.drawer button[title^="關閉"]');
+      assert.match(await page.locator('.section:has-text("工廠") .tbl tbody tr').first().innerText(), /王小明\s+林佳慧\s+陳PM/);
       // a second factory made default → the first one is not the default any more
       await page.click('button:has-text("新增工廠")');
       await page.waitForSelector('.drawer .org-edit');
@@ -97,6 +105,7 @@ module.exports = [
         const f = A.createContact({ kind: 'factory', name: '甲廠', is_default: true });
         A.addContactPerson(f, { name: '王小明', email: 'wang@factory.example', role: 'to' });
         A.addContactPerson(f, { name: '林佳慧', email: 'lin@factory.example', role: 'cc' });
+        A.addContactPerson(f, { name: '陳PM', email: 'pm@factory.example', role: 'pm', phone: '02-1234-5678' });
         const s = A.createContact({ kind: 'supplier', name: '乙公司', brands: ['vendor-b'] });
         A.addContactPerson(s, { name: '李大華', email: 'li@vendor-b.example', role: 'to' });
         A.createContact({ kind: 'supplier', name: '丙材料' });
@@ -113,15 +122,27 @@ module.exports = [
       assert.equal(prs[0].purpose, 'EVT 組裝', 'the first 用途 preselected');
       // default columns + total; every TIM-list item (all have a Delta P/N → 工廠)
       assert.deepEqual(await page.locator('.prep-grid thead th').allInnerTexts(),
-        ['', 'LOC', '#', 'ITEM', 'USED ON', 'VENDOR', 'Model', 'k (W/m·K)', 'SIZE', "Q'ty / 套", 'Delta PN', '總數量', '來源']);
+        ['', 'LOC', '#', 'ITEM', 'USED ON', 'VENDOR', 'Model', 'k (W/m·K)', 'SIZE', "Q'ty / 套", 'Delta PN', '總數量', '對象']);
       const rows = page.locator('.prep-grid tbody tr');
       assert.equal(await rows.count(), 9);
       assert.match(await page.locator('.card-head:has-text("品項")').innerText(), /帶入 9 項 · 已選 9 項/);
       const row = n => page.locator('.prep-grid tbody tr', { has: page.locator('td:text-is("' + n + '")') });
-      assert.equal(await row('A4').locator('.src-toggle button.on').innerText(), '工廠');
-      // A5 (Vendor-B) → supplier; A4 (Vendor-C) → supplier with no contact yet; A3 not prepared
-      await row('A5').locator('.src-toggle button.s').click();
-      await row('A4').locator('.src-toggle button.s').click();
+      const tgt = n => row(n).locator('.tgt-sel');
+      const tgtText = n => tgt(n).evaluate(e => e.options[e.selectedIndex].text);
+      assert.equal(await tgtText('A4'), '甲廠（自動）', 'a Delta P/N → the default factory');
+      assert.equal(await row('A4').locator('.tgt .auto').count(), 1);
+      // the target list: factories, then the suppliers carrying the brand, then the other suppliers
+      assert.deepEqual(await tgt('A5').evaluate(e => [...e.querySelectorAll('optgroup')].map(g => g.label + ':' + [...g.children].map(o => o.text).join('/'))),
+        ['工廠:甲廠（自動）', '供應商（代理 Vendor-B）:乙公司', '其他供應商:丙材料']);
+      // no stock at the factory: A5 → the brand's supplier, A4 → another supplier (one brand / Delta P/N, any supplier); A3 not prepared
+      await tgt('A5').selectOption({ label: '乙公司' });
+      await tgt('A4').selectOption({ label: '丙材料' });
+      await page.waitForFunction(() => Object.values(TIM.store.db.projects)[0].preps[0].lines && Object.keys(Object.values(TIM.store.db.projects)[0].preps[0].lines).length === 2);
+      assert.equal(await row('A4').locator('.tgt .auto').count(), 0, 'a choice is not 自動');
+      // choosing the automatic target again forgets the choice
+      await tgt('A1-1').selectOption({ label: '丙材料' });
+      await tgt('A1-1').selectOption({ label: '甲廠（自動）' });
+      await page.waitForFunction(() => !Object.values(TIM.store.db.projects)[0].preps[0].lines[Object.values(TIM.store.db.projects)[0].items[0].id]);
       await row('A3').locator('input[type=checkbox]').uncheck();
       await page.waitForFunction(() => document.querySelector('.card-head').innerText.includes('已選 8 項'));
       assert.equal(await row('A3').locator('td.tot').innerText(), '', 'unticked: no total');
@@ -135,18 +156,25 @@ module.exports = [
       assert.match(await page.locator('.computed').innerText(), /請選日期/);
       await page.fill('.need-date', '2030-01-15');
       await page.waitForFunction(() => /2030\/01\/15（二） 前/.test(document.querySelector('.computed').innerText));
-      // groups: factory, supplier 乙公司 (brand matched case-insensitively), Vendor-C without a contact
+      // groups: one email per organisation — factory, 乙公司 (A5), 丙材料 (A4, no e-mail yet)
       const grps = page.locator('.grp');
-      assert.equal(await grps.count(), 3);
-      assert.match(await grps.nth(0).innerText(), /工廠[\s\S]*甲廠[\s\S]*6 項/);
-      assert.match(await grps.nth(1).innerText(), /供應商[\s\S]*乙公司[\s\S]*1 項：A5/);
-      assert.match(await grps.nth(2).innerText(), /Vendor-C 還沒有供應商聯絡人/);
+      // each email: kind, organisation (the selected one when it can be changed) and its items
+      const groupsNow = () => page.evaluate(() => [...document.querySelectorAll('.grp')].map(g => {
+        const sel = g.querySelector('.org-sel');
+        return [g.querySelector('.kind').innerText, sel ? sel.options[sel.selectedIndex].text : (g.querySelector('.who b') || {}).innerText, (g.querySelector('.pill') || {}).innerText];
+      }));
+      assert.deepEqual(await groupsNow(), [['工廠', '甲廠', '6 項：A1-1、A1-2、A2、A6、A7、A8'], ['供應商', '丙材料', '1 項：A4'], ['供應商', '乙公司', '1 項：A5']]);
+      await page.waitForSelector('.grp:has(.org-sel option:checked:text-is("丙材料")) .grp-note:has-text("沒有收件者")');
       assert.match(await page.locator('.card-head:has-text("對象與郵件") .btn-primary').innerText(), /產生 2 封 Outlook 郵件/);
-      // Vendor-C → added to an existing supplier's brands (all projects); now 3 emails
-      await grps.nth(2).locator('select').selectOption({ label: '丙材料' });
-      await page.waitForFunction(() => Object.values(TIM.store.db.contacts).find(o => o.name === '丙材料').brands.includes('Vendor-C'));
-      await page.waitForSelector('.grp:has-text("丙材料") .grp-note:has-text("沒有收件者")');
+      // a whole email to another supplier (its chosen rows move with it), then back
+      await page.locator('.grp .org-sel').nth(1).selectOption({ label: '丙材料' });
+      await page.waitForFunction(() => document.querySelectorAll('.grp').length === 2);
+      assert.deepEqual((await groupsNow())[1], ['供應商', '丙材料', '2 項：A4、A5']);
+      await page.click('.proj-head-actions button[title^="復原"]');
+      await page.waitForFunction(() => document.querySelectorAll('.grp').length === 3);
       // a recipient click cycles 收件者 → 副本 → 不寄; 林佳慧 (副本) → 不寄 → 收件者
+      // the organisation's PM is listed (PM tag) but not sent by default
+      assert.match(await grps.nth(0).locator('.person:has-text("陳PM")').innerText(), /PM[\s\S]*不寄/);
       const lin = grps.nth(0).locator('.person:has-text("林佳慧")');
       assert.match(await lin.innerText(), /副本/);
       await lin.click();

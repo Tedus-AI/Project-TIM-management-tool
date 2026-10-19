@@ -948,3 +948,14 @@ td > .ds-btn { width: 28px; height: 24px; }
 .mail-head b { color: var(--ink-3); font-weight: 500; }
 .mail-head span { overflow-wrap: anywhere; }
 .mail-frame { width: 100%; height: 52vh; border: 1px solid var(--line); background: #fff; }
+/* 備料: per-item target (factory / supplier) and the PM tag on recipients */
+.tgt { display: inline-flex; align-items: center; white-space: nowrap; }
+.tgt-sel { max-width: 200px; height: 24px; font-size: 11.5px; padding-left: 7px; border-left: 3px solid var(--d-600); }
+.tgt-sel.s { border-left-color: #2E7D6B; }
+.tgt-sel.none { border-left-color: #E0A030; color: var(--warn); }
+.person .pm-tag { font-size: 9.5px; font-weight: 700; padding: 0 4px; color: var(--d-700); box-shadow: inset 0 0 0 1px var(--d-200); }
+.seg button { white-space: nowrap; }
+.people-tbl td:nth-child(1), .people-tbl td:nth-child(2) { width: 17%; }
+.people-tbl td:nth-child(3) { width: 30%; }
+.people-tbl td:nth-child(4) { width: 18%; }
+.people-tbl .seg button { padding: 0 8px; }

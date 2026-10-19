@@ -256,12 +256,13 @@
       kind: 'supplier', name: '', brands: [], is_default: false, people: [], note: '',
     }, fields || {});
   }
-  /** role: 'to' (收件者) | 'cc' (副本) — preselected in 備料 emails. */
+  /** role: 'to' (收件者) | 'cc' (副本) — preselected in 備料 emails; 'pm' — the organisation's PM, listed but not sent by default. */
+  const CONTACT_ROLES = [{ v: 'to', label: '收件者' }, { v: 'cc', label: '副本' }, { v: 'pm', label: 'PM' }];
   function newContactPerson(fields) {
-    return Object.assign({ id: util.uid('per'), name: '', title: '', email: '', role: 'to' }, fields || {});
+    return Object.assign({ id: util.uid('per'), name: '', title: '', email: '', phone: '', role: 'to' }, fields || {});
   }
   /**
-   * A 備料單 of a project. lines: { [item id]: { off, src: '' (auto) | 'factory' | 'supplier' } };
+   * A 備料單 of a project. lines: { [item id]: { off, src: '' (auto) | 'factory' | 'supplier', org: organisation id (a choice) } };
    * route: { 'factory' | 's:<BRAND>': organisation id } — another organisation than the default one;
    * pick: { [organisation id]: { to: [emails], cc: [emails] } } — recipients changed from the contacts' defaults;
    * mailed: emails generated (frozen content, prep.compose), newest last.
@@ -492,8 +493,8 @@
     o.people = (Array.isArray(o.people) ? o.people : []).filter(isObj).map(p => {
       const q = Object.assign(newContactPerson(), p);
       if (!q.id) q.id = util.uid('per');
-      q.name = str(q.name); q.title = str(q.title); q.email = str(q.email).trim();
-      q.role = q.role === 'cc' ? 'cc' : 'to';
+      q.name = str(q.name); q.title = str(q.title); q.email = str(q.email).trim(); q.phone = str(q.phone).trim();
+      q.role = CONTACT_ROLES.some(r => r.v === q.role) ? q.role : 'to';
       return q;
     });
     o.note = str(o.note);
@@ -564,7 +565,7 @@
     SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
     SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, LOAD_TYPES, loadType, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
-    RECORD_KINDS, DELETED_KEY, RECORD_PREFIX, RECORD_NAME_KEY, PREP_NEED_MODES, PREP_DAYS, ORG_KINDS,
+    RECORD_KINDS, DELETED_KEY, RECORD_PREFIX, RECORD_NAME_KEY, PREP_NEED_MODES, PREP_DAYS, ORG_KINDS, CONTACT_ROLES,
     newContactOrg, newContactPerson, newPrep, normalizePrep, normalizeContactOrg,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,

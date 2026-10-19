@@ -655,7 +655,7 @@
     st().mutateProject(pid, pp => { Object.assign(prepOf(pp, prepId), util.clone(patch), { updated_at: util.nowIso() }); },
       { coalesce: coalesce ? 'prep:' + prepId + ':' + coalesce : undefined });
   }
-  /** Line of an item: { off, src } ('' = automatic source); empty lines are removed. */
+  /** Line of an item: { off, src, org } ('' = automatic source / organisation); empty lines are removed. */
   function setPrepLine(pid, prepId, itemIds, patch) {
     const pr = prepOf(project(pid), prepId);
     if (!pr) return;
@@ -665,6 +665,7 @@
         const l = Object.assign({}, x.lines[id], patch);
         if (!l.off) delete l.off;
         if (!l.src) delete l.src;
+        if (!l.org) delete l.org;
         if (Object.keys(l).length) x.lines[id] = l; else delete x.lines[id];
       });
       x.updated_at = util.nowIso();

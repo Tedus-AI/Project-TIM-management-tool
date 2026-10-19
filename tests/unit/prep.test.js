@@ -164,3 +164,49 @@ test('.eml: unsent draft with encoded headers, HTML table and the Excel attachme
   assert.ok(long.split('\r\n ').every(w => w.length <= 75));
   assert.equal(prep.base64(Uint8Array.from([1, 2])), Buffer.from([1, 2]).toString('base64'));
 });
+
+test('a line names its organisation: no stock at the factory → a supplier, one brand split between suppliers; a whole email re-routed at once', () => {
+  const { db, p, a1, b1, c1, f1, s1, pr } = fixture();
+  const s2 = schema.newContactOrg({ kind: 'supplier', name: '戊公司', people: [schema.newContactPerson({ name: 'E', email: 'e@x.example' })] });
+  db.contacts[s2.id] = s2;
+  // A1 has a Delta P/N (factory) but no stock → 乙公司; C1 (Vendor-C, carried by 乙公司) → 戊公司
+  pr.lines[a1.id] = { org: s1.id, src: 'supplier' };
+  pr.lines[c1.id] = { org: s2.id, src: 'supplier' };
+  let gs = prep.groups(p, db, pr);
+  const by = k => gs.find(g => g.key === k);
+  assert.deepEqual(by(s1.id).lines.map(l => [l.it.item_no, l.explicit]), [['B1', false], ['A1', true]]);
+  assert.deepEqual(by(s2.id).lines.map(l => l.it.item_no), ['C1']);
+  assert.equal(by(f1.id), undefined, 'nothing left for the factory');
+  assert.equal(prep.sourceOf(pr, a1), 'supplier');
+  const t = prep.targetOf(db, pr, a1, null);
+  assert.deepEqual([t.explicit, t.auto && t.auto.id], [true, f1.id], 'the automatic target stays known (shown as 自動)');
+  assert.deepEqual(prep.supplierChoices(db, 'Vendor-C').map(o => o.name), ['乙公司', '戊公司'], 'brand suppliers first');
+  // re-route the 乙公司 email to 戊公司: routed B1 by prep.route, the chosen A1 by its line
+  Object.assign(pr, prep.rerouteGroup(pr, by(s1.id), s2.id));
+  gs = prep.groups(p, db, pr);
+  assert.deepEqual(gs.map(g => g.key), [s2.id, 'none:s:VENDOR-D']);
+  assert.deepEqual(gs[0].lines.map(l => l.it.item_no).sort(), ['A1', 'B1', 'C1']);
+  // the chosen organisation deleted → back to the automatic routing
+  delete db.contacts[s2.id];
+  pr.route = {};
+  gs = prep.groups(p, db, pr);
+  // (A1 keeps "supplier": the supplier of its brand, Vendor-A — nobody carries it, so it is flagged)
+  assert.deepEqual(gs.find(g => g.key === s1.id).lines.map(l => l.it.item_no), ['B1', 'C1']);
+  assert.deepEqual(gs.find(g => g.key === 'none:s:VENDOR-A').lines.map(l => l.it.item_no), ['A1']);
+  assert.equal(prep.sourceOf(pr, b1), 'supplier');
+});
+
+test('PM role: listed with the organisation but not sent by default; phone kept', () => {
+  const { f1, pr } = fixture();
+  f1.people.push(schema.newContactPerson({ name: 'PM-1', email: 'pm@factory.example', role: 'pm', phone: '02-1234' }));
+  const r = prep.recipients(f1, pr, [], []);
+  assert.deepEqual(r.to.map(p => p.name), ['王小明']);
+  assert.deepEqual(r.cc.map(p => p.name), ['林佳慧']);
+  const pm = r.people.find(p => p.name === 'PM-1');
+  assert.deepEqual([pm.role, pm.pm], ['', true]);
+  pr.pick[f1.id] = { to: ['wang@factory.example'], cc: ['pm@factory.example'] };
+  assert.deepEqual(prep.recipients(f1, pr, [], []).cc.map(p => p.name), ['PM-1']);
+  const n = schema.normalizeContactOrg(JSON.parse(JSON.stringify(f1)));
+  assert.deepEqual(n.people.map(p => [p.role, p.phone]), [['to', ''], ['cc', ''], ['pm', '02-1234']]);
+  assert.equal(schema.normalizeContactOrg({ kind: 'factory', people: [{ name: 'x', role: 'boss' }] }).people[0].role, 'to');
+});
