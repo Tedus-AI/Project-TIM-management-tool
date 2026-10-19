@@ -40,11 +40,11 @@
     const acc = TIM.spBackend && TIM.spBackend.account();
     return (acc && acc.name) || TIM.store.user() || '';
   }
-  /** Our colleagues CC'd by default (the project's TH / ME owners from Project_Members), not the sender. */
+  /** Our colleagues CC'd by default: the project's TH owner from Project_Members (not the ME owner), not the sender. */
   function oursOf(p, members) {
     const acc = TIM.spBackend && TIM.spBackend.account();
     const me = acc && acc.email ? acc.email.toLowerCase() : '';
-    return [p.owner, p.me_owner].map(n => (members || []).find(m => n && m.name === n)).filter(m => m && m.email && m.email.toLowerCase() !== me)
+    return [p.owner].map(n => (members || []).find(m => n && m.name === n)).filter(m => m && m.email && m.email.toLowerCase() !== me)
       .map(m => ({ name: m.name, email: m.email }));
   }
 
@@ -135,6 +135,34 @@
     </div>`;
   }
 
+  // ───────── per-item target: factory / the brand's suppliers / other suppliers ─────────
+  function TargetSelect(props) {
+    const { p, pr, it, t, db } = props;
+    const factories = P.orgsOf(db, 'factory');
+    const own = P.suppliersFor(db, t.vendor);
+    const others = P.orgsOf(db, 'supplier').filter(o => !own.includes(o));
+    const name = o => o.name || '(未命名)';
+    const autoKey = t.auto ? t.auto.id : '';
+    const isAuto = !t.explicit && !(pr.lines[it.id] || {}).src && (t.org || null) === (t.auto || null);
+    const value = t.org ? t.org.id : '';
+    const pick = id => {
+      if (!id) return;
+      const org = db.contacts[id];
+      // the automatic choice again → forget the choice (follows the Delta P/N / brand from now on)
+      if (id === autoKey && P.autoSource(it) === org.kind) A().setPrepLine(p.id, pr.id, it.id, { org: '', src: '' });
+      else A().setPrepLine(p.id, pr.id, it.id, { org: id, src: org.kind });
+    };
+    const opt = o => html`<option value=${o.id}>${name(o)}${o.id === autoKey ? '（自動）' : ''}</option>`;
+    return html`<span class="tgt">
+      <select class=${cx('sel sel-sm tgt-sel', t.src === 'factory' ? 'f' : 's', !t.org && 'none')} value=${value} disabled=${props.disabled}
+        aria-label=${'對象 ' + it.item_no} onChange=${e => pick(e.target.value)}>
+        ${!t.org ? html`<option value="">${t.src === 'factory' ? '（還沒有工廠聯絡人）' : '（' + (t.vendor || '沒有 Vendor') + ' 沒有供應商）'}</option>` : null}
+        ${factories.length ? html`<optgroup label="工廠">${factories.map(opt)}</optgroup>` : null}
+        ${own.length ? html`<optgroup label=${'供應商（代理 ' + t.vendor + '）'}>${own.map(opt)}</optgroup>` : null}
+        ${others.length ? html`<optgroup label=${own.length ? '其他供應商' : '供應商'}>${others.map(opt)}</optgroup>` : null}
+      </select>${isAuto ? html`<span class="auto">自動</span>` : null}</span>`;
+  }
+
   // ───────── one email group ─────────
   function GroupCard(props) {
     const { p, pr, g, md, locked } = props;
@@ -182,7 +210,7 @@
       <div class="who">
         <div class="who-line">
           ${options.length > 1 && !locked ? html`<select class="sel sel-sm org-sel" value=${g.org.id} title="改寄給另一個${g.kind === 'factory' ? '工廠' : '供應商'}（只影響這張備料單）"
-            onChange=${e => { const route = Object.assign({}, pr.route); g.bases.forEach(b => { route[b] = e.target.value; }); A().updatePrep(p.id, pr.id, { route }); }}>
+            onChange=${e => A().updatePrep(p.id, pr.id, P.rerouteGroup(pr, g, e.target.value))}>
             ${options.map(o => html`<option value=${o.id}>${o.name || '(未命名)'}</option>`)}</select>`
             : html`<b>${g.org.name || '(未命名)'}</b>`}
           <span class="pill">${g.lines.length} 項：${items}</span>
@@ -190,8 +218,8 @@
         </div>
         <div class="ppl">
           ${shown.map(x => html`<button type="button" key=${x.email} class=${cx('person', x.role || 'none')} disabled=${locked}
-              title=${x.email + '\n點一下切換：收件者 → 副本 → 不寄'} onClick=${() => cycle(x)}>
-            ${x.name || x.email} <i>${x.role === 'to' ? '收件者' : x.role === 'cc' ? '副本' : '不寄'}</i></button>`)}
+              title=${x.email + (x.pm ? '\nPM（預設不寄）' : '') + '\n點一下切換：收件者 → 副本 → 不寄'} onClick=${() => cycle(x)}>
+            ${x.name || x.email}${x.pm ? html` <b class="pm-tag">PM</b>` : null} <i>${x.role === 'to' ? '收件者' : x.role === 'cc' ? '副本' : '不寄'}</i></button>`)}
           ${addable.length && !locked ? html`<select class="sel sel-sm add-person" value="" onChange=${e => { const v = e.target.value; e.target.value = ''; if (v) setRole(v, 'cc'); }}>
             <option value="">＋ 副本給同事…</option>${addable.map(x => html`<option value=${x.email}>${x.name + ' <' + x.email + '>'}</option>`)}</select>` : null}
         </div>
@@ -275,22 +303,22 @@
           <thead><tr>
             <th class="c"><input type="checkbox" aria-label="全選" checked=${allOn} disabled=${locked} onChange=${() => A().setPrepLine(p.id, pr.id, all.map(it => it.id), { off: allOn })} /></th>
             ${md.cols.map(k => html`<th class=${P.isNum(k) ? 'r' : ''}>${colLabel(k)}</th>`)}
-            <th class="r">${P.TOTAL_LABEL}</th><th>來源</th>
+            <th class="r">${P.TOTAL_LABEL}</th><th>對象</th>
           </tr></thead>
           <tbody>${rows.map(it => {
             const on = P.isOn(pr, it);
             const hit = totals[it.id];
-            const s = src(it), auto = !((pr.lines[it.id] || {}).src);
+            const t = P.targetOf(md.db, pr, it, TIM.calc.materialOf(md.db, it));
             return html`<tr key=${it.id} class=${cx(!on && 'off')}>
               <td class="c"><input type="checkbox" aria-label=${'備料 ' + it.item_no} checked=${on} disabled=${locked} onChange=${() => A().setPrepLine(p.id, pr.id, it.id, { off: on })} /></td>
               ${md.cols.map(k => html`<td class=${cx(P.isNum(k) && 'r', (k === 'delta_pn' || k === 'vendor_pn' || k === 'item_no') && 'mono')}>${cellText(k, it)}</td>`)}
               <td class="r tot">${on && hit ? (hit.l.total == null ? html`<span class="tag tag-warn">缺數量</span>` : P.qtyText(hit.l.total, hit.l.per.unit)) : ''}</td>
-              <td><span class="src-toggle">${[['factory', '工廠'], ['supplier', '供應商']].map(([v, l]) => html`<button type="button" class=${cx(v === 'factory' ? 'f' : 's', s === v && 'on')} disabled=${locked}
-                onClick=${() => A().setPrepLine(p.id, pr.id, it.id, { src: v === P.autoSource(it) ? '' : v })}>${l}</button>`)}</span>${auto ? html`<span class="auto">自動</span>` : null}</td>
+              <td class="tgt-cell"><${TargetSelect} p=${p} pr=${pr} it=${it} t=${t} db=${md.db} disabled=${locked} /></td>
             </tr>`;
           })}</tbody>
         </table></div>` : html`<div class="empty compact"><p>TIM 清單還沒有 Item：先到「TIM 清單」建立，這裡就會帶入。</p></div>`}
-        <div class="hint">每套 Q'ty 來自 TIM 清單（1 套 = 1 台設備的用量）；點膠類以 g / cc 計（點膠量 × Q'ty）。來源預設：有 Delta 料號 → 工廠，沒有 → 依 Vendor 找供應商。</div>
+        <div class="hint">每套 Q'ty 來自 TIM 清單（1 套 = 1 台設備的用量）；點膠類以 g / cc 計（點膠量 × Q'ty）。對象預設（標「自動」）：有 Delta 料號 → 工廠，沒有 → 依 Vendor 找代理的供應商；
+          工廠沒庫存、或同一廠牌要分給不同供應商時，在「對象」直接選，每個對象各一封郵件。</div>
       </section>
 
       <div class="prep-row2">

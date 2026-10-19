@@ -588,6 +588,7 @@
       <nav class="nav">
         <a class=${cx('nav-link', (r.page === 'home' || r.page === 'project') && 'active')} href="#/"><${Icon} name="layers" size=${14} /> 專案</a>
         <a class=${cx('nav-link', r.page === 'library' && 'active')} href="#/library"><${Icon} name="book" size=${14} /> 材料庫</a>
+        <a class=${cx('nav-link', r.page === 'released' && 'active')} href="#/released"><${Icon} name="released" size=${14} /> 已發行 TIM</a>
         <a class=${cx('nav-link', r.page === 'contacts' && 'active')} href="#/contacts"><${Icon} name="contacts" size=${14} /> 聯絡人</a>
       </nav>
       ${p ? html`<div class="crumb"><${Icon} name="chevR" size=${12} /><b title=${p.name}>${p.name}</b></div>` : null}
@@ -677,6 +678,7 @@
     let page;
     if (route.page === 'library') page = html`<${TIM.ui.Library} route=${route} />`;
     else if (route.page === 'contacts') page = html`<${TIM.ui.Contacts} route=${route} />`;
+    else if (route.page === 'released') page = html`<${TIM.ui.ReleasedPage} />`;
     else if (route.page === 'project') page = html`<${TIM.ui.ProjectPage} route=${route} key=${route.pid} />`;
     else page = html`<${TIM.ui.Home} />`;
     return html`<div class=${cx('app', st.readonly && 'is-readonly')}>

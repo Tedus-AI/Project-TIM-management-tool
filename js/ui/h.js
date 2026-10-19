@@ -62,6 +62,7 @@
     mail: '<rect x="2" y="3.5" width="12" height="9" rx="1"/><path d="M2.5 4.5L8 9l5.5-4.5"/>',
     box: '<path d="M2.5 5L8 2.5 13.5 5v6L8 13.5 2.5 11z"/><path d="M2.5 5L8 7.5 13.5 5M8 7.5v6"/>',
     contacts: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.3c.5-2.3 2.2-3.6 4.2-3.6s3.7 1.3 4.2 3.6"/><path d="M10.5 3.6a2.2 2.2 0 0 1 0 4.1M12 9.9c1.2.5 2 1.7 2.3 3.4"/>',
+    released: '<path d="M3 2.5h7l3 3v8H3z"/><path d="M5.5 9l1.7 1.7L10.5 7"/>',
     star: '<path d="M8 2.2l1.8 3.7 4 .6-2.9 2.8.7 4L8 11.4l-3.6 1.9.7-4L2.2 6.5l4-.6z"/>',
     db: '<ellipse cx="8" cy="4" rx="5" ry="1.8"/><path d="M3 4v8c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4M3 8c0 1 2.2 1.8 5 1.8S13 9 13 8"/>',
   };
@@ -98,6 +99,7 @@
     (query || '').split('&').filter(Boolean).forEach(kv => { const [k, v] = kv.split('='); q[k] = v === undefined ? '' : v; });
     if (parts[0] === 'library') return { page: 'library', mat: parts[1] || null, q };
     if (parts[0] === 'contacts') return { page: 'contacts', org: parts[1] || null, q };
+    if (parts[0] === 'released') return { page: 'released', q };
     if (parts[0] === 'p' && parts[1]) return { page: 'project', pid: parts[1], tab: parts[2] || 'overview', sub: parts[3] || null, q };
     return { page: 'home', q };
   }

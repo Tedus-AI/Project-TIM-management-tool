@@ -726,6 +726,7 @@
       <div class="bom-toolbar">
         <button class="btn btn-primary btn-sm rw-only" onClick=${() => addRow(visible.length ? visible[visible.length - 1].location_id : (p.locations[0] && p.locations[0].id))}><${Icon} name="plus" /> 新增 Item</button>
         <button class="btn btn-secondary btn-sm rw-only" onClick=${() => openModal(close => html`<${PasteRowsModal} p=${p} close=${close} />`)}><${Icon} name="paste" /> 從 Excel 貼上多列</button>
+        <button class="btn btn-secondary btn-sm rw-only" title="快選其他專案用過的 Delta 料號（已發行 TIM）加入這個 TIM 清單" onClick=${() => TIM.ui.openReleasedPicker(p.id, visible.length ? visible[visible.length - 1].location_id : null)}><${Icon} name="released" /> 從已發行 TIM 新增</button>
         <span class="field-label" style="margin-left:6px">欄位</span>
         <div class="seg">
           ${[['mech', '機構'], ['thermal', '熱'], ['supply', '供應'], ['trace', '追溯']].map(([k, l]) =>
@@ -819,6 +820,7 @@
             <div class="actions rw-only">
               <button class="btn btn-primary" onClick=${() => openModal(close => html`<${PasteRowsModal} p=${p} close=${close} />`)}><${Icon} name="paste" /> 從 Excel 貼上多列</button>
               <button class="btn btn-secondary" onClick=${() => addRow(p.locations[0] && p.locations[0].id)}><${Icon} name="plus" /> 新增 Item</button>
+              <button class="btn btn-secondary" onClick=${() => TIM.ui.openReleasedPicker(p.id)}><${Icon} name="released" /> 從已發行 TIM 新增</button>
             </div>
           </div>` : null}
         </div>

@@ -229,8 +229,8 @@ module.exports = [
       const p = await page.evaluate(() => Object.values(TIM.store.db.projects)[0]);
       assert.equal(p.owner, 'Tester.a');
       assert.equal(p.me_owner, 'ME.Lin');
-      // 備料: the project's ME owner is CC'd by default (e-mail from Project_Members), not the signed-in sender;
-      // other members can be added from the list
+      // 備料: nobody of ours is CC'd by default here — the TH owner is the signed-in sender, the ME owner is not added;
+      // members (ME included) can be added from the list
       await page.evaluate(() => {
         const f = TIM.actions.createContact({ kind: 'factory', name: '甲廠', is_default: true });
         TIM.actions.addContactPerson(f, { name: 'W', email: 'w@factory.example', role: 'to' });
@@ -239,11 +239,13 @@ module.exports = [
         TIM.actions.createPrep(pid, {});
       });
       await page.click('.tab:has-text("備料")');
+      await page.waitForSelector('.grp .add-person');
+      assert.deepEqual(await page.locator('.grp .person').allInnerTexts().then(t => t.map(x => x.replace(/\s+/g, ' ').trim())), ['W 收件者'], 'only the factory contact');
+      const add = await page.locator('.grp .add-person option').allInnerTexts();
+      assert.ok(add.some(t => /ME\.Lin <me\.lin@example\.test>/.test(t)) && add.some(t => /RF\.Wu <rf\.wu@example\.test>/.test(t)), add.join(' | '));
+      await page.selectOption('.grp .add-person', 'me.lin@example.test');
       await page.waitForSelector('.grp .person:has-text("ME.Lin")');
       assert.match(await page.locator('.grp .person:has-text("ME.Lin")').innerText(), /副本/);
-      assert.equal(await page.locator('.grp .person:has-text("Tester.a")').count(), 0, 'the sender is not CC\'d');
-      const add = await page.locator('.grp .add-person option').allInnerTexts();
-      assert.ok(add.some(t => /RF\.Wu <rf\.wu@example\.test>/.test(t)), add.join(' | '));
       // overview: someone not on the list → 手動輸入…
       await page.click('.tab:has-text("總覽")');
       const ov = '.field:has(label:text-is("機構負責人"))';

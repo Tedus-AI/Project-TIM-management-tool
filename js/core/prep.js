@@ -67,7 +67,11 @@
   // ───────────────────────── who gets what ─────────────────────────
   const norm = s => util.toHalfWidth(String(s == null ? '' : s)).trim().replace(/\s+/g, ' ').toUpperCase();
 
-  /** Default source of an item: it has a Delta P/N → our factory, otherwise the supplier of its brand. */
+  /**
+   * Default source of an item: it has a Delta P/N → our factory, otherwise the supplier of its brand.
+   * A line can name its organisation (lines[id].org, with src = that organisation's kind): e.g. an item with a
+   * Delta P/N the factory has no stock of goes to a supplier, or one brand is split between suppliers.
+   */
   const autoSource = it => (String(it.delta_pn || '').trim() ? 'factory' : 'supplier');
   const lineOf = (prep, it) => (prep && prep.lines && prep.lines[it.id]) || {};
   const sourceOf = (prep, it) => lineOf(prep, it).src || autoSource(it);
@@ -84,31 +88,43 @@
     if (!v) return [];
     return orgsOf(db, 'supplier').filter(o => norm(o.name) === v || (o.brands || []).some(b => norm(b) === v));
   }
+  /** All suppliers, the ones carrying the brand first (choices for an item / a supplier email). */
+  function supplierChoices(db, vendor) {
+    const own = suppliersFor(db, vendor);
+    return own.concat(orgsOf(db, 'supplier').filter(o => !own.includes(o)));
+  }
 
   /**
    * Where an item goes. base: the routing key ('factory' or 's:<BRAND>') — prep.route[base] picks another
-   * organisation than the default; key: the email it is in (organisation id, or 'none:…' when nobody fits).
+   * organisation than the default for all such items; explicit: the line names its organisation; auto: the
+   * organisation it would go to without any choice. key: the email it is in (organisation id, or 'none:…').
    */
   function targetOf(db, prep, it, mat) {
+    const all = (db && db.contacts) || {};
+    const line = lineOf(prep, it);
+    const vendor = calc.effective(it, mat).vendor || '';
+    const auto = autoSource(it) === 'factory' ? (orgsOf(db, 'factory')[0] || null) : (suppliersFor(db, vendor)[0] || null);
+    const own = line.org && all[line.org] ? all[line.org] : null;
+    if (own) {
+      return { src: own.kind, base: own.kind === 'factory' ? 'factory' : 's:' + norm(vendor), key: own.id, org: own, vendor, explicit: true, auto,
+        options: own.kind === 'factory' ? orgsOf(db, 'factory') : supplierChoices(db, vendor) };
+    }
     const src = sourceOf(prep, it);
     const route = (prep && prep.route) || {};
-    const all = (db && db.contacts) || {};
     if (src === 'factory') {
       const list = orgsOf(db, 'factory');
       const org = (route.factory && all[route.factory] && all[route.factory].kind === 'factory' ? all[route.factory] : null) || list[0] || null;
-      return { src, base: 'factory', key: org ? org.id : 'none:factory', org, vendor: '', options: list };
+      return { src, base: 'factory', key: org ? org.id : 'none:factory', org, vendor, explicit: false, auto, options: list };
     }
-    const vendor = calc.effective(it, mat).vendor || '';
     const base = 's:' + norm(vendor);
-    const list = suppliersFor(db, vendor);
     const r = route[base] && all[route[base]] && all[route[base]].kind === 'supplier' ? all[route[base]] : null;
-    const org = r || list[0] || null;
-    return { src, base, key: org ? org.id : 'none:' + base, org, vendor, options: list };
+    const org = r || suppliersFor(db, vendor)[0] || null;
+    return { src, base, key: org ? org.id : 'none:' + base, org, vendor, explicit: false, auto, options: supplierChoices(db, vendor) };
   }
 
   /**
    * One group per email, factory first, then suppliers by name, then the ones nobody fits.
-   * → [{ key, org, kind: 'factory'|'supplier', vendor, bases: [routing keys], options, lines: [{ it, loc, mat, per, total }] }]
+   * → [{ key, org, kind: 'factory'|'supplier', vendor, bases: [routing keys], options, lines: [{ it, loc, mat, per, total, explicit }] }]
    */
   function groups(project, db, prep) {
     const map = {};
@@ -119,13 +135,26 @@
       const mat = calc.materialOf(db, it);
       const t = targetOf(db, prep, it, mat);
       const g = map[t.key] = map[t.key] || { key: t.key, org: t.org, kind: t.src, vendor: t.vendor, bases: [], options: t.options, lines: [] };
-      if (!g.bases.includes(t.base)) g.bases.push(t.base);
+      if (!t.explicit && !g.bases.includes(t.base)) g.bases.push(t.base);
+      if (t.options.length > g.options.length) g.options = t.options;
       const per = perSet(it, mat);
-      g.lines.push({ it, loc: locs[it.location_id] || null, mat, per, total: totalOf(per, prep && prep.sets) });
+      g.lines.push({ it, loc: locs[it.location_id] || null, mat, per, total: totalOf(per, prep && prep.sets), explicit: t.explicit });
     });
     const rank = g => (g.org ? (g.kind === 'factory' ? 0 : 1) : 2);
     return Object.values(map).sort((a, b) => rank(a) - rank(b)
       || util.naturalCompare(a.org ? a.org.name : a.vendor, b.org ? b.org.name : b.vendor));
+  }
+
+  /**
+   * Send every item of a group to another organisation (one change): routed items through prep.route,
+   * items that named their organisation by their line. → { route, lines } for actions.updatePrep.
+   */
+  function rerouteGroup(prep, g, orgId) {
+    const route = Object.assign({}, prep.route);
+    const lines = Object.assign({}, prep.lines);
+    g.bases.forEach(b => { route[b] = orgId; });
+    g.lines.filter(l => l.explicit).forEach(l => { lines[l.it.id] = Object.assign({}, lines[l.it.id], { org: orgId }); });
+    return { route, lines };
   }
 
   // ───────────────────────── recipients ─────────────────────────
@@ -136,17 +165,19 @@
   /**
    * Recipients of a group's email. Defaults: the organisation's people by role (收件者 / 副本) and `ours`
    * (our colleagues, e.g. the project's TH / ME owners) as 副本. prep.pick[org id] = { to: [emails], cc: [emails] }
-   * once changed by hand. known: extra people that may be picked (members list).
-   * → { to: [{ name, email }], cc: [...], people: [{ name, email, from: 'org'|'ours', role: 'to'|'cc'|'' }] }
+   * once changed by hand. known: extra people that may be picked (members list). People with the PM role are
+   * listed (pm: true) but not sent by default.
+   * → { to: [{ name, email }], cc: [...], people: [{ name, email, from: 'org'|'ours', role: 'to'|'cc'|'', pm }] }
    */
   function recipients(org, prep, ours, known) {
     const list = [];
-    const add = (p, from, role) => {
+    const add = (p, from, role, pm) => {
       const q = person(p);
       if (!hasMail(q) || list.some(x => sameMail(x.email, q.email))) return;
-      list.push(Object.assign(q, { from, role }));
+      list.push(Object.assign(q, { from, role, pm: !!pm }));
     };
-    ((org && org.people) || []).forEach(p => add(p, 'org', p.role === 'cc' ? 'cc' : 'to'));
+    // PM: listed with the organisation, not sent unless picked
+    ((org && org.people) || []).forEach(p => add(p, 'org', p.role === 'cc' ? 'cc' : p.role === 'pm' ? '' : 'to', p.role === 'pm'));
     (ours || []).forEach(p => add(p, 'ours', 'cc'));
     (known || []).forEach(p => add(p, 'ours', ''));
     const pick = org && prep && prep.pick && prep.pick[org.id];
@@ -397,7 +428,7 @@
 
   return {
     DEFAULT_COLS, FIXED_COLS, LABELS, TOTAL_LABEL, XLSX_TYPE, colsOf, labelOf, isNum,
-    itemsOf, perSet, totalOf, qtyText, autoSource, sourceOf, isOn, orgsOf, suppliersFor, targetOf, groups,
+    itemsOf, perSet, totalOf, qtyText, autoSource, sourceOf, isOn, orgsOf, suppliersFor, supplierChoices, targetOf, groups, rerouteGroup,
     recipients, needText, needShort, nextNo, fileName, table, compose, bodyHtml, bodyText,
     base64, encodeWord, buildEml, emlName, mailtoUrl, orgLabel,
   };
