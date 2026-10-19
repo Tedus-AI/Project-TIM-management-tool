@@ -520,7 +520,7 @@
     if (k !== 'z' && k !== 'y') return;
     if (document.querySelector('.modal-backdrop')) return;
     const r = TIM.ui.parseHash();
-    const scope = r.page === 'project' ? 'p:' + r.pid : r.page === 'library' ? 'lib' : null;
+    const scope = r.page === 'project' ? 'p:' + r.pid : r.page === 'library' ? 'lib' : r.page === 'contacts' ? 'ct' : null;
     if (!scope) return;
     e.preventDefault();
     const redo = k === 'y' || (k === 'z' && e.shiftKey);
@@ -588,6 +588,7 @@
       <nav class="nav">
         <a class=${cx('nav-link', (r.page === 'home' || r.page === 'project') && 'active')} href="#/"><${Icon} name="layers" size=${14} /> 專案</a>
         <a class=${cx('nav-link', r.page === 'library' && 'active')} href="#/library"><${Icon} name="book" size=${14} /> 材料庫</a>
+        <a class=${cx('nav-link', r.page === 'contacts' && 'active')} href="#/contacts"><${Icon} name="contacts" size=${14} /> 聯絡人</a>
       </nav>
       ${p ? html`<div class="crumb"><${Icon} name="chevR" size=${12} /><b title=${p.name}>${p.name}</b></div>` : null}
       <div class="toolbar-spacer"></div>
@@ -604,6 +605,7 @@
     </header>`;
   }
 
+  const KIND_NAME = { projects: '專案', materials: '材料', contacts: '聯絡人' };
   function Banners() {
     const st = TIM.store;
     const out = [];
@@ -619,7 +621,7 @@
     }
     if (st.conflicts.length) {
       const msg = st.conflicts.map(c => {
-        if (c.type === 'conflict') return (c.kind === 'projects' ? '專案' : '材料') + '「' + c.name + '」同時被其他人修改：對方版本已保留，你的修改另存為「衝突副本」';
+        if (c.type === 'conflict') return KIND_NAME[c.kind] + '「' + c.name + '」同時被其他人修改：對方版本已保留，你的修改另存為「衝突副本」';
         if (c.type === 'delete_skipped') return '「' + c.name + '」在你刪除前被其他人修改，已保留';
         if (c.type === 'restored') return '「' + c.name + '」被其他人刪除，但你有修改，已保留你的版本';
         return c.name;
@@ -644,7 +646,7 @@
     }
     if (p.conflicts.length && st.backend && st.backend.kind === 'file') {
       out.push(html`<div class="banner warn"><${Icon} name="warn" /><div>${p.conflicts.map(c => html`<div>${c.type === 'conflict'
-          ? (c.kind === 'projects' ? '專案' : '材料') + '「' + c.name + '」在 SharePoint 上也被修改：SharePoint 的版本保留，你在本機的修改存成「衝突副本」'
+          ? KIND_NAME[c.kind] + '「' + c.name + '」在 SharePoint 上也被修改：SharePoint 的版本保留，你在本機的修改存成「衝突副本」'
           : c.type === 'delete_skipped' ? '「' + c.name + '」在 SharePoint 上被修改過，沒有刪除' : '「' + c.name + '」在 SharePoint 上已被刪除，已用你的版本補回'}</div>`)}</div>
         <button class="btn btn-secondary btn-sm" onClick=${() => { p.conflicts = []; st.emit(); }}>知道了</button></div>`);
     }
@@ -674,6 +676,7 @@
     }
     let page;
     if (route.page === 'library') page = html`<${TIM.ui.Library} route=${route} />`;
+    else if (route.page === 'contacts') page = html`<${TIM.ui.Contacts} route=${route} />`;
     else if (route.page === 'project') page = html`<${TIM.ui.ProjectPage} route=${route} key=${route.pid} />`;
     else page = html`<${TIM.ui.Home} />`;
     return html`<div class=${cx('app', st.readonly && 'is-readonly')}>

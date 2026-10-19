@@ -1,6 +1,6 @@
 /* TIM Management Tool — optimistic-concurrency merge for a shared JSON database file.
  *
- * Every record (project / material) carries a `rev`. A client remembers the rev it
+ * Every record (schema.RECORD_KINDS: project / material / contact) carries a `rev`. A client remembers the rev it
  * last synced (`base`). On save it re-reads the file:
  *   - disk.rev === base.rev → nobody else wrote, write our copy (fast path, handled by the store)
  *   - otherwise merge per record:
@@ -31,6 +31,7 @@
       updated_at: db.updated_at || util.nowIso(),
       settings: db.settings || {},
       materials: db.materials || {},
+      contacts: db.contacts || {},
       projects: db.projects || {},
       images: db.images || {},
     });
@@ -51,8 +52,8 @@
   /**
    * @param disk   normalised DB read from storage now
    * @param local  our in-memory DB
-   * @param base   { rev, projects:{id:rev}, materials:{id:rev} } as of our last sync
-   * @param taken  { projects:Set, materials:Set, images:Set, settings:bool, deletedProjects:Set, deletedMaterials:Set }
+   * @param base   { rev, projects:{id:rev}, materials:{id:rev}, contacts:{id:rev} } as of our last sync
+   * @param taken  { projects:Set, materials:Set, contacts:Set, images:Set, settings:bool, deletedProjects:Set, deletedMaterials:Set, deletedContacts:Set }
    * @returns { merged, conflicts:[{kind, id, type, name, copyId?}] }
    *   merged references our live objects for records we write (their rev is updated in place).
    */
@@ -62,15 +63,17 @@
       rev: disk.rev || 0, updated_at: disk.updated_at,
       settings: taken.settings ? local.settings : (disk.settings || local.settings),
       materials: Object.assign({}, disk.materials || {}),
+      contacts: Object.assign({}, disk.contacts || {}),
       projects: Object.assign({}, disk.projects || {}),
       images: Object.assign({}, disk.images || {}),
     };
     const conflicts = [];
-    const nameOf = (kind, rec) => kind === 'projects' ? (rec.name || '(未命名專案)') : ((rec.vendor || '') + ' ' + (rec.model || '')).trim();
+    const nameOf = (kind, rec) => kind === 'projects' ? (rec.name || '(未命名專案)')
+      : kind === 'contacts' ? (rec.name || '(未命名聯絡單位)') : ((rec.vendor || '') + ' ' + (rec.model || '')).trim();
 
-    ['projects', 'materials'].forEach(kind => {
+    schema.RECORD_KINDS.forEach(kind => {
       const dirty = taken[kind] || new Set();
-      const deleted = kind === 'projects' ? (taken.deletedProjects || new Set()) : (taken.deletedMaterials || new Set());
+      const deleted = taken[schema.DELETED_KEY[kind]] || new Set();
       const baseRevs = (base && base[kind]) || {};
       const diskRecs = disk[kind] || {};
 
@@ -88,10 +91,11 @@
           merged[kind][id] = ours;
         } else {
           const copy = util.clone(ours);
-          copy.id = util.uid(kind === 'projects' ? 'prj' : 'mat');
+          copy.id = util.uid(schema.RECORD_PREFIX[kind]);
           copy.rev = 1;
-          if (kind === 'projects') copy.name = (copy.name || '') + conflictSuffix();
-          else copy.model = (copy.model || '') + conflictSuffix();
+          const nk = schema.RECORD_NAME_KEY[kind];
+          copy[nk] = (copy[nk] || '') + conflictSuffix();
+          if (kind === 'contacts') copy.is_default = false;   // the shared default factory stays theirs
           merged[kind][copy.id] = copy;
           conflicts.push({ kind, id, copyId: copy.id, type: 'conflict', name: nameOf(kind, ours) });
         }
@@ -115,11 +119,13 @@
     return { merged, conflicts };
   }
 
-  /** Revs of every record: { rev, projects:{id:rev}, materials:{id:rev} }. */
+  /** Revs of every record: { rev, projects:{id:rev}, materials:{id:rev}, contacts:{id:rev} }. */
   function revsOf(db) {
-    const b = { rev: db.rev || 0, projects: {}, materials: {} };
-    Object.values(db.projects || {}).forEach(p => { b.projects[p.id] = p.rev || 0; });
-    Object.values(db.materials || {}).forEach(m => { b.materials[m.id] = m.rev || 0; });
+    const b = { rev: db.rev || 0 };
+    schema.RECORD_KINDS.forEach(kind => {
+      b[kind] = {};
+      Object.values(db[kind] || {}).forEach(r => { b[kind][r.id] = r.rev || 0; });
+    });
     return b;
   }
 
@@ -127,24 +133,22 @@
    * Push the records changed in another copy of the database (a local folder copy) into the
    * shared one, with the same rules as mergeForSave but on copies: the local copy keeps its
    * own revs, and `base` holds the shared revs the local records were based on.
-   *   taken:  { projects:[ids], materials:[ids], images:[ids], settings, deletedProjects:[ids], deletedMaterials:[ids] }
-   *   copies: { projects:{ [localId]: { id, suffix } }, materials:{…} } — a local record that once
+   *   taken:  { projects:[ids], materials:[ids], contacts:[ids], images:[ids], settings, deletedProjects:[ids], … }
+   *   copies: { projects:{ [localId]: { id, suffix } }, materials:{…}, contacts:{…} } — a local record that once
    *           conflicted keeps updating its conflict copy instead of making a new one on every push.
    * Returns { merged, conflicts, base, copies } (base / copies: to use for the next push).
    */
   function mergePush(disk, local, base, taken, copies) {
-    copies = copies || { projects: {}, materials: {} };
-    copies = { projects: Object.assign({}, copies.projects), materials: Object.assign({}, copies.materials) };
-    const nameKey = { projects: 'name', materials: 'model' };
-    const view = { projects: {}, materials: {}, images: local.images || {}, settings: local.settings };
-    const t = {
-      projects: new Set(), materials: new Set(), images: new Set(taken.images || []), settings: !!taken.settings,
-      deletedProjects: new Set(), deletedMaterials: new Set(),
-    };
-    const back = { projects: {}, materials: {} };          // id in the shared copy → local id
-    ['projects', 'materials'].forEach(kind => {
+    copies = copies || {};
+    const K = schema.RECORD_KINDS, D = schema.DELETED_KEY, nameKey = schema.RECORD_NAME_KEY;
+    copies = K.reduce((o, kind) => { o[kind] = Object.assign({}, copies[kind]); return o; }, {});
+    const view = { images: local.images || {}, settings: local.settings };
+    const t = { images: new Set(taken.images || []), settings: !!taken.settings };
+    const back = {};                                         // id in the shared copy → local id
+    K.forEach(kind => { view[kind] = {}; t[kind] = new Set(); t[D[kind]] = new Set(); back[kind] = {}; });
+    K.forEach(kind => {
       const dirty = t[kind];
-      const deleted = kind === 'projects' ? t.deletedProjects : t.deletedMaterials;
+      const deleted = t[D[kind]];
       (taken[kind] || []).forEach(id => {
         const rec = local[kind] && local[kind][id];
         if (!rec) return;
@@ -155,7 +159,7 @@
         dirty.add(v.id);
         back[kind][v.id] = id;
       });
-      (taken[kind === 'projects' ? 'deletedProjects' : 'deletedMaterials'] || []).forEach(id => {
+      (taken[D[kind]] || []).forEach(id => {
         const c = copies[kind][id];
         deleted.add(c ? c.id : id);
         delete copies[kind][id];

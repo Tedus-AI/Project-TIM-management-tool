@@ -37,6 +37,11 @@
   `calc.groupKnown` 依類別分組。沒有獨立的元件庫資料。抽屜的 `CompField`（`item-drawer.js`，RefDes 欄）選取 → `actions.applyKnownComponent`。
   只有清單選取會帶入：不要加依料號自動帶入（元件料號欄、覆蓋元件欄（原 Note）、貼上 / 匯入）—— 使用者明確不要綁料號。
   加覆蓋元件欄位時，若屬於元件本身（非設計），一併加進 `COMP_GROUPS`。
+- 聯絡人與備料：`db.contacts`（工廠 / 供應商，所有專案共用）是第三種以單筆合併的紀錄 —— `schema.RECORD_KINDS` / `DELETED_KEY` / `RECORD_PREFIX` / `RECORD_NAME_KEY`
+  讓 `merge.js`、`store.js`（`mutateContacts`，undo 範圍 `ct`）、`sync.js`（taken 含 contacts；舊的待同步紀錄沒有 contacts 鍵要容許）一體處理；**再加紀錄種類時只改 schema 這幾個常數**。
+  備料單在 `project.preps`（走 `mutateProject`，跟專案 undo）。邏輯全部在 `js/core/prep.js`（數量、來源 / 對象分組 `groups`、收件者 `recipients`、用語 `compose`、`.eml` 的 `buildEml`、`mailtoUrl`），
+  UI（`js/ui/prep.js`）只提供 TIM 清單欄的儲存格文字（`bomInternals.cellText`）；Excel 與下載在 `js/io/prep-export.js`。郵件表格、Excel 與 `prep.mailed`（凍結內容，重新下載用）都來自同一個 `compose` 結果。
+  **Outlook 郵件不用 Graph / Azure**：.eml 帶 `X-Unsent: 1`（傳統版 Outlook 開成新郵件），標頭 RFC 2047、CRLF、base64；mailto 只是備援（無附件）。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。
 - TIM 清單「顯示 / 隱藏」（`bom.js` 的 `HidePanel`）：`usePref('bom_hidden_cols')`（欄 key，全部專案共用）、`usePref('bom_hidden_rows')`（{ 專案 id: [item id] }），

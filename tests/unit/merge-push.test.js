@@ -75,3 +75,23 @@ test('push: deleting locally what someone else just edited keeps theirs; materia
   assert.equal(r.merged.materials.mat_1.rev, 3);
   assert.deepEqual(r.merged.settings.default_locations, ['Top Case']);
 });
+
+test('push: contacts follow the same rules; a stored "taken" from an older version (no contacts keys) still works', () => {
+  const disk = shared();
+  const org = schema.newContactOrg({ kind: 'supplier', name: 'Vendor-B' }); org.id = 'org_1'; org.rev = 1;
+  disk.contacts.org_1 = org;
+  const local = clone(disk);
+  const base = merge.revsOf(local);
+  assert.equal(base.contacts.org_1, 1);
+  local.contacts.org_1.people.push(schema.newContactPerson({ name: 'Ben' }));
+  const r = merge.mergePush(disk, local, base, Object.assign(none(), { contacts: ['org_1'] }));
+  assert.equal(r.merged.contacts.org_1.people[0].name, 'Ben');
+  assert.equal(r.merged.contacts.org_1.rev, 2);
+  // older pending entry: no contacts / deletedContacts, no copies.contacts
+  local.projects.prj_P.customer = 'me';
+  const r2 = merge.mergePush(clone(r.merged), local, r.base, none(), { projects: {}, materials: {} });
+  assert.equal(r2.merged.contacts.org_1.people[0].name, 'Ben', 'untouched contacts kept');
+  delete local.contacts.org_1;
+  const r3 = merge.mergePush(clone(r.merged), local, r.base, Object.assign(none(), { deletedContacts: ['org_1'] }));
+  assert.equal(r3.merged.contacts.org_1, undefined);
+});

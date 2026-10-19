@@ -43,22 +43,33 @@
   async function idbDel(k) { delete memo[k]; try { await TIM.idb.del(META_DB, META_STORE, k); } catch (e) { /* ignore */ } }
   async function same(a, b) { try { return !!(a && b && await a.isSameEntry(b)); } catch (e) { return false; } }
 
-  function emptyTaken() { return { projects: [], materials: [], images: [], settings: false, deletedProjects: [], deletedMaterials: [] }; }
+  const KINDS = () => TIM.schema.RECORD_KINDS, DEL = () => TIM.schema.DELETED_KEY;
+  function emptyTaken() {
+    const t = { images: [], settings: false };
+    KINDS().forEach(kind => { t[kind] = []; t[DEL()[kind]] = []; });
+    return t;
+  }
+  /** A stored "taken" from an older version lacks the newer record kinds: add them empty. */
+  function fullTaken(t) { return addTaken(emptyTaken(), t || {}); }
+  function fullCopies(c) { return KINDS().reduce((o, kind) => { o[kind] = Object.assign({}, c && c[kind]); return o; }, {}); }
   /** Add a store "taken" (Sets) or a stored one (arrays) into `into`; the later change of a record wins. */
   function addTaken(into, t) {
     const arr = x => Array.from(x || []);
     const put = (list, id) => { if (!list.includes(id)) list.push(id); };
     const drop = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); };
-    arr(t.projects).forEach(id => { put(into.projects, id); drop(into.deletedProjects, id); });
-    arr(t.deletedProjects).forEach(id => { put(into.deletedProjects, id); drop(into.projects, id); });
-    arr(t.materials).forEach(id => { put(into.materials, id); drop(into.deletedMaterials, id); });
-    arr(t.deletedMaterials).forEach(id => { put(into.deletedMaterials, id); drop(into.materials, id); });
+    KINDS().forEach(kind => {
+      const del = DEL()[kind];
+      into[kind] = into[kind] || []; into[del] = into[del] || [];
+      arr(t[kind]).forEach(id => { put(into[kind], id); drop(into[del], id); });
+      arr(t[del]).forEach(id => { put(into[del], id); drop(into[kind], id); });
+    });
+    into.images = into.images || [];
     arr(t.images).forEach(id => put(into.images, id));
     if (t.settings) into.settings = true;
     return into;
   }
-  const isEmpty = t => !(t.projects.length || t.materials.length || t.images.length || t.settings || t.deletedProjects.length || t.deletedMaterials.length);
-  const countOf = t => t.projects.length + t.materials.length + t.deletedProjects.length + t.deletedMaterials.length + (t.settings ? 1 : 0);
+  const countOf = t => KINDS().reduce((n, kind) => n + (t[kind] || []).length + (t[DEL()[kind]] || []).length, 0) + (t.settings ? 1 : 0);
+  const isEmpty = t => !(countOf(t) || (t.images || []).length);
 
   async function loadPending() { const v = await idbGet(PENDING_KEY); return Array.isArray(v) ? v : []; }
   async function savePending(list) { if (list.length) await idbPut(PENDING_KEY, list); else await idbDel(PENDING_KEY); }
@@ -120,9 +131,9 @@
       push.stop();
       push.active = true; push.handle = handle; push.name = name || ''; push.file = file || DB_NAME;
       push.state = 'checking'; push.error = ''; push.at = null; push.conflicts = []; push.failures = 0;
-      push.entry = { base: merge().revsOf(db), taken: emptyTaken(), copies: { projects: {}, materials: {} } };
+      push.entry = { base: merge().revsOf(db), taken: emptyTaken(), copies: fullCopies(null) };
       for (const e of await loadPending()) {
-        if (await same(e.handle, handle)) { push.entry = { base: e.base, taken: e.taken, copies: e.copies || { projects: {}, materials: {} } }; break; }
+        if (await same(e.handle, handle)) { push.entry = { base: e.base, taken: fullTaken(e.taken), copies: fullCopies(e.copies) }; break; }
       }
       emit();
       await push.run();
@@ -467,21 +478,24 @@
       try { local = TIM.schema.normalizeDb(JSON.parse(text)); }
       catch (x) { throw new Error('本機資料夾「' + (e.name || (e.handle && e.handle.name) || '') + '」裡尚未同步的資料無法讀取（' + errText(x) + '）'); }
       const cur = TIM.store.db;
-      const r = merge().mergePush(cur, local, e.base, e.taken, e.copies);
-      const projects = [], materials = [], deletedProjects = [], deletedMaterials = [], images = [];
+      const taken = fullTaken(e.taken);
+      const r = merge().mergePush(cur, local, e.base, taken, fullCopies(e.copies));
+      const o = { images: [], settings: !!taken.settings };
+      KINDS().forEach(kind => { o[kind] = []; o[DEL()[kind]] = []; });
       TIM.store.mutateDb(db => {
-        ['projects', 'materials'].forEach(kind => {
+        KINDS().forEach(kind => {
+          db[kind] = db[kind] || {};
           Object.keys(r.merged[kind]).forEach(id => {
-            if (db[kind][id] !== r.merged[kind][id]) { db[kind][id] = r.merged[kind][id]; (kind === 'projects' ? projects : materials).push(id); }
+            if (db[kind][id] !== r.merged[kind][id]) { db[kind][id] = r.merged[kind][id]; o[kind].push(id); }
           });
           Object.keys(db[kind]).forEach(id => {
-            if (!r.merged[kind][id]) { delete db[kind][id]; (kind === 'projects' ? deletedProjects : deletedMaterials).push(id); }
+            if (!r.merged[kind][id]) { delete db[kind][id]; o[DEL()[kind]].push(id); }
           });
         });
-        Object.keys(r.merged.images).forEach(id => { if (!db.images[id]) { db.images[id] = r.merged.images[id]; images.push(id); } });
-        if (e.taken.settings) db.settings = r.merged.settings;
-      }, { projects, materials, deletedProjects, deletedMaterials, images, settings: !!e.taken.settings, clearHistory: ['lib'].concat(projects.map(id => 'p:' + id)) });
-      applied += countOf(e.taken);
+        Object.keys(r.merged.images).forEach(id => { if (!db.images[id]) { db.images[id] = r.merged.images[id]; o.images.push(id); } });
+        if (taken.settings) db.settings = r.merged.settings;
+      }, Object.assign(o, { clearHistory: ['lib', 'ct'].concat(o.projects.map(id => 'p:' + id)) }));
+      applied += countOf(taken);
       if (r.conflicts.length) TIM.store.conflicts = TIM.store.conflicts.concat(r.conflicts.map(c => Object.assign({ at: TIM.util.nowIso() }, c)));
     }
     await savePending(keep);

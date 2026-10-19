@@ -29,9 +29,11 @@
       conflicts: [],
       version: 0,
       saveDelay: opts.saveDelay == null ? 800 : opts.saveDelay,
-      onSaved: null,          // (taken) after every successful write: { projects:Set, materials:Set, images:Set, settings, deletedProjects:Set, deletedMaterials:Set }
+      onSaved: null,          // (taken) after every successful write: { projects:Set, materials:Set, contacts:Set, images:Set, settings, deletedProjects:Set, … }
     };
-    let base = { rev: 0, projects: {}, materials: {} };
+    const K = schema.RECORD_KINDS, D = schema.DELETED_KEY;
+    const emptyRevs = rev => K.reduce((b, kind) => { b[kind] = {}; return b; }, { rev: rev || 0 });
+    let base = emptyRevs(0);
     let dirty = freshDirty();
     const undo = {}, redo = {};
     let lastMut = { scope: null, key: null, at: 0 };
@@ -40,12 +42,16 @@
     let saveTimer = null, saving = null, saveAgain = false;
 
     function freshDirty() {
-      return { projects: new Set(), materials: new Set(), images: new Set(), settings: false, deletedProjects: new Set(), deletedMaterials: new Set() };
+      const d = { images: new Set(), settings: false };
+      K.forEach(kind => { d[kind] = new Set(); d[D[kind]] = new Set(); });
+      return d;
     }
     function hasDirty() {
-      return dirty.projects.size || dirty.materials.size || dirty.images.size || dirty.settings ||
-        dirty.deletedProjects.size || dirty.deletedMaterials.size;
+      return !!(dirty.images.size || dirty.settings || K.some(kind => dirty[kind].size || dirty[D[kind]].size));
     }
+    /** Mark records written / deleted (the other set loses them). */
+    function touch(kind, id) { dirty[kind].add(id); dirty[D[kind]].delete(id); }
+    function drop(kind, id) { dirty[D[kind]].add(id); dirty[kind].delete(id); }
 
     function emit() {
       S.version++;
@@ -58,11 +64,7 @@
     function user() { try { return userFn() || ''; } catch (e) { return ''; } }
     function setUser(fn) { userFn = typeof fn === 'function' ? fn : () => fn; }
 
-    function syncBaseFromDb() {
-      base = { rev: S.db.rev || 0, projects: {}, materials: {} };
-      Object.values(S.db.projects).forEach(p => { base.projects[p.id] = p.rev || 0; });
-      Object.values(S.db.materials).forEach(m => { base.materials[m.id] = m.rev || 0; });
-    }
+    function syncBaseFromDb() { base = revsOf(S.db); }
 
     /** Attach a freshly opened DB. opts.readonly + reason for corrupt / foreign files. */
     function attach(backend, db, o) {
@@ -90,8 +92,10 @@
     }
 
     // ───────────── undo / redo ─────────────
+    // undo scopes: 'p:<id>' a project, 'lib' the material library, 'ct' the contacts
+    const LIST_SCOPE = { lib: 'materials', ct: 'contacts' };
     function scopeSnapshot(scope) {
-      if (scope === 'lib') return JSON.stringify(S.db.materials);
+      if (LIST_SCOPE[scope]) return JSON.stringify(S.db[LIST_SCOPE[scope]]);
       const pid = scope.slice(2);
       const p = S.db.projects[pid];
       return p ? JSON.stringify(p) : null;
@@ -108,15 +112,16 @@
       redo[scope] = [];
     }
     function restoreScope(scope, snap) {
-      if (scope === 'lib') {
-        const before = S.db.materials;
+      if (LIST_SCOPE[scope]) {
+        const kind = LIST_SCOPE[scope];
+        const before = S.db[kind];
         const after = JSON.parse(snap);
-        Object.keys(before).forEach(id => { if (!after[id]) { dirty.deletedMaterials.add(id); dirty.materials.delete(id); } });
+        Object.keys(before).forEach(id => { if (!after[id]) drop(kind, id); });
         Object.keys(after).forEach(id => {
-          if (JSON.stringify(before[id]) !== JSON.stringify(after[id])) dirty.materials.add(id);
-          dirty.deletedMaterials.delete(id);
+          if (JSON.stringify(before[id]) !== JSON.stringify(after[id])) dirty[kind].add(id);
+          dirty[D[kind]].delete(id);
         });
-        S.db.materials = after;
+        S.db[kind] = after;
       } else {
         const pid = scope.slice(2);
         S.db.projects[pid] = JSON.parse(snap);
@@ -203,35 +208,35 @@
       return true;
     }
 
-    /** Mutate the material library (undo scope 'lib'). o.touched: ids changed, o.deleted: ids removed. */
-    function mutateMaterials(fn, o) {
+    /** Mutate a shared list: kind 'materials' (undo scope 'lib') or 'contacts' ('ct'). o.touched: ids changed, o.deleted: ids removed. */
+    function mutateList(kind, scope, fn, o) {
       o = o || {};
       if (!guard()) return false;
-      if (!o.noUndo) pushUndo('lib', o.coalesce);
-      const r = fn(S.db.materials);
+      if (!o.noUndo) pushUndo(scope, o.coalesce);
+      const r = fn(S.db[kind]);
       if (r === false) return false;
       const now = util.nowIso();
-      (o.touched || []).forEach(id => {
-        if (S.db.materials[id]) { S.db.materials[id].updated_at = now; dirty.materials.add(id); dirty.deletedMaterials.delete(id); }
-      });
-      (o.deleted || []).forEach(id => { dirty.deletedMaterials.add(id); dirty.materials.delete(id); });
+      (o.touched || []).forEach(id => { if (S.db[kind][id]) { S.db[kind][id].updated_at = now; touch(kind, id); } });
+      (o.deleted || []).forEach(id => drop(kind, id));
       changed();
       return true;
     }
+    function mutateMaterials(fn, o) { return mutateList('materials', 'lib', fn, o); }
+    function mutateContacts(fn, o) { return mutateList('contacts', 'ct', fn, o); }
 
     /**
      * Structural DB change without undo (create / delete project, settings, cascades).
-     * o: { projects:[ids touched], deletedProjects:[ids], materials:[ids], deletedMaterials:[ids], images:[ids], settings:bool }
+     * o: { projects:[ids touched], deletedProjects:[ids], materials:[ids], deletedMaterials:[ids], contacts:[ids], deletedContacts:[ids], images:[ids], settings:bool }
      */
     function mutateDb(fn, o) {
       o = o || {};
       if (!guard()) return false;
       const r = fn(S.db);
       if (r === false) return false;
-      (o.projects || []).forEach(id => { dirty.projects.add(id); dirty.deletedProjects.delete(id); });
-      (o.deletedProjects || []).forEach(id => { dirty.deletedProjects.add(id); dirty.projects.delete(id); clearHistory('p:' + id); });
-      (o.materials || []).forEach(id => { dirty.materials.add(id); dirty.deletedMaterials.delete(id); });
-      (o.deletedMaterials || []).forEach(id => { dirty.deletedMaterials.add(id); dirty.materials.delete(id); });
+      K.forEach(kind => {
+        (o[kind] || []).forEach(id => touch(kind, id));
+        (o[D[kind]] || []).forEach(id => { drop(kind, id); if (kind === 'projects') clearHistory('p:' + id); });
+      });
       (o.images || []).forEach(id => dirty.images.add(id));
       if (o.settings) dirty.settings = true;
       if (o.clearHistory) o.clearHistory.forEach(clearHistory);
@@ -270,12 +275,12 @@
 
     function takeDirty() { const t = dirty; dirty = freshDirty(); return t; }
     function restoreDirty(t) {
-      t.projects.forEach(id => { if (!dirty.deletedProjects.has(id)) dirty.projects.add(id); });
-      t.materials.forEach(id => { if (!dirty.deletedMaterials.has(id)) dirty.materials.add(id); });
+      K.forEach(kind => {
+        t[kind].forEach(id => { if (!dirty[D[kind]].has(id)) dirty[kind].add(id); });
+        t[D[kind]].forEach(id => { if (!dirty[kind].has(id)) dirty[D[kind]].add(id); });
+      });
       t.images.forEach(id => dirty.images.add(id));
       if (t.settings) dirty.settings = true;
-      t.deletedProjects.forEach(id => { if (!dirty.projects.has(id)) dirty.deletedProjects.add(id); });
-      t.deletedMaterials.forEach(id => { if (!dirty.materials.has(id)) dirty.deletedMaterials.add(id); });
     }
 
     /** Read + validate the stored DB. Returns null for an empty file. Throws Error with .corrupt = true when unusable. */
@@ -304,9 +309,8 @@
     let unsure = null;
     const stampOf = head => { const m = String(head || '').match(/"updated_at"\s*:\s*"([^"]+)"/); return m ? m[1] : null; };
     function revsOf(db) {
-      const b = { rev: db.rev, projects: {}, materials: {} };
-      Object.values(db.projects).forEach(p => { b.projects[p.id] = p.rev || 0; });
-      Object.values(db.materials).forEach(m => { b.materials[m.id] = m.rev || 0; });
+      const b = emptyRevs(db.rev);
+      K.forEach(kind => Object.values(db[kind] || {}).forEach(r => { b[kind][r.id] = r.rev || 0; }));
       return b;
     }
     /** Head just read: settle a pending uncertain write. */
@@ -318,14 +322,17 @@
 
     /**
      * Adopt remote records after a merge / reload (keeps records edited meanwhile).
-     * Returns the ids whose remote version was skipped: { projects:Set, materials:Set }.
+     * Returns the ids whose remote version was skipped: { projects:Set, materials:Set, contacts:Set }.
      */
     function adopt(merged, conflicts) {
       const db = S.db;
-      const skipped = { projects: new Set(), materials: new Set() };
-      ['projects', 'materials'].forEach(kind => {
+      const skipped = {};
+      K.forEach(kind => {
+        skipped[kind] = new Set();
+        db[kind] = db[kind] || {};
+        merged[kind] = merged[kind] || {};
         const dirtyNow = dirty[kind];
-        const deletedNow = kind === 'projects' ? dirty.deletedProjects : dirty.deletedMaterials;
+        const deletedNow = dirty[D[kind]];
         Object.keys(merged[kind]).forEach(id => {
           if (db[kind][id] === merged[kind][id]) return;
           if (dirtyNow.has(id) || deletedNow.has(id)) {
@@ -350,11 +357,9 @@
     /** Remember the revs we are now in sync with. Skipped records keep their old base rev. */
     function recordBase(merged, skipped) {
       const old = base;
-      base = { rev: merged.rev, projects: {}, materials: {} };
-      Object.values(merged.projects).forEach(p => { base.projects[p.id] = p.rev || 0; });
-      Object.values(merged.materials).forEach(m => { base.materials[m.id] = m.rev || 0; });
+      base = revsOf(merged);
       if (skipped) {
-        ['projects', 'materials'].forEach(kind => skipped[kind].forEach(id => {
+        K.forEach(kind => skipped[kind].forEach(id => {
           if (old[kind][id] === undefined) delete base[kind][id]; else base[kind][id] = old[kind][id];
           forceMerge = true;
         }));
@@ -387,8 +392,7 @@
             if (!disk) fast = true;
           }
           if (fast) {
-            t.projects.forEach(id => { const p = S.db.projects[id]; if (p) p.rev = (base.projects[id] || 0) + 1; });
-            t.materials.forEach(id => { const m = S.db.materials[id]; if (m) m.rev = (base.materials[id] || 0) + 1; });
+            K.forEach(kind => t[kind].forEach(id => { const r = S.db[kind] && S.db[kind][id]; if (r) r.rev = (base[kind][id] || 0) + 1; }));
             mergedDb = S.db;
             mergedDb.rev = Math.max(base.rev, headRev || 0) + 1;
           } else {
@@ -414,7 +418,7 @@
           if (S.onSaved) {
             // what this save wrote (records, deletions, images, settings) — e.g. to copy it elsewhere
             const copies = conflicts.filter(c => c.type === 'conflict' && c.copyId);
-            copies.forEach(c => (c.kind === 'projects' ? t.projects : t.materials).add(c.copyId));
+            copies.forEach(c => { if (t[c.kind]) t[c.kind].add(c.copyId); });
             try { S.onSaved(t); } catch (x) { console.error(x); }
           }
         } catch (e) {
@@ -492,7 +496,7 @@
 
     return Object.assign(S, {
       subscribe, emit, attach, detach, setUser, user,
-      mutateProject, mutateMaterials, mutateDb, addImage,
+      mutateProject, mutateMaterials, mutateContacts, mutateDb, addImage,
       undo: doUndo, redo: doRedo, canUndo, canRedo, clearHistory,
       saveNow, scheduleSave, flush, syncCheck, hasUnsaved, dismissConflicts,
       _debug: () => ({ base, dirty, undo, redo }),
