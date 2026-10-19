@@ -573,6 +573,123 @@
     st().mutateProject(pid, pp => { pp.baselines = pp.baselines.filter(x => x.id !== id); }, { changes: [{ kind: 'remove', target: 'project', target_id: id, text: '刪除基準「' + (b ? b.name : '') + '」' }] });
   }
 
+  // ───────── contacts (factories / suppliers shared by all projects) ─────────
+  const contact = id => st().db.contacts[id];
+  function createContact(fields) {
+    const o = schema.newContactOrg(fields);
+    const others = o.kind === 'factory' && o.is_default ? Object.values(st().db.contacts).filter(x => x.is_default) : [];
+    st().mutateContacts(c => { others.forEach(x => { c[x.id].is_default = false; }); c[o.id] = o; }, { touched: [o.id].concat(others.map(x => x.id)) });
+    return o.id;
+  }
+  function updateContact(id, field, value) {
+    const o = contact(id);
+    if (!o || JSON.stringify(o[field]) === JSON.stringify(value)) return;
+    st().mutateContacts(c => {
+      c[id][field] = value;
+      if (field === 'kind' && value !== 'factory') c[id].is_default = false;
+    }, { coalesce: 'org:' + id + ':' + field, touched: [id] });
+  }
+  /** The default factory of 備料 (one at a time). */
+  function setDefaultFactory(id) {
+    const o = contact(id);
+    if (!o || o.kind !== 'factory') return;
+    const on = !o.is_default;
+    const touched = [id];
+    st().mutateContacts(c => {
+      Object.values(c).forEach(x => { if (x.id !== id && x.is_default && on) { x.is_default = false; touched.push(x.id); } });
+      c[id].is_default = on;
+    }, { touched });
+  }
+  function addContactBrand(id, brand) {
+    const o = contact(id);
+    const b = String(brand || '').trim();
+    if (!o || !b || o.brands.some(x => x.toUpperCase() === b.toUpperCase())) return false;
+    return st().mutateContacts(c => { c[id].brands = c[id].brands.concat(b); }, { touched: [id] });
+  }
+  function removeContactBrand(id, brand) {
+    if (!contact(id)) return;
+    st().mutateContacts(c => { c[id].brands = c[id].brands.filter(x => x !== brand); }, { touched: [id] });
+  }
+  function addContactPerson(id, fields) {
+    if (!contact(id)) return null;
+    const per = schema.newContactPerson(fields);
+    st().mutateContacts(c => { c[id].people.push(per); }, { touched: [id] });
+    return per.id;
+  }
+  function updateContactPerson(id, perId, field, value) {
+    const o = contact(id);
+    const per = o && o.people.find(x => x.id === perId);
+    if (!per || per[field] === value) return;
+    st().mutateContacts(c => { c[id].people.find(x => x.id === perId)[field] = value; }, { coalesce: 'per:' + perId + ':' + field, touched: [id] });
+  }
+  function removeContactPerson(id, perId) {
+    if (!contact(id)) return;
+    st().mutateContacts(c => { c[id].people = c[id].people.filter(x => x.id !== perId); }, { touched: [id] });
+  }
+  function deleteContact(id) {
+    if (!contact(id)) return;
+    st().mutateContacts(c => { delete c[id]; }, { deleted: [id] });
+  }
+
+  // ───────── 備料 (project.preps) ─────────
+  const prepOf = (p, id) => p && (p.preps || []).find(x => x.id === id);
+  function createPrep(pid, fields) {
+    const p = project(pid);
+    if (!p) return null;
+    const pr = schema.newPrep(Object.assign({ no: TIM.prep.nextNo(p), created_by: st().user() }, fields || {}));
+    st().mutateProject(pid, pp => { pp.preps = (pp.preps || []).concat(pr); },
+      { changes: [{ kind: 'add', target: 'prep', target_id: pr.id, text: '建立備料單 ' + pr.no }] });
+    return pr.id;
+  }
+  /** A new 備料單 with the same choices (items, sources, sets, need date, columns, recipients). */
+  function duplicatePrep(pid, prepId) {
+    const src = prepOf(project(pid), prepId);
+    if (!src) return null;
+    const keep = util.clone({ sets: src.sets, purpose: src.purpose, need: src.need, cols: src.cols, lines: src.lines, route: src.route, pick: src.pick });
+    return createPrep(pid, keep);
+  }
+  function updatePrep(pid, prepId, patch, coalesce) {
+    const pr = prepOf(project(pid), prepId);
+    if (!pr) return;
+    if (Object.keys(patch).every(k => JSON.stringify(pr[k]) === JSON.stringify(patch[k]))) return;
+    st().mutateProject(pid, pp => { Object.assign(prepOf(pp, prepId), util.clone(patch), { updated_at: util.nowIso() }); },
+      { coalesce: coalesce ? 'prep:' + prepId + ':' + coalesce : undefined });
+  }
+  /** Line of an item: { off, src } ('' = automatic source); empty lines are removed. */
+  function setPrepLine(pid, prepId, itemIds, patch) {
+    const pr = prepOf(project(pid), prepId);
+    if (!pr) return;
+    st().mutateProject(pid, pp => {
+      const x = prepOf(pp, prepId);
+      [].concat(itemIds).forEach(id => {
+        const l = Object.assign({}, x.lines[id], patch);
+        if (!l.off) delete l.off;
+        if (!l.src) delete l.src;
+        if (Object.keys(l).length) x.lines[id] = l; else delete x.lines[id];
+      });
+      x.updated_at = util.nowIso();
+    });
+  }
+  function deletePrep(pid, prepId) {
+    const pr = prepOf(project(pid), prepId);
+    if (!pr) return;
+    st().mutateProject(pid, pp => { pp.preps = pp.preps.filter(x => x.id !== prepId); },
+      { changes: [{ kind: 'remove', target: 'prep', target_id: prepId, text: '刪除備料單 ' + pr.no }] });
+  }
+  /** Emails generated: keep what was sent (frozen) and mark the 備料單 as mailed. */
+  function markPrepMailed(pid, prepId, mails) {
+    const pr = prepOf(project(pid), prepId);
+    if (!pr || !mails.length) return;
+    const at = util.nowIso(), by = st().user();
+    st().mutateProject(pid, pp => {
+      const x = prepOf(pp, prepId);
+      x.mailed = x.mailed.concat(mails.map(m => Object.assign({ id: util.uid('mail'), at, by }, util.clone(m))));
+      x.status = 'mailed';
+      x.updated_at = at;
+    }, { changes: [{ kind: 'edit', target: 'prep', target_id: prepId, text: '備料單 ' + pr.no + ' 產生郵件：' + mails.map(m => m.org + '（' + m.rows.length + ' 項）').join('、') }] });
+  }
+  function reopenPrep(pid, prepId) { updatePrep(pid, prepId, { status: 'draft' }); }
+
   // ───────── settings ─────────
   function updateSettings(patch) {
     st().mutateDb(db => { db.settings = Object.assign({}, db.settings, patch); }, { settings: true });
@@ -589,6 +706,9 @@
     createMaterial, updateMaterial, setDatasheets, importMaterials, deleteMaterial, duplicateMaterial,
     addView, updateView, updateViewStyle, deleteView, moveView, editView,
     addLogEntry, deleteLogEntry, createBaseline, deleteBaseline,
+    createContact, updateContact, setDefaultFactory, addContactBrand, removeContactBrand,
+    addContactPerson, updateContactPerson, removeContactPerson, deleteContact,
+    createPrep, duplicatePrep, updatePrep, setPrepLine, deletePrep, markPrepMailed, reopenPrep,
     updateSettings,
   };
 })();

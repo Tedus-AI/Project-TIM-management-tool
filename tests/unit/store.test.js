@@ -284,3 +284,71 @@ test('eTag storage: a failed write that did not land is simply retried', async (
   assert.equal(Object.keys(disk.projects).length, 1);
   assert.equal(a.status.state, 'saved');
 });
+
+test('contacts: shared by every project, merged per record like projects and materials', async () => {
+  const file = memFile('');
+  const a = await open(file, 'alice');
+  const f = schema.newContactOrg({ kind: 'factory', name: '甲廠', is_default: true });
+  const s = schema.newContactOrg({ kind: 'supplier', name: 'Vendor-A', brands: ['Vendor-A'] });
+  a.mutateContacts(c => { c[f.id] = f; c[s.id] = s; }, { touched: [f.id, s.id] });
+  await a.flush();
+  const b = await open(file, 'bob');
+  assert.equal(b.db.contacts[f.id].name, '甲廠');
+  // different organisations → both survive
+  a.mutateContacts(c => { c[f.id].note = 'from alice'; }, { touched: [f.id] });
+  b.mutateContacts(c => { c[s.id].people.push(schema.newContactPerson({ name: 'Amy', email: 'amy@vendor-a.example' })); }, { touched: [s.id] });
+  await a.flush();
+  await b.flush();
+  let disk = JSON.parse(file.file.text);
+  assert.equal(disk.contacts[f.id].note, 'from alice');
+  assert.equal(disk.contacts[s.id].people[0].name, 'Amy');
+  assert.equal(b.conflicts.length, 0);
+  // same organisation → theirs stays, ours is a copy that is never the default factory
+  await a.syncCheck();
+  a.mutateContacts(c => { c[f.id].note = 'A'; }, { touched: [f.id] });
+  b.mutateContacts(c => { c[f.id].note = 'B'; }, { touched: [f.id] });
+  await a.flush();
+  await b.flush();
+  disk = JSON.parse(file.file.text);
+  const orgs = Object.values(disk.contacts);
+  assert.equal(orgs.length, 3);
+  assert.equal(disk.contacts[f.id].note, 'A');
+  const copy = orgs.find(o => o.id !== f.id && o.id !== s.id);
+  assert.equal(copy.note, 'B');
+  assert.match(copy.name, /^甲廠 \(衝突副本/);
+  assert.equal(copy.is_default, false);
+  assert.equal(b.conflicts[0].kind, 'contacts');
+  // undo scope 'ct'; deleting is merge-safe too
+  b.mutateContacts(c => { delete c[s.id]; }, { deleted: [s.id] });
+  assert.equal(b.db.contacts[s.id], undefined);
+  assert.equal(b.undo('ct'), true);
+  assert.equal(b.db.contacts[s.id].name, 'Vendor-A');
+  b.mutateContacts(c => { delete c[s.id]; }, { deleted: [s.id] });
+  await b.flush();
+  assert.equal(JSON.parse(file.file.text).contacts[s.id], undefined);
+});
+
+test('older database files without contacts or preps load with empty ones', () => {
+  const old = JSON.parse(merge.serializeDb(schema.newDb()));
+  delete old.contacts;
+  const p = schema.newProject({ name: 'Old' });
+  delete p.preps;
+  old.projects[p.id] = p;
+  const db = schema.normalizeDb(old);
+  assert.deepEqual(db.contacts, {});
+  assert.deepEqual(db.projects[p.id].preps, []);
+  const n = schema.normalizeDb(Object.assign(old, { contacts: { x: { name: '乙廠', kind: 'factory' } } }));
+  const org = Object.values(n.contacts)[0];
+  assert.equal(org.id, 'x', 'the key is the id, as for projects and materials');
+  assert.deepEqual(org.people, []);
+});
+
+test('schema version 2 (contacts / preps): older files open, newer ones are refused (an older tool stays read-only)', () => {
+  const db = JSON.parse(merge.serializeDb(schema.newDb()));
+  assert.equal(db.schema_version, 2);
+  assert.equal(schema.validateDb(Object.assign({}, db, { schema_version: 1 })).ok, true);
+  assert.equal(schema.validateDb(db).ok, true);
+  const v3 = schema.validateDb(Object.assign({}, db, { schema_version: 3 }));
+  assert.equal(v3.ok, false);
+  assert.match(v3.error, /比此工具新/);
+});

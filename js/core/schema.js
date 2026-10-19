@@ -8,7 +8,9 @@
   'use strict';
 
   const SCHEMA_ID = 'tim-db';
-  const SCHEMA_VERSION = 1;
+  // 2: db.contacts (聯絡人) + project.preps (備料). A tool older than the file opens it read-only and never writes,
+  // so a browser still running the previous version cannot drop the contacts it does not know.
+  const SCHEMA_VERSION = 2;
 
   const STAGES = ['Proto', 'EVT', 'DVT', 'PVT', 'MP'];
 
@@ -159,8 +161,24 @@
   /** Location colours; the first two match the existing Excel (green bottom case, light orange top case). */
   const LOCATION_COLORS = ['#00B050', '#FFD966', '#9DC3E6', '#C9A0DC', '#8FD3C8', '#BFBFBF'];
 
+  // Records merged one by one when several people save the shared database (merge.js / store.js / sync.js).
+  const RECORD_KINDS = ['projects', 'materials', 'contacts'];
+  const DELETED_KEY = { projects: 'deletedProjects', materials: 'deletedMaterials', contacts: 'deletedContacts' };
+  const RECORD_PREFIX = { projects: 'prj', materials: 'mat', contacts: 'org' };
+  const RECORD_NAME_KEY = { projects: 'name', materials: 'model', contacts: 'name' };   // gets the "(衝突副本 …)" suffix
+
+  // TIM 備料 (project.preps): need-date modes; contacts (db.contacts) are factories / suppliers shared by all projects
+  const PREP_NEED_MODES = [
+    { v: 'date', label: '指定日期' }, { v: 'days', label: '幾天內' }, { v: 'asap', label: '越快越好' }, { v: 'proc', label: '依流程' },
+  ];
+  const PREP_DAYS = [3, 5, 7, 14, 30];
+  const ORG_KINDS = [{ v: 'factory', label: '工廠' }, { v: 'supplier', label: '供應商' }];
+
   const DEFAULT_SETTINGS = {
     default_locations: ['Bottom Case', 'Top Case'],
+    prep_purposes: ['EVT 組裝', 'DVT 組裝', 'PVT 組裝', '熱測試樣品', '重工'],   // 備料「用途」choices
+    prep_proc: '依對方作業流程',                                                  // 需求日期「依流程」wording
+    prep_cols: null,                                                               // 備料預設欄位 (null = built-in default)
     // Minimum compression (contact) by TIM type when the item has no manual value. Over-compression is judged
     // by pressure (material pressure–deflection curve vs the component's allowable load), not by a % limit.
     generic_comp: { pad: { min: 10 }, absorber: { min: 10 }, pcm: null, graphite: null, tape: null, other: null },
@@ -226,8 +244,35 @@
   function newDb() {
     return {
       schema: SCHEMA_ID, schema_version: SCHEMA_VERSION, rev: 0, updated_at: util.nowIso(),
-      projects: {}, materials: {}, images: {}, settings: util.clone(DEFAULT_SETTINGS),
+      projects: {}, materials: {}, contacts: {}, images: {}, settings: util.clone(DEFAULT_SETTINGS),
     };
+  }
+
+  /** A factory / supplier with its people (shared by all projects). */
+  function newContactOrg(fields) {
+    const now = util.nowIso();
+    return Object.assign({
+      id: util.uid('org'), rev: 0, created_at: now, updated_at: now,
+      kind: 'supplier', name: '', brands: [], is_default: false, people: [], note: '',
+    }, fields || {});
+  }
+  /** role: 'to' (收件者) | 'cc' (副本) — preselected in 備料 emails. */
+  function newContactPerson(fields) {
+    return Object.assign({ id: util.uid('per'), name: '', title: '', email: '', role: 'to' }, fields || {});
+  }
+  /**
+   * A 備料單 of a project. lines: { [item id]: { off, src: '' (auto) | 'factory' | 'supplier' } };
+   * route: { 'factory' | 's:<BRAND>': organisation id } — another organisation than the default one;
+   * pick: { [organisation id]: { to: [emails], cc: [emails] } } — recipients changed from the contacts' defaults;
+   * mailed: emails generated (frozen content, prep.compose), newest last.
+   */
+  function newPrep(fields) {
+    const now = util.nowIso();
+    return Object.assign({
+      id: util.uid('prp'), no: '', created_at: now, created_by: '', updated_at: now,
+      status: 'draft', sets: 1, purpose: '', need: { mode: 'days', days: 7, date: '' },
+      cols: null, lines: {}, route: {}, pick: {}, mailed: [],
+    }, fields || {});
   }
 
   function newLocation(name, idx) {
@@ -415,7 +460,43 @@
     o.views = (Array.isArray(o.views) ? o.views : []).map(normalizeView);
     o.changelog = Array.isArray(o.changelog) ? o.changelog.filter(isObj) : [];
     o.baselines = Array.isArray(o.baselines) ? o.baselines.filter(isObj) : [];
+    o.preps = (Array.isArray(o.preps) ? o.preps : []).filter(isObj).map(normalizePrep);
     if (!STAGES.includes(o.stage)) o.stage = o.stage || 'EVT';
+    return o;
+  }
+
+  function normalizePrep(x) {
+    const o = Object.assign(newPrep(), x);
+    if (!o.id) o.id = util.uid('prp');
+    o.status = o.status === 'mailed' ? 'mailed' : 'draft';
+    o.sets = Number.isFinite(o.sets) && o.sets > 0 ? Math.round(o.sets) : 1;
+    o.purpose = str(o.purpose);
+    o.need = Object.assign({ mode: 'days', days: 7, date: '' }, isObj(o.need) ? o.need : {});
+    if (!PREP_NEED_MODES.some(m => m.v === o.need.mode)) o.need.mode = 'days';
+    o.cols = Array.isArray(o.cols) ? o.cols.filter(k => typeof k === 'string') : null;
+    o.lines = isObj(o.lines) ? o.lines : {};
+    o.route = isObj(o.route) ? o.route : {};
+    o.pick = isObj(o.pick) ? o.pick : {};
+    o.mailed = Array.isArray(o.mailed) ? o.mailed.filter(isObj) : [];
+    return o;
+  }
+
+  function normalizeContactOrg(x) {
+    const o = Object.assign(newContactOrg(), isObj(x) ? x : {});
+    if (!o.id) o.id = util.uid('org');
+    o.rev = Number.isFinite(o.rev) ? o.rev : 0;
+    o.kind = o.kind === 'factory' ? 'factory' : 'supplier';
+    o.name = str(o.name);
+    o.brands = (Array.isArray(o.brands) ? o.brands : []).map(str).filter(Boolean);
+    o.is_default = o.kind === 'factory' && !!o.is_default;
+    o.people = (Array.isArray(o.people) ? o.people : []).filter(isObj).map(p => {
+      const q = Object.assign(newContactPerson(), p);
+      if (!q.id) q.id = util.uid('per');
+      q.name = str(q.name); q.title = str(q.title); q.email = str(q.email).trim();
+      q.role = q.role === 'cc' ? 'cc' : 'to';
+      return q;
+    });
+    o.note = str(o.note);
     return o;
   }
 
@@ -465,6 +546,8 @@
     db.settings.generic_comp = Object.assign(util.clone(DEFAULT_SETTINGS.generic_comp), isObj(db.settings.generic_comp) ? db.settings.generic_comp : {});
     Object.keys(db.projects).forEach(id => { db.projects[id] = normalizeProject(Object.assign({}, db.projects[id], { id })); });
     Object.keys(db.materials).forEach(id => { db.materials[id] = normalizeMaterial(Object.assign({}, db.materials[id], { id })); });
+    db.contacts = isObj(db.contacts) ? db.contacts : {};
+    Object.keys(db.contacts).forEach(id => { db.contacts[id] = normalizeContactOrg(Object.assign({}, db.contacts[id], { id })); });
     db.schema_version = SCHEMA_VERSION;
     return db;
   }
@@ -481,6 +564,8 @@
     SCHEMA_ID, SCHEMA_VERSION, STAGES, PRODUCT_TYPES, LOCATION_PRESETS, locationPresetOf, PROJECT_STATUS, ITEM_STATUS, CATEGORIES, TIM_TYPES,
     SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, LOAD_TYPES, loadType, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
+    RECORD_KINDS, DELETED_KEY, RECORD_PREFIX, RECORD_NAME_KEY, PREP_NEED_MODES, PREP_DAYS, ORG_KINDS,
+    newContactOrg, newContactPerson, newPrep, normalizePrep, normalizeContactOrg,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,
     normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeCurves, normalizeDb, validateDb, projectImageIds,

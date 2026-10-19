@@ -42,7 +42,7 @@ async function openLocalFolder(page) {
 
 module.exports = [
   {
-    name: 'settings: only the new-project Location (dropdown) + currency; new project + list show TH / ME owners',
+    name: 'settings: only the new-project Location (dropdown) + currency (+ 備料 choices); new project + list show TH / ME owners',
     async run(env) {
       const { page, base } = env;
       await page.goto(base);
@@ -51,8 +51,10 @@ module.exports = [
       await page.waitForSelector('.empty:has-text("還沒有任何專案")');
       await page.click('.toolbar button[title="設定"]');
       await page.waitForSelector('.modal:has-text("新專案預設 Location")');
-      const labels = await page.locator('.modal .form-grid .field > label').allInnerTexts();
-      assert.deepEqual(labels.map(l => l.replace(/\s*\?$/, '').trim()), ['新專案預設 Location', '預設幣別']);
+      const labels = grid => page.locator('.modal .form-grid').nth(grid).locator('.field > label').allInnerTexts()
+        .then(ls => ls.map(l => l.replace(/\s*\?$/, '').trim()));
+      assert.deepEqual(await labels(0), ['新專案預設 Location', '預設幣別']);
+      assert.deepEqual(await labels(1), ['「用途」選項', '需求日期「依流程」的說法'], '備料 settings');
       const body = await page.locator('.modal-body').innerText();
       for (const gone of ['你的名字', 'TIM 溫升警示門檻', '一般建議壓縮率', 'Thermal Pad min']) assert.ok(!body.includes(gone), gone + ' removed');
       const sel = '.modal .field:has(label:has-text("新專案預設 Location")) select';

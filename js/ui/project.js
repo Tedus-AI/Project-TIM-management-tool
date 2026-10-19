@@ -1,4 +1,4 @@
-/* Project page: header + tabs (總覽 / TIM 清單 / 位置標註 / 間隙與壓力檢核 / 變更紀錄). */
+/* Project page: header + tabs (總覽 / TIM 清單 / 位置標註 / 間隙與壓力檢核 / 備料 / 變更紀錄). */
 (function () {
   'use strict';
   const TIM = window.TIM;
@@ -11,6 +11,7 @@
     { id: 'bom', label: 'TIM 清單', icon: 'grid' },
     { id: 'map', label: '位置標註', icon: 'map' },
     { id: 'analysis', label: '間隙與壓力檢核', icon: 'chart' },
+    { id: 'prep', label: '備料', icon: 'box' },
     { id: 'log', label: '變更紀錄', icon: 'history' },
   ];
 
@@ -121,6 +122,7 @@
       bom: { n: p.items.length },
       map: { n: p.views.length },
       analysis: stats.comp_fail ? { n: stats.comp_fail, cls: 'err' } : stats.comp_warn ? { n: stats.comp_warn, cls: 'warn' } : null,
+      prep: (p.preps || []).some(x => x.status === 'draft') ? { n: p.preps.filter(x => x.status === 'draft').length, cls: 'info' } : null,
       log: { n: p.changelog.length },
     };
     const more = e => TIM.ui.openMenu(e, [
@@ -135,6 +137,7 @@
     else if (tab === 'map') body = html`<${TIM.ui.MapEditor} p=${p} route=${props.route} />`;
     else if (tab === 'analysis') body = html`<${TIM.ui.Analysis} p=${p} />`;
     else if (tab === 'log') body = html`<${TIM.ui.Changelog} p=${p} />`;
+    else if (tab === 'prep') body = html`<${TIM.ui.PrepTab} p=${p} route=${props.route} />`;
     else body = html`<${TIM.ui.Overview} p=${p} stats=${stats} />`;
 
     return html`<div class="proj">

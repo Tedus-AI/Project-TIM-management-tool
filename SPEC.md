@@ -201,11 +201,12 @@
 
 ```text
 {
-  schema: "tim-db", schema_version: 1,
+  schema: "tim-db", schema_version: 2,     // 2：加入 contacts 與 project.preps；比工具新的檔案一律唯讀開啟
   rev,                         // 整檔版本號（每次寫入 +1，用於樂觀並發）
   updated_at,
   projects:  { [id]: Project },
   materials: { [id]: Material },   // datasheets: [ { path, name, size, at, by } ]（path 相對 Datasheets 資料夾，新的在前）
+  contacts:  { [id]: ContactOrg },  // 備料的工廠 / 供應商，所有專案共用，與專案 / 材料相同以單筆合併
   images:    { [id]: { data (dataURL), w, h, name, bytes } },   // 圖片獨立存放，不進 undo 快照
   settings:  { ... }
 }
@@ -218,7 +219,25 @@ Project {
   items:     [ Item ],
   views:     [ View ],
   changelog: [ Change ],
-  baselines: [ { id, name, note, created_at, created_by, snapshot: { locations, items } } ]
+  baselines: [ { id, name, note, created_at, created_by, snapshot: { locations, items } } ],
+  preps:     [ Prep ]           // 備料單
+}
+
+ContactOrg {                    // 聯絡單位（工廠 / 供應商）
+  id, rev, created_at, updated_at, kind: "factory"|"supplier", name,
+  brands: [ ],                  // 供應商代理的廠牌（對應 Item 的 Vendor，不分大小寫）
+  is_default,                   // 預設工廠（只有一個）
+  people: [ { id, name, title, email, role: "to"|"cc" } ], note
+}
+
+Prep {                          // 備料單（core/prep.js）
+  id, no /* PR-01 */, created_at, created_by, updated_at, status: "draft"|"mailed",
+  sets, purpose, need: { mode: "date"|"days"|"asap"|"proc", days, date },
+  cols: [ key ] | null,         // 'loc' / 'no' + TIM 清單欄 key；null = 設定的預設（settings.prep_cols）或內建預設
+  lines:  { [item id]: { off, src: "factory"|"supplier" } },   // 只記與預設不同的
+  route:  { "factory" | "s:<BRAND>": org id },                  // 改寄給非預設的單位
+  pick:   { [org id]: { to: [email], cc: [email] } },           // 手動改過的收件者
+  mailed: [ { id, at, by, key, org, to, cc, subject, head, rows, info, file, … } ]   // 產生郵件當時的內容（凍結）
 }
 
 Item {
@@ -261,7 +280,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - 匯入 Excel、匯入專案分享檔（JSON）。
 
 ### 5.2 專案頁
-分頁：`總覽 | TIM 清單 | 位置標註 | 間隙與壓力檢核 | 變更紀錄`
+分頁：`總覽 | TIM 清單 | 位置標註 | 間隙與壓力檢核 | 備料 | 變更紀錄`
 
 **總覽**：專案資訊表單、KPI（Item 數、總片數、材料種類、每台 TIM 成本、單一來源、未驗證第二來源、**壓縮 / 壓力 Fail** 與 **壓縮 / 壓力 Warning**（分開計，以 Item 為單位）、位置放置進度）、待處理事項清單（點擊跳到對應 Item）。
 
@@ -281,6 +300,20 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 
 **間隙與壓力檢核**：每個 Item 一組、每顆覆蓋元件一列（Item / Location / 材料 / T 合併儲存格；覆蓋元件欄在 Location 與材料之間，RefDes，沒填時用元件料號，附受壓類型）——間隙、壓縮率 min / nom / max 範圍圖（建議範圍底色，旁邊標 min ~ max %，顏色只代表壓縮判定）、壓力 max / 規格（psi，比例與小條圖）、**壓縮判定**與**壓力判定**兩欄（壓力判定：OK / Warning / Fail；受壓類型 E-PAD 類「不檢核」；缺規格、材料曲線或未連結材料「未判定」，滑鼠提示原因）。可依 Item、C min、壓力比例、兩種判定排序。另有 R_TIM、ΔT 排序表。
 
+**備料**（`js/core/prep.js` 邏輯、`js/io/prep-export.js` 檔案、`js/ui/prep.js` 畫面）
+- 備料單紀錄（左側，新的在前；草稿 / 已產生郵件）。品項從 TIM 清單帶入（作廢除外，TIM 清單順序），1 套 = 1 台設備的用量：
+  片狀 = Q'ty（pcs），點膠類 = 點膠量 × Q'ty（g / cc）；總數量 = 每套 × 套數，片數無條件進位、g / cc 進位到 0.1。
+- 來源：有 Delta 料號 → 工廠，否則 → 供應商（可逐列改）。對象：工廠 = 預設工廠（可改選）；供應商 = 代理廠牌含該 Vendor（或名稱相同）的單位，多家時可改選；
+  沒有對應單位 → 標黃「未設定」，可直接新增聯絡人（對話框）或把廠牌加到既有供應商。**每個單位一封郵件**。
+- 收件者：單位聯絡人依角色預選；專案熱流 / 機構負責人（Project_Members 的 Email）預設副本，寄件者本人除外；點人名切換 收件者 → 副本 → 不寄。
+- 郵件：**.eml（`X-Unsent: 1`）**——傳統版 Outlook 開啟即為可編輯的新郵件（To / Cc / 主旨 / HTML 表格 / Excel 附件），不需 Azure / Graph 設定；
+  MIME：multipart/mixed（multipart/alternative 純文字＋HTML、xlsx 附件），標頭 RFC 2047、CRLF、base64 76 字元換行。
+  備援：mailto（純文字，連結過長時省略表格，無附件）、複製郵件內容（HTML）、下載 Excel。
+- 用語：給工廠「麻煩協助備料」、給供應商「麻煩協助提供」；主旨 `【TIM 備料】<專案> <階段>｜N 套｜需求：…`（越快越好加「（急件）」）。
+  需求日期：指定日期（YYYY/MM/DD（週） 前）/ 幾天內（換算日期）/ 越快越好 / 依流程（`settings.prep_proc`，預設「依對方作業流程」）。
+- Excel 附件：工作表「備料清單」——標題、專案 / 階段、套數、用途、需求日期、對象、申請人 / 日期，下方是與郵件相同欄位的表格與總數量說明。
+- 產生郵件 → 狀態「已產生郵件」、內容鎖定、`mailed` 保存當時內容（可重新下載）、寫入變更紀錄；「重新編輯」回到草稿；「複製成新備料單」沿用選擇。
+
 **變更紀錄**
 - 自動紀錄每一個欄位變更（誰 / 何時 / 從 → 到），連續輸入自動合併。
 - 手動新增 ECN / ECR 紀錄（編號、原因、說明）。
@@ -298,10 +331,14 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
   唯讀時仍可檢視 / 下載 / 清單。刪除後存檔成功、且沒有材料再引用時才刪實體檔。
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
+### 5.3a 聯絡人（`js/ui/contacts.js`）
+- 工廠 / 供應商兩個表格；抽屜編輯：類型、名稱、預設工廠（唯一）、代理廠牌（從材料庫與 TIM 清單出現過的 Vendor 點選，或輸入）、聯絡人（姓名 / 職稱 / Email / 預設角色）、備註。
+- 所有專案共用；undo 範圍 `ct`；多人同時編輯時與專案、材料相同的單筆合併規則（同一單位兩人都改 → 衝突副本，副本不會是預設工廠）。
+
 ### 5.4 共通
 - Undo / Redo（Ctrl+Z / Ctrl+Shift+Z），自動存檔（debounce），狀態列顯示儲存狀態。
 - 變更紀錄的使用者：SharePoint 模式為 Microsoft 帳號名稱（本機資料夾模式沿用舊版存在瀏覽器的名字，沒有則空白）。
-- 設定：新專案預設 Location（下拉：Bottom Case + Top Case / Bottom Case / Top Case）、預設幣別、資料庫資訊與備份。
+- 設定：新專案預設 Location（下拉：Bottom Case + Top Case / Bottom Case / Top Case）、預設幣別、備料「用途」選項與「依流程」說法、資料庫資訊與備份。
 - 鍵盤快捷鍵、確認對話框 Enter 送出 / Esc 取消。
 
 ---
@@ -496,7 +533,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [x] 匯入材料：規格書 → AI → `tim-material` JSON → 預覽（新增 / 補空白 / 覆蓋）→ 匯入＋附規格書
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
-- [ ] 廠商 / 加工廠聯絡資料表、送樣追蹤
+- [x] 聯絡人（工廠 / 供應商，所有專案共用）與 TIM 備料：一鍵產生 Outlook 郵件（.eml：表格＋Excel 附件，不需 Azure）
+- [ ] 送樣追蹤
 - [ ] 跨專案比較（衍生機種差異）、料號合併建議
 - [x] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核（設計間距 ± 公差 + 元件高度公差 → 間隙）
 - [ ] 可靠度測試紀錄（溫度循環、濕熱、振動後 pad 位移）

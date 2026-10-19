@@ -3,7 +3,7 @@
   'use strict';
   const TIM = window.TIM;
   if (!TIM.ui) return;
-  const { html, useState, useEffect, Icon, Modal, openModal, Field, useStore, toast } = TIM.ui;
+  const { html, useState, useEffect, Icon, Modal, openModal, Field, TextField, useStore, toast } = TIM.ui;
   const { util } = TIM;
 
   function SettingsModal(props) {
@@ -36,6 +36,11 @@
       else if (r.reason !== 'cancelled') toast('無法設定本機副本：' + (r.error || r.reason), 'err');
     };
 
+    const addPurpose = async () => {
+      const v = await TIM.ui.prompt({ title: '新增用途', label: '用途（例如：EVT 組裝）', okText: '加入' });
+      const t = String(v || '').trim();
+      if (t && !(s.prep_purposes || []).includes(t)) TIM.actions.updateSettings({ prep_purposes: (s.prep_purposes || []).concat(t) });
+    };
     const close = () => props.close();
     const setLocs = v => { const f = TIM.schema.LOCATION_PRESETS.find(x => x.v === v); if (f) TIM.actions.updateSettings({ default_locations: f.names.slice() }); };
 
@@ -44,6 +49,17 @@
         <${Field} label="新專案預設 Location" info="新增專案時預先帶入的 Location（TIM 清單分組、Excel 的 Location 欄）；建立後仍可在專案總覽增減、改名">
           <select class="sel" value=${locKey} disabled=${ro} onChange=${e => setLocs(e.target.value)}>${locOptions.map(o => html`<option value=${o.v}>${o.label}</option>`)}</select></${Field}>
         <${Field} label="預設幣別"><select class="sel" value=${s.currency} disabled=${ro} onChange=${e => TIM.actions.updateSettings({ currency: e.target.value })}>${TIM.schema.CURRENCIES.map(c => html`<option value=${c}>${c}</option>`)}</select></${Field}>
+      </div>
+      <div class="divider"></div>
+      <div class="field-label" style="margin-bottom:8px">備料</div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <${Field} label="「用途」選項" info="備料單的用途用點選的；這裡的清單所有專案共用">
+          <div class="brand-chips">
+            ${(s.prep_purposes || []).map(v => html`<span class="brand-chip" key=${v}>${v}${!ro ? html`<button type="button" title=${'移除 ' + v} onClick=${() => TIM.actions.updateSettings({ prep_purposes: s.prep_purposes.filter(x => x !== v) })}><${Icon} name="x" size=${11} /></button>` : null}</span>`)}
+            ${!ro ? html`<button type="button" class="btn btn-ghost btn-xs" onClick=${addPurpose}><${Icon} name="plus" /> 新增</button>` : null}
+          </div></${Field}>
+        <${Field} label="需求日期「依流程」的說法" info="選「依流程」時，郵件的需求日期寫這句">
+          <${TextField} value=${s.prep_proc} placeholder=${TIM.schema.DEFAULT_SETTINGS.prep_proc} disabled=${ro} commit="blur" onChange=${v => TIM.actions.updateSettings({ prep_proc: v.trim() || TIM.schema.DEFAULT_SETTINGS.prep_proc })} /></${Field}>
       </div>
       <div class="divider"></div>
       <div class="field-label" style="margin-bottom:8px">資料庫</div>
