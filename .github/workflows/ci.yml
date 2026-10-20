@@ -26,7 +26,8 @@ jobs:
 
   e2e:
     name: Browser E2E (headless Chromium)
-    runs-on: ubuntu-latest
+    # pinned: ubuntu-latest moved to 26.04, which Playwright 1.56 cannot install Chromium dependencies for
+    runs-on: ubuntu-24.04
     needs: unit
     steps:
       - uses: actions/checkout@v4
