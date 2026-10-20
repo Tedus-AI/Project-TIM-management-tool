@@ -209,6 +209,7 @@ module.exports = [
       assert.match(fac.field('Subject'), /^【TIM 備料】.*｜6 套｜需求：1\/15 前$/);
       const html = fac.parts.find(x => x.type === 'text/html').data.toString('utf8');
       assert.match(html, /王小明、林佳慧 您好/);
+      assert.ok(!/tester/i.test(html), 'no name at the end: Outlook adds the sender\'s signature');
       assert.match(html, /<th[^>]*>總數量<\/th>/);
       const xlsx = fac.parts.find(x => x.name);
       assert.match(xlsx.name, /_DVT_TIM備料_\d{8}_甲廠\.xlsx$/);

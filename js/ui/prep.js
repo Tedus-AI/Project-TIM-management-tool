@@ -80,7 +80,7 @@
       return;
     }
     A().markPrepMailed(p.id, pr.id, mails);
-    toast('已產生 ' + mails.length + ' 封郵件（.eml）：用 Outlook 開啟，確認後按「傳送」', 'ok', { timeout: 7000 });
+    toast('已產生 ' + mails.length + ' 封郵件（.eml）：用 Outlook 開啟，確認後按「傳送」。想按一下就直接開啟：在瀏覽器下載清單對 .eml 按右鍵 →「一律開啟這類檔案」（設定一次即可）', 'ok', { timeout: 9000 });
   }
   async function run(fn, m, what) {
     try { await fn(m); if (what) toast(what, 'ok'); } catch (e) { console.error(e); toast('失敗：' + (e.message || e), 'err'); }

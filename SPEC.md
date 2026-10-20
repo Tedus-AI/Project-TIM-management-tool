@@ -306,7 +306,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - 對象（每列下拉）：預設有 Delta 料號 → 工廠，否則 → 代理該 Vendor 的供應商；可逐列指定任何工廠 / 供應商（有料號但工廠沒庫存、同廠牌分給不同供應商），`lines[id].org`。對象：工廠 = 預設工廠（可改選）；供應商 = 代理廠牌含該 Vendor（或名稱相同）的單位，多家時可改選；
   沒有對應單位 → 標黃「未設定」，可直接新增聯絡人（對話框）或把廠牌加到既有供應商。**每個單位一封郵件**。
 - 收件者：單位聯絡人依角色預選（PM 列出但不寄）；專案熱流負責人（Project_Members 的 Email）預設副本，寄件者本人除外，機構負責人不預設；點人名切換 收件者 → 副本 → 不寄。整封改寄（`prep.rerouteGroup`）：自動的列改 `route`、指定的列改 `lines[id].org`。
-- 郵件：**.eml（`X-Unsent: 1`）**——傳統版 Outlook 開啟即為可編輯的新郵件（To / Cc / 主旨 / HTML 表格 / Excel 附件），不需 Azure / Graph 設定；
+- 郵件：**.eml（`X-Unsent: 1`）**——傳統版 Outlook 開啟即為可編輯的新郵件（To / Cc / 主旨 / HTML 表格 / Excel 附件），不需 Azure / Graph 設定；內文不署名（Outlook 自動加寄件者簽名，Excel 的「申請人」仍有）；網頁不能自行開啟下載的檔案，一鍵開啟靠瀏覽器「一律開啟這類檔案」；
   MIME：multipart/mixed（multipart/alternative 純文字＋HTML、xlsx 附件），標頭 RFC 2047、CRLF、base64 76 字元換行。
   備援：mailto（純文字，連結過長時省略表格，無附件）、複製郵件內容（HTML）、下載 Excel。
 - 用語：給工廠「麻煩協助備料」、給供應商「麻煩協助提供」；主旨 `【TIM 備料】<專案> <階段>｜N 套｜需求：…`（越快越好加「（急件）」）。

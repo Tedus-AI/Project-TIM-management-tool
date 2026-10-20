@@ -127,6 +127,8 @@ test('.eml: unsent draft with encoded headers, HTML table and the Excel attachme
   const html = prep.bodyHtml(m);
   assert.match(html, /<th[^>]*>總數量<\/th>/);
   assert.match(html, /<td[^>]*>A1<\/td>/);
+  assert.ok(!html.includes('Tester') && !prep.bodyText(m).includes('Tester'), 'no signature: Outlook adds the sender\'s own');
+  assert.ok(m.info.some(r => r[0] === '申請人 / 日期' && /^Tester \//.test(r[1])), 'the Excel still names the applicant');
   const xlsx = Uint8Array.from([80, 75, 3, 4, 0, 255, 1]);
   const eml = prep.buildEml({ to: m.to, cc: m.cc, subject: m.subject, html, text: prep.bodyText(m), attachments: [{ name: m.file, type: prep.XLSX_TYPE, data: xlsx }] });
   const head = eml.slice(0, eml.indexOf('\r\n\r\n'));
