@@ -202,6 +202,7 @@
           entry.base = res.base;
           entry.copies = res.copies;
           await persistEntry(handle, name, entry, file);
+          if (TIM.catalogSync && TIM.catalogSync.touches(take)) TIM.catalogSync.schedule(res.merged);   // TIM 型號目錄 from what SharePoint now holds
           if (mine()) {
             push.conflicts = push.conflicts.concat(res.conflicts.map(c => Object.assign({ at: TIM.util.nowIso() }, c)));
             push.at = TIM.util.nowIso();

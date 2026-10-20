@@ -123,6 +123,14 @@ Function = TH/ME、IsActive 的人員（同一人只列一次），新增專案�
    權限沿用 `Files.ReadWrite.All`、`Sites.Read.All`、`Sites.ReadWrite.All`。
 3. 使用者需要該網站的編輯權限。網站、資料夾路徑在 `js/db/sharepoint.js` 的 `CONFIG`。
 
+### 材料庫是所有熱流工具的 TIM 來源
+
+TIM 材料在這裡建立；**AI-Thermal 的 TIM 型號庫（5G-RRU 跟著它）、RRU Thermal Network Visualizer、Thermal Test Report Builder 都參照這裡**。
+工具會在 SharePoint 的 `TIM_Manager/Database/tim_catalog.json`（TIM 型號目錄）放一份只有材料資料的小檔
+（Vendor、Model、型態、k 與量測標準、硬度、溫度範圍、承認狀態；不含專案、料號、價格），其他工具從那裡選型號、照 id 連結，
+k 值等跟著這裡更新。存檔有改到材料就會自動更新這個檔（材料庫頁上方會顯示最後更新時間），不用另外操作。
+在本機資料夾作業時，推送到 SharePoint 之後才會更新。壓縮後的填縫厚度 / BLT 跟設計有關，仍在各工具自己填。
+
 ### 材料庫：規格書交給 AI，匯入就建好材料
 
 材料庫右上「匯入材料」：
@@ -348,6 +356,7 @@ Location 以外的專案資料（Q'ty、Used On、覆蓋元件、間隙）照新
 - **規格書刪除**：從清單刪除後，存檔成功且沒有任何材料再引用時才刪實體檔（SharePoint 會進資源回收筒，可還原）；
   同檔名上傳會取代那一份（SharePoint 保留版本歷程）。
 - 圖片只存在資料庫內；刪除視圖或 Item 時會一併清掉不再使用的圖片。
+- **TIM 型號目錄**（`TIM_Manager/Database/tim_catalog.json`）：給其他熱流工具讀的材料清單，由工具自動產生，請勿手改。
 
 > ⚠️ **這個 repository 是公開的。** 請不要把資料庫 JSON、匯出的 Excel、CAD 截圖或任何實際專案資料 commit 進來。
 > `.gitignore` 已排除 `*.json`（設定檔除外）、`*.xlsx`、`backups/`、`data/`、`drawings/`。

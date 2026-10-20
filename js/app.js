@@ -238,6 +238,7 @@
   function startSync(backend, db) {
     mirrorRev = null;
     if (backend.kind !== 'file') sync.push.stop();
+    if (backend.kind === 'sharepoint') TIM.catalogSync.schedule(db);   // tim_catalog.json missing or behind → write it
     if (sync.__disableForTest) return;
     if (backend.kind === 'sharepoint') { sync.onSharePointOpened(); backend.members().catch(() => { /* list optional */ }); return; }
     if (backend.kind !== 'file') return;
@@ -257,6 +258,8 @@
   }
   TIM.store.onSaved = taken => {
     const b = TIM.store.backend;
+    // materials changed → the other thermal tools' TIM 型號目錄 (local folder mode: after the push, in sync.js)
+    if (b && b.kind === 'sharepoint' && TIM.catalogSync.touches(taken)) TIM.catalogSync.schedule(TIM.store.db);
     if (b && b.kind === 'file' && sync.push.active) {
       sync.push.saved(taken);
       if (Date.now() - remindedAt >= REMIND_MS) remindLocal();

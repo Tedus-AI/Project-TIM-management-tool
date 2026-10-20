@@ -46,6 +46,10 @@
   料號離開最後一個專案時，`store.mutateProject / mutateDb` 前後比對 `released.liveIndex` → `archiveVanished` 寫進 `db.released`（第四種單筆合併紀錄，使用者要求永久保留；undo / redo 不封存），
   `parts()` 把封存的併進清單（`archived`），移除走 `actions.removeReleased`；
   新增到 TIM 清單只走 `released.itemFields`（料號本身的屬性）＋ `actions.insertItems`，不帶 Q'ty / Used On / 覆蓋元件 / 間隙等專案資料。
+- TIM 型號目錄（`js/core/catalog.js` 格式與 family 對照、`js/db/catalog.js` 發佈、`sharepoint.js` 的 `catalog.read / write`）：
+  本工具是 TIM 材料的建立來源，AI-Thermal（5G-RRU 經它）、Visualizer、Report Builder 讀 `TIM_Manager/Database/tim_catalog.json`、以材料 **id** 連結。
+  SharePoint 模式開啟時與存檔含材料變更後（`store.onSaved` → `catalogSync.touches`）、本機模式推送含材料後（`sync.js`）背景寫入；內容相同不寫、`db_rev` 較新不蓋、唯讀不寫。
+  **只放材料屬性**（不含專案、料號、價格、備註）；改格式時 `version` +1 並同步其他四個 repo。E2E 預設關閉（`__TIM_TEST_SYNC_OFF`），`catalog.e2e.js` 用 `__TIM_TEST_CATALOG_ON` 打開。
 - 位置標註幾何：`js/core/geom.js` 的 `layout()` 同時給 SVG 編輯器與 canvas 匯出（PNG、Excel 內圖片）使用。
   改標註樣式一律改這裡，編輯器與匯出才會一致。圖片裁切 / 旋轉都是換一張新圖並重算相對座標（`geom.cropRemap`、`snapCrop`），比例尺 px/mm 不變。
 - TIM 清單「顯示 / 隱藏」（`bom.js` 的 `HidePanel`）：`usePref('bom_hidden_cols')`（欄 key，全部專案共用）、`usePref('bom_hidden_rows')`（{ 專案 id: [item id] }），

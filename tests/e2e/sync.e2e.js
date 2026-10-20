@@ -269,6 +269,7 @@ module.exports = [
       const { page } = env;
       const g = fakeDrive();
       g.put(DB, Buffer.from(JSON.stringify(seed())));
+      await env.context.addInitScript(() => { window.__TIM_TEST_CATALOG_ON = true; });
       await prepare(env, g);
       await openLocal(page);
       assert.match(await page.locator('.modal.sync-remind').innerText(), /TIM-local/);
@@ -294,6 +295,11 @@ module.exports = [
       await until(() => (g.json(DB).materials.mat_1.datasheets || []).length === 1, 'push of the material');
       assert.equal(g.text('TIM_Manager/Datasheets/Vendor-A/GF-750/GF-750_TDS.pdf'), '%PDF-1.4 local');
       assert.equal(await page.evaluate(() => __fs.read(window.__local, 'Datasheets/Vendor-A/GF-750/GF-750_TDS.pdf')), '%PDF-1.4 local');
+      // the push carried a material → TIM 型號目錄 published from what SharePoint now holds (the project push did not)
+      await until(() => !!g.text('TIM_Manager/Database/tim_catalog.json'), 'TIM 型號目錄 after the material push');
+      const cat = g.json('TIM_Manager/Database/tim_catalog.json');
+      assert.deepEqual(cat.materials.map(m => [m.id, m.model]), [['mat_1', 'GF-750']]);
+      assert.equal(cat.db_rev, g.json(DB).rev);
       // switch back to the online version from the banner
       await page.click('.sync-banner button:has-text("切換到 SharePoint")');
       await page.waitForFunction(() => TIM.store.backend && TIM.store.backend.kind === 'sharepoint');

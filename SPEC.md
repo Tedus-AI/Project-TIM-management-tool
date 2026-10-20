@@ -340,6 +340,45 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
   唯讀時仍可檢視 / 下載 / 清單。刪除後存檔成功、且沒有材料再引用時才刪實體檔。
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
+### 5.3c TIM 型號目錄：其他熱流工具參照這裡（`js/core/catalog.js`、`js/db/catalog.js`）
+本工具是 TIM 材料的**建立來源**；AI-Thermal（TIM 型號庫，5G-RRU 讀它）、RRU Thermal Network Visualizer、Thermal Test Report Builder 參照本工具的材料庫。
+它們不讀整個 `tim_db.json`（含圖片、專案資料，很大），而是讀旁邊一個小檔：
+
+```text
+TIM_Manager/Database/tim_catalog.json      // 同一個 SharePoint 網站（Thermal-Spec-DB）文件庫；唯讀，請勿手改
+{
+  format: "tim-catalog", version: 1,
+  note, db_rev,                    // 產生它的 tim_db.json rev（較新的不會被舊的蓋掉）
+  updated_at, updated_by,
+  materials: [ {
+    id,                            // 材料 id（mat_…）—— 其他工具用它連結，改名不會斷
+    vendor, model,
+    tim_type, type_label,          // 本工具的 10 種型態
+    family, family_exact,          // 計算工具用的三類：Pad / Putty / Grease（見下表）；exact=false 表示只是建議
+    parts,                         // 劑型（Gap Filler / Putty）
+    k, k_method,                   // W/m·K 與量測標準（ASTM D5470、Hot Disk… 數值不能直接互比）
+    thickness_options, hardness, hardness_scale, temp_min, temp_max,
+    avl_status, avl_label, updated_at
+  } ]
+}
+```
+
+| 本工具型態 | family | exact |
+|---|---|---|
+| Thermal Pad、Absorber Pad | Pad | ✓ |
+| Gap Filler、Thermal Gel、Thermal Putty | Putty | ✓ |
+| Thermal Grease | Grease | ✓ |
+| Phase Change | Grease | 建議（薄膠層，片材） |
+| Graphite Sheet、Thermal Tape、Other | Pad | 建議 |
+
+- 只放材料本身的屬性；**不含**專案、料號、價格、供應策略、備註、規格書與曲線。
+- **何時寫入**：SharePoint 模式開啟資料庫時（檔案不存在或內容不同才寫）、每次存檔有材料新增 / 修改 / 刪除後（約 1.5 秒合併成一次）；
+  本機資料夾模式在推送到 SharePoint 且含材料時，用推送後 SharePoint 上的內容產生。背景執行、不跳登入視窗、不擋存檔；失敗時下次再寫。
+  內容相同不寫；SharePoint 上的檔案 `db_rev` 比較新時不覆蓋。唯讀開啟（壞檔 / 新版檔案）時不寫。
+- 材料庫頁說明列顯示「其他工具參照這裡（最後更新時間）」；刪除材料的確認視窗提醒其他工具會保留最後的值並標示已刪除。
+- **應用值留在各工具**：Pad 壓縮後的填縫厚度、BLT 依設計而不同，不屬於材料（AI-Thermal 的「填縫厚度」、Visualizer 的 BLT 照舊在各自工具維護）。
+- 各工具的參照方式（以材料 id 連結、保留自己的副本、離線照樣能算）寫在各自 repo 的 CLAUDE.md。
+
 ### 5.3b 已發行 TIM（`js/core/released.js`、`js/ui/released.js`）
 - 由各專案的 Item 自動產生：`delta_pn` 正規化（全形轉半形、去空白、不分大小寫）後一個料號一列；N/A、TBD、無、`-` 等不算料號。
 - **永久保留**：料號離開最後一個使用它的專案時（刪除專案 / Item、改料號、匯入取代），store（`mutateProject` / `mutateDb` 前後比對 `released.liveIndex`，
@@ -560,7 +599,7 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [ ] 可靠度測試紀錄（溫度循環、濕熱、振動後 pad 位移）
 
 ### Phase 3 — 與 Thermal Test Report Builder 整合
-- [ ] 材料庫同步到報告產生器的 TIM Library（數據頁 TIM Type 下拉）
+- [x] 材料庫同步到報告產生器的 TIM Library（數據頁 TIM Type 下拉）：經 TIM 型號目錄（§5.3c），AI-Thermal / 5G-RRU / Visualizer 同樣參照
 - [ ] 從報告產生器讀取實測 Tc，回填到 Item（驗證 ΔT 估算）
 
 ---
