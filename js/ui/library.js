@@ -31,7 +31,8 @@
     const del = async () => {
       const ok = await confirm({ title: '刪除材料', danger: true, okText: '刪除材料',
         message: '刪除「' + m.vendor + ' ' + m.model + '」？' + (primary.length ? '\n有 ' + primary.length + ' 個 Item 連結此材料，刪除後會解除連結並保留 Vendor / Model 文字（不會遺失）。' : '') +
-          ((m.datasheets || []).length ? '\n它的 ' + m.datasheets.length + ' 份規格書也會一起刪除。' : '') });
+          ((m.datasheets || []).length ? '\n它的 ' + m.datasheets.length + ' 份規格書也會一起刪除。' : '') +
+          '\n其他熱流工具（AI-Thermal、Visualizer、Report Builder）若參照這筆材料，會保留最後的值並標示「TIM 管理工具已刪除」。' });
       if (!ok) return;
       A().deleteMaterial(m.id);
       props.onClose();
@@ -116,6 +117,19 @@
     </aside>`;
   }
 
+  /** Where the other thermal tools read this library (db/catalog.js) and when it was last published. */
+  function CatalogNote() {
+    const c = TIM.catalogSync.state;
+    const b = TIM.store.backend;
+    const [, bump] = useState(0);
+    useEffect(() => TIM.catalogSync.subscribe(() => bump(n => n + 1)), []);
+    if (!b || (b.kind !== 'sharepoint' && !(TIM.sync && TIM.sync.push.active))) return null;
+    const where = TIM.spBackend.catalog.where();
+    return html`<span class="catalog-note" title=${'其他熱流工具讀取的檔案：' + where + '\n只含材料本身的資料（Vendor、Model、型態、k、硬度、溫度範圍…），不含專案、料號與價格。'}>
+      AI-Thermal（含 5G-RRU）、Thermal Network Visualizer、Report Builder 的 TIM 型號都參照這裡（TIM 型號目錄 tim_catalog.json${
+        c.status === 'error' ? '：上次更新失敗，下次存檔會再試' : c.at ? '，' + util.fmtDateTime(c.at) + ' 更新' : ''}）。</span>`;
+  }
+
   function Library(props) {
     const st = TIM.store;
     const db = st.db;
@@ -146,7 +160,8 @@
           <button class="btn btn-primary rw-only" onClick=${add}><${Icon} name="plus" /> 新增材料</button>
         </div>
       </div>
-      <p class="muted" style="margin:-8px 0 14px;max-width:760px;line-height:1.6">跨專案共用的 TIM 材料資料。Item 連結材料後，Vendor / Model / 型態 / k 值都從這裡帶入（單一事實來源），改這裡就同步所有專案。</p>
+      <p class="muted" style="margin:-8px 0 14px;max-width:760px;line-height:1.6">跨專案共用的 TIM 材料資料。Item 連結材料後，Vendor / Model / 型態 / k 值都從這裡帶入（單一事實來源），改這裡就同步所有專案。
+        <${CatalogNote} /></p>
       <div class="lib-filters">
         <div class="searchbox" style="width:280px"><${Icon} name="search" /><input class="inp" placeholder="搜尋廠商、型號…" value=${q} onInput=${e => setQ(e.target.value)} /></div>
         <select class="sel" style="width:170px" value=${type} onChange=${e => setType(e.target.value)}><option value="">全部型態</option>${schema.TIM_TYPES.map(t => html`<option value=${t.v}>${t.label}</option>`)}</select>

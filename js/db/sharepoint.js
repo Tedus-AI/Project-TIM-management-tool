@@ -2,6 +2,7 @@
  * AI Thermal pad & stud tool). Layout in the site's 文件 (Shared Documents) library:
  *
  *   TIM_Manager/Database/tim_db.json            the shared database
+ *   TIM_Manager/Database/tim_catalog.json       materials for the other thermal tools (core/catalog.js, written by db/catalog.js)
  *   TIM_Manager/Database/Backup/tim_db_backup_YYYY-MM-DD_HHmm.json   backups: today's latest + the previous day's last (backup.js)
  *   TIM_Manager/Datasheets/<Vendor>/<Model>/<file>              material datasheets
  *
@@ -366,6 +367,21 @@
       async del(rel) {
         await resolveSite(false);
         await graph(byPath(CONFIG.datasheetFolder + '/' + rel), { method: 'DELETE', ok: s => s === 404 });
+      },
+    },
+
+    // ───────── TIM 型號目錄 (Database/tim_catalog.json, core/catalog.js) — background use, never a sign-in popup ─────────
+    catalog: {
+      where() { return CONFIG.siteName + ' / ' + (CONFIG.dbFolder + '/' + TIM.catalog.FILE).split('/').join(' / '); },
+      /** Current file text, or null when there is none. */
+      async read() {
+        await resolveSite(false);
+        const res = await graph(byPath(CONFIG.dbFolder + '/' + TIM.catalog.FILE) + ':/content', { ok: s => s === 404 });
+        return res.status === 404 ? null : res.text();
+      },
+      async write(text) {
+        await resolveSite(false);
+        await graph(byPath(CONFIG.dbFolder + '/' + TIM.catalog.FILE) + ':/content', { method: 'PUT', body: text, headers: { 'Content-Type': 'application/json' } });
       },
     },
 

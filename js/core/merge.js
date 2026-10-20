@@ -1,6 +1,6 @@
 /* TIM Management Tool — optimistic-concurrency merge for a shared JSON database file.
  *
- * Every record (schema.RECORD_KINDS: project / material / contact) carries a `rev`. A client remembers the rev it
+ * Every record (schema.RECORD_KINDS: project / material / contact / released P/N) carries a `rev`. A client remembers the rev it
  * last synced (`base`). On save it re-reads the file:
  *   - disk.rev === base.rev → nobody else wrote, write our copy (fast path, handled by the store)
  *   - otherwise merge per record:
@@ -32,6 +32,7 @@
       settings: db.settings || {},
       materials: db.materials || {},
       contacts: db.contacts || {},
+      released: db.released || {},
       projects: db.projects || {},
       images: db.images || {},
     });
@@ -64,12 +65,14 @@
       settings: taken.settings ? local.settings : (disk.settings || local.settings),
       materials: Object.assign({}, disk.materials || {}),
       contacts: Object.assign({}, disk.contacts || {}),
+      released: Object.assign({}, disk.released || {}),
       projects: Object.assign({}, disk.projects || {}),
       images: Object.assign({}, disk.images || {}),
     };
     const conflicts = [];
     const nameOf = (kind, rec) => kind === 'projects' ? (rec.name || '(未命名專案)')
-      : kind === 'contacts' ? (rec.name || '(未命名聯絡單位)') : ((rec.vendor || '') + ' ' + (rec.model || '')).trim();
+      : kind === 'contacts' ? (rec.name || '(未命名聯絡單位)') : kind === 'released' ? (rec.pn || '')
+      : ((rec.vendor || '') + ' ' + (rec.model || '')).trim();
 
     schema.RECORD_KINDS.forEach(kind => {
       const dirty = taken[kind] || new Set();

@@ -7,10 +7,11 @@
   const util = isNode ? require('./util.js') : root.TIM.util;
   const schema = isNode ? require('./schema.js') : root.TIM.schema;
   const merge = isNode ? require('./merge.js') : root.TIM.merge;
-  const mod = factory(util, schema, merge);
+  const released = isNode ? require('./released.js') : root.TIM.released;
+  const mod = factory(util, schema, merge, released);
   if (isNode) module.exports = mod;
   else { root.TIM = root.TIM || {}; root.TIM.storeLib = mod; }
-})(typeof self !== 'undefined' ? self : this, function (util, schema, merge) {
+})(typeof self !== 'undefined' ? self : this, function (util, schema, merge, released) {
   'use strict';
 
   const UNDO_MAX = 80;
@@ -197,8 +198,10 @@
       const p = S.db.projects[pid];
       if (!p) return false;
       if (!o.noUndo) pushUndo('p:' + pid, o.coalesce);
+      const pns = released.liveIndex([p]);
       const r = fn(p);
       if (r === false) return false;
+      keepReleased(pns);
       if (o.changes && o.changes.length) appendChangelog(p, o.changes);
       p.updated_at = util.nowIso();
       p.updated_by = user();
@@ -231,8 +234,10 @@
     function mutateDb(fn, o) {
       o = o || {};
       if (!guard()) return false;
+      const pns = released.liveIndex(Object.values(S.db.projects));
       const r = fn(S.db);
       if (r === false) return false;
+      keepReleased(pns);
       K.forEach(kind => {
         (o[kind] || []).forEach(id => touch(kind, id));
         (o[D[kind]] || []).forEach(id => { drop(kind, id); if (kind === 'projects') clearHistory('p:' + id); });
@@ -242,6 +247,14 @@
       if (o.clearHistory) o.clearHistory.forEach(clearHistory);
       changed();
       return true;
+    }
+
+    /**
+     * 已發行 TIM: a Delta P/N that no project uses any more after a change (item / project deleted, P/N changed) is
+     * archived in db.released, so the list keeps it. Undo / redo do not archive: an undone P/N never happened.
+     */
+    function keepReleased(before) {
+      released.archiveVanished(S.db, before, user()).forEach(id => touch('released', id));
     }
 
     /** Store an image record { data, w, h, name } and return its id. */

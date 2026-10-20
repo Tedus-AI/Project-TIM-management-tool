@@ -201,12 +201,13 @@
 
 ```text
 {
-  schema: "tim-db", schema_version: 2,     // 2：加入 contacts 與 project.preps；比工具新的檔案一律唯讀開啟
+  schema: "tim-db", schema_version: 3,     // 2：加入 contacts 與 project.preps；3：加入 released；比工具新的檔案一律唯讀開啟
   rev,                         // 整檔版本號（每次寫入 +1，用於樂觀並發）
   updated_at,
   projects:  { [id]: Project },
   materials: { [id]: Material },   // datasheets: [ { path, name, size, at, by } ]（path 相對 Datasheets 資料夾，新的在前）
   contacts:  { [id]: ContactOrg },  // 備料的工廠 / 供應商，所有專案共用，與專案 / 材料相同以單筆合併
+  released:  { [id]: Released },    // 已發行 TIM 中已沒有專案使用的料號（保留最後的資料），同樣以單筆合併
   images:    { [id]: { data (dataURL), w, h, name, bytes } },   // 圖片獨立存放，不進 undo 快照
   settings:  { ... }
 }
@@ -228,6 +229,14 @@ ContactOrg {                    // 聯絡單位（工廠 / 供應商）
   brands: [ ],                  // 供應商代理的廠牌（對應 Item 的 Vendor，不分大小寫）
   is_default,                   // 預設工廠（只有一個）
   people: [ { id, name, title, email, phone, role: "to"|"cc"|"pm" } ], note   // pm：列在郵件人名中、預設不寄
+}
+
+Released {                      // 已發行 TIM 封存（core/released.js；料號離開最後一個專案時由 store 自動寫入）
+  id, rev, created_at, updated_at, pn, archived_by,
+  item: { material_id, vendor, model, tim_type, size, shape_note, dispense, vendor_pn, fabricator, drawing_no,
+          sources, sourcing_note, price, moq, lead_time_wk },   // 料號本身的屬性（Vendor / Model 為當時連結材料的名稱）
+  k,                            // 當時連結材料的 k（材料之後被刪除時使用）
+  uses: [ { project, stage, item_no, location, qty } ]          // 最後使用在哪裡
 }
 
 Prep {                          // 備料單（core/prep.js）
@@ -331,8 +340,51 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
   唯讀時仍可檢視 / 下載 / 清單。刪除後存檔成功、且沒有材料再引用時才刪實體檔。
 - **Where-used**：列出所有使用（含作為第二來源）的專案 / Item / 片數。
 
+### 5.3c TIM 型號目錄：其他熱流工具參照這裡（`js/core/catalog.js`、`js/db/catalog.js`）
+本工具是 TIM 材料的**建立來源**；AI-Thermal（TIM 型號庫，5G-RRU 讀它）、RRU Thermal Network Visualizer、Thermal Test Report Builder 參照本工具的材料庫。
+它們不讀整個 `tim_db.json`（含圖片、專案資料，很大），而是讀旁邊一個小檔：
+
+```text
+TIM_Manager/Database/tim_catalog.json      // 同一個 SharePoint 網站（Thermal-Spec-DB）文件庫；唯讀，請勿手改
+{
+  format: "tim-catalog", version: 1,
+  note, db_rev,                    // 產生它的 tim_db.json rev（較新的不會被舊的蓋掉）
+  updated_at, updated_by,
+  materials: [ {
+    id,                            // 材料 id（mat_…）—— 其他工具用它連結，改名不會斷
+    vendor, model,
+    tim_type, type_label,          // 本工具的 10 種型態
+    family, family_exact,          // 計算工具用的三類：Pad / Putty / Grease（見下表）；exact=false 表示只是建議
+    parts,                         // 劑型（Gap Filler / Putty）
+    k, k_method,                   // W/m·K 與量測標準（ASTM D5470、Hot Disk… 數值不能直接互比）
+    thickness_options, hardness, hardness_scale, temp_min, temp_max,
+    avl_status, avl_label, updated_at
+  } ]
+}
+```
+
+| 本工具型態 | family | exact |
+|---|---|---|
+| Thermal Pad、Absorber Pad | Pad | ✓ |
+| Gap Filler、Thermal Gel、Thermal Putty | Putty | ✓ |
+| Thermal Grease | Grease | ✓ |
+| Phase Change | Grease | 建議（薄膠層，片材） |
+| Graphite Sheet、Thermal Tape、Other | Pad | 建議 |
+
+- 只放材料本身的屬性；**不含**專案、料號、價格、供應策略、備註、規格書與曲線。
+- **何時寫入**：SharePoint 模式開啟資料庫時（檔案不存在或內容不同才寫）、每次存檔有材料新增 / 修改 / 刪除後（約 1.5 秒合併成一次）；
+  本機資料夾模式在推送到 SharePoint 且含材料時，用推送後 SharePoint 上的內容產生。背景執行、不跳登入視窗、不擋存檔；失敗時下次再寫。
+  內容相同不寫；SharePoint 上的檔案 `db_rev` 比較新時不覆蓋。唯讀開啟（壞檔 / 新版檔案）時不寫。
+- 材料庫頁說明列顯示「其他工具參照這裡（最後更新時間）」；刪除材料的確認視窗提醒其他工具會保留最後的值並標示已刪除。
+- **應用值留在各工具**：Pad 壓縮後的填縫厚度、BLT 依設計而不同，不屬於材料（AI-Thermal 的「填縫厚度」、Visualizer 的 BLT 照舊在各自工具維護）。
+- 各工具的參照方式（以材料 id 連結、保留自己的副本、離線照樣能算）寫在各自 repo 的 CLAUDE.md。
+
 ### 5.3b 已發行 TIM（`js/core/released.js`、`js/ui/released.js`）
-- 由各專案的 Item 自動產生，不另存資料（與元件快選相同）：`delta_pn` 正規化（全形轉半形、去空白、不分大小寫）後一個料號一列；N/A、TBD、無、`-` 等不算料號。
+- 由各專案的 Item 自動產生：`delta_pn` 正規化（全形轉半形、去空白、不分大小寫）後一個料號一列；N/A、TBD、無、`-` 等不算料號。
+- **永久保留**：料號離開最後一個使用它的專案時（刪除專案 / Item、改料號、匯入取代），store（`mutateProject` / `mutateDb` 前後比對 `released.liveIndex`，
+  `released.archiveVanished`）把它當時的屬性與最後使用處寫進 `db.released`（一個料號一筆，再次離開時更新同一筆）。Undo / redo 不封存（被復原的料號視為沒發生過）。
+  清單標「已無專案使用」，篩選「全部 / 專案使用中 / 已無專案使用」，展開看最後使用處；仍可快選新增；不需要時「從已發行 TIM 移除」（確認後刪除封存紀錄，`actions.removeReleased`）。
+  又有專案使用時以專案資料為準（封存紀錄留著，之後離開時更新）。合併衝突副本（料號後加「(衝突副本 …)」）視為同一料號，取最新一筆。
 - 屬性取最近更新的專案的 Item；規格（Vendor · Model · 尺寸或點膠量）不同時標「規格不一致」並列出各規格與 Item 數。展開列出使用的專案 / Item / Location / Q'ty / 狀態，點擊跳到該 Item。
 - TIM 清單「從已發行 TIM 新增」：多選料號＋Location → `actions.insertItems`（一個 undo 步驟、變更紀錄）。帶入 `released.itemFields`：delta_pn、material_id（材料仍存在時）、Vendor / Model、型態、尺寸、點膠、形狀備註、Vendor P/N、加工廠、裁切圖號、2nd source（新 id）、單價 / MOQ / 交期；不帶 Location 以外的專案資料（Q'ty、Used On、覆蓋元件、間隙、狀態、驗證、備註）。
 
@@ -431,7 +483,8 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - **TIM List** 工作表：現行 Excel 的欄位、欄名與畫面一致（`Location | Item | Used On | Vendor | Model | k (W/m·K) | Size | Q'ty | Delta Part No. | 覆蓋元件 | 2nd source`；
   Location 直排合併、分組底色、單一來源粉紅底），可勾選附加欄位（型態、狀態、間隙、壓縮率、壓力、功耗、ΔT、單價、小計、MPN、加工廠）。
   再匯入時「覆蓋元件」與 Note 同義、k 欄忽略（由材料庫帶入）；直接複製整列貼回 TIM 清單時自動判斷有沒有 k 欄。
-- 表格下方嵌入各視圖 PNG（紅字標題 Bottom case / Top case）。
+- 表格下方空一列後嵌入各視圖 PNG（紅字標題 Bottom case / Top case），兩張一列；表格下方不另加圖例或匯出資訊列。
+  第二張的起始欄以每個欄寬單位 6 px 保守估算（Excel 的欄寬像素隨字型與螢幕縮放而變，125 % 時約 6.4 px，圖片則等比放大），避免兩張重疊。
 - 附加工作表：Components（覆蓋元件展開）、2nd Source、Gap & Thermal、Changelog、Project。
 
 ### 9.2 Excel 匯入
@@ -539,14 +592,14 @@ Change { id, ts, user, kind, target, target_id, item_no, field, from, to, text, 
 - [ ] 專案編輯鎖（顯示誰在編輯、閒置逾時釋放）
 - [x] PDF 報告（總覽、TIM 清單、位置圖、材料用量與壓縮率檢核；html2canvas + jsPDF，與報告產生器相同）
 - [x] 聯絡人（工廠 / 供應商，所有專案共用）與 TIM 備料：一鍵產生 Outlook 郵件（.eml：表格＋Excel 附件，不需 Azure）
-- [x] 已發行 TIM：各專案的 Delta 料號彙整，新 TIM 清單快選新增
+- [x] 已發行 TIM：各專案的 Delta 料號彙整，新 TIM 清單快選新增；沒有專案使用後仍保留（db.released），可移除
 - [ ] 送樣追蹤
 - [ ] 跨專案比較（衍生機種差異）、料號合併建議
 - [x] 壓力–壓縮曲線（deflection vs pressure）與元件允許壓力檢核（設計間距 ± 公差 + 元件高度公差 → 間隙）
 - [ ] 可靠度測試紀錄（溫度循環、濕熱、振動後 pad 位移）
 
 ### Phase 3 — 與 Thermal Test Report Builder 整合
-- [ ] 材料庫同步到報告產生器的 TIM Library（數據頁 TIM Type 下拉）
+- [x] 材料庫同步到報告產生器的 TIM Library（數據頁 TIM Type 下拉）：經 TIM 型號目錄（§5.3c），AI-Thermal / 5G-RRU / Visualizer 同樣參照
 - [ ] 從報告產生器讀取實測 Tc，回填到 Item（驗證 ΔT 估算）
 
 ---
