@@ -310,7 +310,6 @@
       '<ul>' + m.facts.map(f => '<li>' + esc(f[0]) + '：' + esc(f[1]) + '</li>').join('') + '</ul>' +
       tbl +
       '<p>明細另附 Excel：' + esc(m.file) + '</p>' +
-      (m.sender ? '<p>' + esc(m.sender) + '</p>' : '') +
       '</body></html>';
   }
 
@@ -324,7 +323,6 @@
       lines.push('');
     }
     lines.push(opts && opts.attachNote ? opts.attachNote : '明細另附 Excel：' + m.file);
-    if (m.sender) lines.push('', m.sender);
     return lines.join('\n');
   }
 
