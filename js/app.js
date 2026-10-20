@@ -606,7 +606,7 @@
     </header>`;
   }
 
-  const KIND_NAME = { projects: '專案', materials: '材料', contacts: '聯絡人' };
+  const KIND_NAME = { projects: '專案', materials: '材料', contacts: '聯絡人', released: '已發行 TIM' };
   function Banners() {
     const st = TIM.store;
     const out = [];

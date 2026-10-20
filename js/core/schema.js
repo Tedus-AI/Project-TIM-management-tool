@@ -8,9 +8,10 @@
   'use strict';
 
   const SCHEMA_ID = 'tim-db';
-  // 2: db.contacts (聯絡人) + project.preps (備料). A tool older than the file opens it read-only and never writes,
-  // so a browser still running the previous version cannot drop the contacts it does not know.
-  const SCHEMA_VERSION = 2;
+  // 2: db.contacts (聯絡人) + project.preps (備料). 3: db.released (已發行 TIM kept after no project uses it).
+  // A tool older than the file opens it read-only and never writes, so a browser still running the previous
+  // version cannot drop the records it does not know.
+  const SCHEMA_VERSION = 3;
 
   const STAGES = ['Proto', 'EVT', 'DVT', 'PVT', 'MP'];
 
@@ -162,10 +163,10 @@
   const LOCATION_COLORS = ['#00B050', '#FFD966', '#9DC3E6', '#C9A0DC', '#8FD3C8', '#BFBFBF'];
 
   // Records merged one by one when several people save the shared database (merge.js / store.js / sync.js).
-  const RECORD_KINDS = ['projects', 'materials', 'contacts'];
-  const DELETED_KEY = { projects: 'deletedProjects', materials: 'deletedMaterials', contacts: 'deletedContacts' };
-  const RECORD_PREFIX = { projects: 'prj', materials: 'mat', contacts: 'org' };
-  const RECORD_NAME_KEY = { projects: 'name', materials: 'model', contacts: 'name' };   // gets the "(衝突副本 …)" suffix
+  const RECORD_KINDS = ['projects', 'materials', 'contacts', 'released'];
+  const DELETED_KEY = { projects: 'deletedProjects', materials: 'deletedMaterials', contacts: 'deletedContacts', released: 'deletedReleased' };
+  const RECORD_PREFIX = { projects: 'prj', materials: 'mat', contacts: 'org', released: 'rel' };
+  const RECORD_NAME_KEY = { projects: 'name', materials: 'model', contacts: 'name', released: 'pn' };   // gets the "(衝突副本 …)" suffix
 
   // TIM 備料 (project.preps): need-date modes; contacts (db.contacts) are factories / suppliers shared by all projects
   const PREP_NEED_MODES = [
@@ -244,7 +245,7 @@
   function newDb() {
     return {
       schema: SCHEMA_ID, schema_version: SCHEMA_VERSION, rev: 0, updated_at: util.nowIso(),
-      projects: {}, materials: {}, contacts: {}, images: {}, settings: util.clone(DEFAULT_SETTINGS),
+      projects: {}, materials: {}, contacts: {}, released: {}, images: {}, settings: util.clone(DEFAULT_SETTINGS),
     };
   }
 
@@ -501,6 +502,23 @@
     return o;
   }
 
+  /**
+   * 已發行 TIM archive (db.released): a Delta P/N no project uses any more, as it last was (released.js).
+   * item: the part's own attributes (material link, vendor / model / type, size / dispense, Vendor P/N, 2nd source,
+   * price…); k: the linked material's k then; uses: where it was used last.
+   */
+  function normalizeReleased(x) {
+    const o = Object.assign({ id: util.uid('rel'), rev: 0, created_at: '', updated_at: '', pn: '', item: {}, k: null, uses: [], archived_by: '' }, isObj(x) ? x : {});
+    if (!o.id) o.id = util.uid('rel');
+    o.rev = Number.isFinite(o.rev) ? o.rev : 0;
+    o.pn = str(o.pn).trim();
+    o.item = isObj(o.item) ? o.item : {};
+    o.k = numOrNull(o.k);
+    o.uses = (Array.isArray(o.uses) ? o.uses : []).filter(isObj);
+    o.archived_by = str(o.archived_by);
+    return o;
+  }
+
   function normalizeMaterial(m) {
     const o = Object.assign(newMaterial({ id: m && m.id ? m.id : undefined }), isObj(m) ? m : {});
     ['k', 'impedance', 'hardness', 'density', 'temp_min', 'temp_max', 'dielectric_kv_mm', 'dk',
@@ -549,6 +567,8 @@
     Object.keys(db.materials).forEach(id => { db.materials[id] = normalizeMaterial(Object.assign({}, db.materials[id], { id })); });
     db.contacts = isObj(db.contacts) ? db.contacts : {};
     Object.keys(db.contacts).forEach(id => { db.contacts[id] = normalizeContactOrg(Object.assign({}, db.contacts[id], { id })); });
+    db.released = isObj(db.released) ? db.released : {};
+    Object.keys(db.released).forEach(id => { db.released[id] = normalizeReleased(Object.assign({}, db.released[id], { id })); });
     db.schema_version = SCHEMA_VERSION;
     return db;
   }
@@ -566,7 +586,7 @@
     SOURCE_STATUS, AVL_STATUS, PARTS, P_UNITS, LOAD_TYPES, loadType, K_METHODS, HARDNESS_SCALES, SILICONE, UL94, CURRENCIES,
     VALIDATION_RESULT, CHANGE_KINDS, ITEM_COLORS, LOCATION_COLORS, DEFAULT_SETTINGS, FIELD_LABELS,
     RECORD_KINDS, DELETED_KEY, RECORD_PREFIX, RECORD_NAME_KEY, PREP_NEED_MODES, PREP_DAYS, ORG_KINDS, CONTACT_ROLES,
-    newContactOrg, newContactPerson, newPrep, normalizePrep, normalizeContactOrg,
+    newContactOrg, newContactPerson, newPrep, normalizePrep, normalizeContactOrg, normalizeReleased,
     labelOf, productTypeLabel, projectSubline, timType, isDispense, hasParts, materialTypeText, categoryColor, normalizeCategory,
     newDb, newLocation, newProject, newItem, newCovered, newSource, newMaterial, newView, newShape, newCallout,
     normalizeItem, normalizeView, normalizeProject, normalizeMaterial, normalizeCurves, normalizeDb, validateDb, projectImageIds,

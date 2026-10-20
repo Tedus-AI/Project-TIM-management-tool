@@ -691,6 +691,14 @@
   }
   function reopenPrep(pid, prepId) { updatePrep(pid, prepId, { status: 'draft' }); }
 
+  // ───────── 已發行 TIM archive (db.released) ─────────
+  /** Remove a part number no project uses any more from 已發行 TIM (its archive records). */
+  function removeReleased(key) {
+    const ids = TIM.released.archivedIds(st().db, key);
+    if (!ids.length) return false;
+    return st().mutateDb(db => { ids.forEach(id => { delete db.released[id]; }); }, { deletedReleased: ids });
+  }
+
   // ───────── settings ─────────
   function updateSettings(patch) {
     st().mutateDb(db => { db.settings = Object.assign({}, db.settings, patch); }, { settings: true });
@@ -710,6 +718,6 @@
     createContact, updateContact, setDefaultFactory, addContactBrand, removeContactBrand,
     addContactPerson, updateContactPerson, removeContactPerson, deleteContact,
     createPrep, duplicatePrep, updatePrep, setPrepLine, deletePrep, markPrepMailed, reopenPrep,
-    updateSettings,
+    removeReleased, updateSettings,
   };
 })();

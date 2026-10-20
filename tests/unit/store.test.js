@@ -343,12 +343,17 @@ test('older database files without contacts or preps load with empty ones', () =
   assert.deepEqual(org.people, []);
 });
 
-test('schema version 2 (contacts / preps): older files open, newer ones are refused (an older tool stays read-only)', () => {
+test('schema version 3 (released archive): older files open, newer ones are refused (an older tool stays read-only)', () => {
   const db = JSON.parse(merge.serializeDb(schema.newDb()));
-  assert.equal(db.schema_version, 2);
+  assert.equal(db.schema_version, 3);
+  assert.deepEqual(db.released, {});
   assert.equal(schema.validateDb(Object.assign({}, db, { schema_version: 1 })).ok, true);
+  assert.equal(schema.validateDb(Object.assign({}, db, { schema_version: 2 })).ok, true);
   assert.equal(schema.validateDb(db).ok, true);
-  const v3 = schema.validateDb(Object.assign({}, db, { schema_version: 3 }));
-  assert.equal(v3.ok, false);
-  assert.match(v3.error, /比此工具新/);
+  const v4 = schema.validateDb(Object.assign({}, db, { schema_version: 4 }));
+  assert.equal(v4.ok, false);
+  assert.match(v4.error, /比此工具新/);
+  const v2 = JSON.parse(merge.serializeDb(schema.newDb()));
+  delete v2.released; v2.schema_version = 2;
+  assert.deepEqual(schema.normalizeDb(v2).released, {}, 'a version 2 file gets an empty archive');
 });
