@@ -16,7 +16,9 @@ function zipSummary(file) {
     's1 = z.read("xl/worksheets/sheet1.xml").decode()',
     'print(json.dumps({"sheets": [html.unescape(n) for n in re.findall(r\'<sheet [^>]*name="([^"]+)"\', wb)],',
     '  "media": sorted(n for n in z.namelist() if n.startswith("xl/media/") and not n.endswith("/")),',
-    '  "merges": re.findall(r\'<mergeCell ref="([^"]+)"\', s1)}))',
+    '  "merges": re.findall(r\'<mergeCell ref="([^"]+)"\', s1),',
+    '  "cols": [[int(a), int(b), float(w)] for a, b, w in re.findall(r\'<col min="(\\d+)" max="(\\d+)" width="([\\d.]+)"\', s1)],',
+    '  "anchors": [[int(c), int(r), int(cx), int(cy)] for c, r, cx, cy in re.findall(r\'<xdr:from><xdr:col>(\\d+)</xdr:col><xdr:colOff>\\d+</xdr:colOff><xdr:row>(\\d+)</xdr:row>.*?<xdr:ext cx="(\\d+)" cy="(\\d+)"\', z.read("xl/drawings/drawing1.xml").decode() if "xl/drawings/drawing1.xml" in z.namelist() else "", re.S)]}))',
   ].join('\n');
   return JSON.parse(execFileSync('python3', ['-c', py, file]).toString());
 }
@@ -40,6 +42,14 @@ module.exports = [
       const z = zipSummary(file);
       assert.deepEqual(z.sheets, ['TIM List', 'Components', '2nd Source', 'Gap & Thermal', 'Pressure', 'Changelog', 'Project']);
       assert.equal(z.media.length, 2, 'both placement drawings embedded');
+      // side by side without overlapping, even where Excel draws a width unit with fewer pixels than the
+      // picture scales by (125 % display scaling: ~6.4 px per unit of a 96-DPI picture)
+      assert.equal(z.anchors.length, 2, 'two drawings: ' + JSON.stringify(z.anchors));
+      const [left, right] = z.anchors.slice().sort((a, b) => a[0] - b[0]);
+      assert.equal(left[1], right[1], 'on the same rows');
+      const widthOf = c => { const d = z.cols.find(([a, b]) => c >= a && c <= b); return d ? d[2] : 8.43; };
+      let unitsBefore = 0; for (let c = 1; c <= right[0]; c++) unitsBefore += widthOf(c);
+      assert.ok(unitsBefore * 6.4 >= left[2] / 9525 + 8, `second drawing starts at ${unitsBefore} width units, first is ${left[2] / 9525} px wide`);
       assert.ok(z.merges.includes('A2:A7') && z.merges.includes('A8:A10'), 'Location cells merged per group: ' + z.merges);
       // cell values through ExcelJS in the page
       const b64 = fs.readFileSync(file).toString('base64');
@@ -95,7 +105,7 @@ module.exports = [
           const head = []; for (let c = 1; c <= 14; c++) head.push(ws.getCell(1, c).text);
           const items = []; for (let r = 2; r <= 30; r++) { const t = ws.getCell(r, 2).text; if (/^A\d/.test(t)) items.push(t); }
           const col = (name, key) => { const w = wb.getWorksheet(name); const out = []; w.eachRow((row, i) => { if (i > 1) out.push(row.getCell(key).text); }); return out; };
-          return { head, items, pink: ws.getCell(2, head.indexOf('2nd source') + 1).fill.fgColor.argb, comp: col('Components', 1), gap: col('Gap & Thermal', 1), legend: ws.getCell(items.length + 3, 1).text };
+          return { head, items, pink: ws.getCell(2, head.indexOf('2nd source') + 1).fill.fgColor.argb, comp: col('Components', 1), gap: col('Gap & Thermal', 1), below: [0, 1, 2, 3].map(i => ws.getCell(items.length + 2 + i, 1).text) };
         }, b64);
       };
       let x = await exportXlsx(true);
@@ -103,7 +113,7 @@ module.exports = [
       assert.ok(!x.items.includes('A2') && x.items.includes('A1-1') && x.items.includes('A3'));
       assert.equal(x.pink, 'FFF9CBF0', 'the 2nd source colour follows its column');
       assert.ok(!x.comp.includes('A2') && !x.gap.includes('A2'), 'hidden Item left out of the detail sheets');
-      assert.match(x.legend, /未列出隱藏的 1 個 Item、2 欄/);
+      assert.ok(!x.below.some(t => /底色|匯出：|TIM Management Tool/.test(t)), 'no colour legend / export line under the list: ' + x.below);
       // turned off → everything
       x = await exportXlsx(false);
       assert.deepEqual(x.head.slice(0, 11), ['Location', 'Item', 'Used On', 'Vendor', 'Model', 'k (W/m·K)', 'Size', "Q'ty", 'Delta Part No.', '覆蓋元件', '2nd source']);

@@ -90,9 +90,13 @@
     })).filter(g => g.rows.length);
   }
 
+  // Excel draws a column width unit with the font's digit width at the screen's DPI, which does not scale like
+  // the pictures do: at 125 % it is ~6.4 px of a 96-DPI picture (7 px at 100 %). Lay pictures out with a lower
+  // bound so the second one never starts inside the first.
+  const COL_UNIT_PX = 6;
   function colLeftPx(ws, colIdx) {
     let px = 0;
-    for (let i = 1; i <= colIdx; i++) px += Math.round(((ws.getColumn(i).width || 9) * 7) + 5);
+    for (let i = 1; i <= colIdx; i++) px += (ws.getColumn(i).width || 8.43) * COL_UNIT_PX;
     return px;
   }
 
@@ -158,28 +162,19 @@
       locCell.border = border;
     });
 
-    // legend + provenance
-    r += 1;
-    const legend = ws.getCell(r, 1);
-    legend.value = '2nd source 底色：粉紅 = 單一來源（無第二來源）、淺黃 = 第二來源尚未承認' +
-      (p.items.length < p0.items.length || lc.length < TIM_LIST_HEADERS.length ? '；依 TIM 清單的顯示設定，未列出隱藏的 ' +
-        [p.items.length < p0.items.length ? (p0.items.length - p.items.length) + ' 個 Item' : '', lc.length < TIM_LIST_HEADERS.length ? (TIM_LIST_HEADERS.length - lc.length) + ' 欄' : ''].filter(Boolean).join('、') : '');
-    legend.font = { name: 'Arial', size: 9, color: { argb: 'FF595959' } };
-    ws.getCell(r + 1, 1).value = '匯出：' + p.name + ' · ' + p.stage + ' · ' + util.fmtDateTime(util.nowIso()) + ' · TIM Management Tool';
-    ws.getCell(r + 1, 1).font = { name: 'Arial', size: 9, color: { argb: 'FF595959' } };
-    r += 3;
+    r += 1;                                     // one empty row, then the drawings
 
     // annotated drawings, two per row (like the existing sheet)
     if (opts.images !== false) {
       const views = p.views.filter(v => v.image_id && db.images[v.image_id]);
-      const IMG_W = 560;
+      const IMG_W = 560, GAP_PX = 16;
       let col = 0, blockRows = 0;
       for (const v of views) {
         let png;
         try { png = await TIM.renderView.renderViewPng(p0, v, { maxSide: 1600 }); } catch (e) { continue; }
         const scale = IMG_W / png.width;
         const h = Math.round(png.height * scale);
-        const startCol = col === 0 ? 0 : (() => { let c = 1; while (colLeftPx(ws, c) < IMG_W + 24 && c < 40) c++; return c; })();
+        const startCol = col === 0 ? 0 : (() => { let c = 1; while (colLeftPx(ws, c) < IMG_W + GAP_PX && c < 40) c++; return c; })();
         const title = ws.getCell(r, startCol + 1);
         title.value = v.name || 'View';
         title.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFF0000' } };
